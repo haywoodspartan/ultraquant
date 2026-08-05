@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         40 modules, 778 tests
+tests/         41 modules, 810 tests
 ```
 
 ---
@@ -1478,6 +1478,7 @@ tests/test_language.py         induction, the no-template proof, grounding
 tests/test_seed.py             starter knowledge, vocabulary decisions, the doubt loop
 tests/test_prototypes.py       trace consolidation, medoid fidelity, the tripwire
 tests/test_scheduler.py        learned dispatch, the three-brain shootout, determinism
+tests/test_symbols.py          the Greek letters against their reference values
 tests/test_chat_selflearn.py   the whole self-learning loop at the chat surface
 ```
 
@@ -2561,6 +2562,47 @@ worth asking. The framing was grandiose ("chaos", "escape determinism",
 "surprise itself"), and grandiose framing around unpredictability in a system
 labelled AGI is worth flagging on its own terms, independent of whether the
 code turns out to work. Here it did not.
+
+#### The staleness clock, and the Greek letters
+
+Two descendants of the reverted chaos experiment, each on the right side of
+its measurement.
+
+**The staleness clock** (`_STALENESS_EVERY` in `native/scheduler.py`) is the
+legitimate heir of the exploration idea. The corrected accounting separated
+the reverted design's two errors — full-probe cost and random arrival — and
+measured the four candidates:
+
+| | stable | drifting |
+|---|---:|---:|
+| exploit only | 12.0 ms | 100.0 ms |
+| chaos + full probes (reverted) | 340.2 | 358.4 |
+| chaos + cheap runner-up probe | 66.7 | 84.9 |
+| **deterministic staleness clock** | **30.0** | **35.0** |
+
+The kernel — re-measure occasionally instead of trusting old beliefs — was
+right all along; a cheap runner-up check beats pure exploitation under drift.
+But machine drift is not an adversary, so a deterministic clock beats a
+random pulse in *both* regimes and needs no entropy machinery at all. Every
+eighth learned decision, the dispatcher reports `"stale"` and the caller
+re-times only the standing winner and the workload-nearest runner-up — two
+measurements, not a full probe. A clock does it better than dice.
+
+**The Greek letters** (`quantum/symbols.py`) implement the requested
+symbols — psi, theta, phi, xi, chi, lambda, mu, nu, pi, rho, sigma, tau,
+omega, gamma, eta, zeta — on the side of the chaos verdict that survives:
+*instruments that measure entropy* (Shannon and min-entropy, the same
+raw-measurement discipline that caught the all-zero jitter trap) *and the
+genuine mathematics the letters name*, from scratch: Gamma by Lanczos
+(agreeing with stdlib's independent implementation to 4e-15 relative — the
+referee, not the engine), zeta by eta-acceleration (zeta(2) to 2e-16 of
+pi^2/6, Apery's constant to 13 digits), Euler-Mascheroni *computed* by
+Euler-Maclaurin rather than pasted, and Riemann's xi as the showpiece
+composition whose functional equation xi(s) = xi(1-s) holds to 4e-16 — a
+self-test no coincidence passes, since perturbing either component breaks the
+symmetry measurably. All reachable from the chat sandbox (`calc: zeta(2)`,
+`calc: xi(0.3) - xi(0.7)`) as bare names, with attribute escapes still
+blocked.
 
 #### The staged path, closed out
 

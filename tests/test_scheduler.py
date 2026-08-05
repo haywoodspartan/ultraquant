@@ -207,5 +207,89 @@ class LearnedDispatchTests(unittest.TestCase):
         self.assertEqual(winners[0][1], "cpp")
 
 
+class StalenessClockTests(unittest.TestCase):
+    """Deterministic re-measurement: the legitimate heir of chaos exploration.
+
+    The reverted design randomly triggered full probes; correctly priced it
+    measured harm in every regime. The corrected accounting showed the idea's
+    kernel was right and its two errors separable: probe cost (fixed by
+    checking winner + runner-up only) and random arrival (fixed by a clock -
+    drift is not an adversary, so a schedule beats a pulse in both regimes:
+    30.0/35.0 ms regret against the tuned chaos version's 66.7/84.9).
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_stale_"))
+        self.available = {"quantum": ["python", "cpp", "cuda"]}
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _trained(self) -> LearnedDispatch:
+        dispatch = LearnedDispatch(self.dir / "d.json",
+                                   available=self.available)
+        for qubits in range(2, 15, 2):
+            dims = {"qubits": qubits, "gates": qubits * 3, "batch": 4}
+            cost = {"python": 0.01, "cpp": 0.0005, "cuda": 0.005}
+            dispatch.probe("quantum", dims, {
+                config: (lambda c=config: sum(range(int(cost[c] * 1e5))))
+                for config in self.available["quantum"]
+            })
+        return dispatch
+
+    def test_every_nth_learned_decision_reports_stale(self) -> None:
+        from ultraquant.native.scheduler import _STALENESS_EVERY
+
+        dispatch = self._trained()
+        dims = {"qubits": 9, "gates": 27, "batch": 4}
+        reasons = [dispatch.decide("quantum", dims)[1]
+                   for _ in range(_STALENESS_EVERY * 3)]
+        self.assertEqual(reasons.count("stale"), 3)
+        self.assertEqual(
+            [i for i, r in enumerate(reasons) if r == "stale"],
+            [_STALENESS_EVERY - 1, 2 * _STALENESS_EVERY - 1,
+             3 * _STALENESS_EVERY - 1],
+            "the clock must be periodic and deterministic",
+        )
+
+    def test_the_clock_is_deterministic_across_instances(self) -> None:
+        one = self._trained()
+        dims = {"qubits": 9, "gates": 27, "batch": 4}
+        first = [one.decide("quantum", dims) for _ in range(20)]
+        two = LearnedDispatch(self.dir / "d.json", available=self.available)
+        second = [two.decide("quantum", dims) for _ in range(20)]
+        self.assertEqual(first, second)
+
+    def test_runner_up_is_workload_aware(self) -> None:
+        """The credible alternative depends on the workload: near a mid-size
+        shape cpp wins and cuda is second; global win-counting would have
+        tied python (tiny-workload wins) with cuda and picked arbitrarily."""
+        dispatch = self._trained()
+        mid = {"qubits": 9, "gates": 27, "batch": 4}
+        self.assertEqual(dispatch.runner_up("quantum", mid), "cuda")
+
+    def test_recheck_feeds_experience_like_a_probe(self) -> None:
+        dispatch = self._trained()
+        before = len(dispatch.experience.records)
+        dims = {"qubits": 9, "gates": 27, "batch": 4}
+        winner, timings = dispatch.recheck("quantum", dims, {
+            "cpp": lambda: None, "cuda": lambda: None,
+        })
+        self.assertEqual(set(timings), {"cpp", "cuda"},
+                         "a recheck times only the offered configs")
+        self.assertGreater(len(dispatch.experience.records), before)
+
+    def test_a_cold_scheduler_never_reports_stale(self) -> None:
+        """Staleness only applies to beliefs; without a policy there is
+        nothing to be stale about - cold starts probe."""
+        dispatch = LearnedDispatch(self.dir / "cold.json",
+                                   available=self.available)
+        dims = {"qubits": 9, "gates": 27, "batch": 4}
+        reasons = {dispatch.decide("quantum", dims)[1] for _ in range(20)}
+        self.assertEqual(reasons, {"probe"})
+
+
 if __name__ == "__main__":
     unittest.main()

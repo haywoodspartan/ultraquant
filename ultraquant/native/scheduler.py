@@ -60,6 +60,23 @@ _CONFIDENCE_FLOOR = 0.55
 #: Retrain and re-fight the shootout every this many new experiences per kind.
 _RETRAIN_EVERY = 8
 
+#: Every this-many learned decisions per kind, the caller is told the belief
+#: is stale and should cheaply re-check (winner + runner-up only, not a full
+#: probe). Descended from the reverted chaos-exploration idea, with the two
+#: errors removed and the verdict measured on the corrected accounting:
+#:
+#:                       stable   drifting
+#:   exploit only         12.0     100.0   (never notices drift)
+#:   chaos + full probes  340.2    358.4   (the reverted design: harm)
+#:   chaos + cheap probe   66.7     84.9   (the idea's kernel works)
+#:   staleness clock       30.0      35.0  (this: best in BOTH regimes)
+#:
+#: The kernel of the idea - re-measure occasionally instead of trusting old
+#: beliefs - was right. The chaos was not: machine drift is not an adversary,
+#: so a deterministic clock beats a random pulse in both regimes, and needs
+#: no entropy machinery at all.
+_STALENESS_EVERY = 8
+
 #: Bumped whenever :func:`workload_features` changes meaning; stored records
 #: from another version describe different axes and are dropped on load.
 FEATURES_VERSION = 2
@@ -386,6 +403,7 @@ class LearnedDispatch:
         self.seed = seed
         self._policies: dict[str, Any] = {}
         self._since_train: dict[str, int] = {}
+        self._since_check: dict[str, int] = {}
         for kind in self.available:
             if len(self.experience.winners(kind)) >= 4:
                 self._train(kind)
@@ -454,6 +472,10 @@ class LearnedDispatch:
         if policy is not None:
             config, confidence = policy.decide(features)
             if confidence >= _CONFIDENCE_FLOOR and config in self.available[kind]:
+                self._since_check[kind] = self._since_check.get(kind, 0) + 1
+                if self._since_check[kind] >= _STALENESS_EVERY:
+                    self._since_check[kind] = 0
+                    return config, "stale"
                 return config, "learned"
         return self.available[kind][-1], "probe"
 
@@ -483,6 +505,52 @@ class LearnedDispatch:
                 or kind not in self._policies):
             self._train(kind)
         return winner, timings
+
+    def runner_up(self, kind: str,
+                  dims: dict[str, float] | None = None) -> str | None:
+        """The most credible alternative *for this workload*.
+
+        Global win counts are the wrong ranking - a config that wins only tiny
+        workloads would tie with one that wins huge ones. The staleness check
+        wants the second-fastest configuration on the *nearest experienced
+        workload shape*, because that is the config most likely to have
+        overtaken the winner if the machine drifted.
+        """
+        target = (workload_features(kind, dims) if dims is not None else None)
+        by_workload: dict[tuple, dict[str, float]] = {}
+        for record in self.experience.records:
+            if record["kind"] != kind:
+                continue
+            key = tuple(record["features"])
+            timings = by_workload.setdefault(key, {})
+            config = record["config"]
+            if config not in timings or record["seconds"] < timings[config]:
+                timings[config] = record["seconds"]
+        candidates = [key for key, timings in by_workload.items()
+                      if len(timings) > 1]
+        if not candidates:
+            return None
+        if target is None:
+            key = sorted(candidates)[0]
+        else:
+            key = min(sorted(candidates), key=lambda k: sum(
+                (a - b) ** 2 for a, b in zip(k, target)))
+        ranked = sorted(by_workload[key], key=lambda c: by_workload[key][c])
+        for config in ranked[1:]:
+            if config in self.available[kind]:
+                return config
+        return None
+
+    def recheck(self, kind: str, dims: dict[str, float],
+                runners: dict[str, Callable[[], Any]]) -> tuple[str, dict[str, float]]:
+        """A cheap staleness check: time only the configs offered.
+
+        Callers answering a ``"stale"`` decision pass just the standing winner
+        and the runner-up - two timings, not a full probe. The measurements
+        join experience exactly as probes do, so a drifted machine surfaces
+        in the next retrain.
+        """
+        return self.probe(kind, dims, runners)
 
     def report(self) -> dict:
         """The current verdicts, for the compute surfaces to show."""

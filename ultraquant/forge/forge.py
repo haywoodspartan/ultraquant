@@ -211,6 +211,40 @@ class ModelForge:
             available={"forge": configs}, seed=self.seed,
         )
         config, reason = dispatch.decide("forge", dims)
+        if reason == "stale":
+            # Cheap staleness check: re-time only the standing winner and the
+            # runner-up on the first expert - two measurements, not a full
+            # probe. Measured verdict for this design over chaos exploration
+            # and over never checking: best regret in both the stable and the
+            # drifting regime (see native/scheduler._STALENESS_EVERY).
+            probe_spec = [specs[0]]
+
+            def check_runner(name: str):
+                tier, threads = mapping[name]
+
+                def run() -> None:
+                    train_experts(
+                        probe_spec, hidden=self.hidden, epochs=epochs, lr=lr,
+                        batch_size=batch_size, seed=self.seed,
+                        quantize_head=self.quantize_head, tier=tier,
+                        n_threads=threads,
+                    )
+
+                return run
+
+            offered = [config]
+            second = dispatch.runner_up("forge", dims)
+            if second and second in configs and second != config:
+                offered.append(second)
+            config, timings = dispatch.recheck(
+                "forge", dims, {name: check_runner(name) for name in offered}
+            )
+            self.last_dispatch = {
+                "config": config, "reason": "stale-recheck",
+                "timings_ms": {name: round(seconds * 1e3, 2)
+                               for name, seconds in sorted(timings.items())},
+            }
+            return mapping[config]
         if reason != "learned":
             probe_spec = [specs[0]]
 

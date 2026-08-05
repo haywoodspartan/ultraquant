@@ -138,6 +138,26 @@ def _safe_namespace(out: list[str]) -> dict[str, Any]:
         "int": int, "float": float, "str": str, "bool": bool,
         "list": list, "dict": dict, "set": set, "tuple": tuple,
         "math": _MathProxy(),
+        # The Greek letters, as bare names: from-scratch special functions and
+        # entropy *measurements* (quantum/symbols.py), each gated against
+        # reference values. Plain callables and floats - no attribute access,
+        # so they pass the validator the same way abs and len do.
+        **_symbol_namespace(),
+    }
+
+
+def _symbol_namespace() -> dict[str, Any]:
+    """The sandbox-safe slice of :mod:`ultraquant.quantum.symbols`."""
+    from ultraquant.quantum import symbols
+
+    return {
+        "gamma_fn": symbols.gamma_fn, "zeta": symbols.zeta, "xi": symbols.xi,
+        "eta": symbols.eta, "phi": symbols.phi, "tau": symbols.tau,
+        "euler_gamma": symbols.euler_gamma, "shannon": symbols.shannon,
+        "min_entropy": symbols.min_entropy, "mu": symbols.mu,
+        "sigma": symbols.sigma, "rho": symbols.rho, "chi": symbols.chi,
+        "nu": symbols.nu, "omega": symbols.omega,
+        "efficiency": symbols.efficiency, "theta": symbols.theta,
     }
 
 
