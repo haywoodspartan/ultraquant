@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.3 · 773 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.4 · 778 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         40 modules, 773 tests
+tests/         40 modules, 778 tests
 ```
 
 ---
@@ -1481,7 +1481,7 @@ tests/test_scheduler.py        learned dispatch, the three-brain shootout, deter
 tests/test_chat_selflearn.py   the whole self-learning loop at the chat surface
 ```
 
-`python -m unittest discover -s tests` → **773 tests, all passing, ~143 s.**
+`python -m unittest discover -s tests` → **778 tests, all passing, ~153 s.**
 Native tests `skipUnless` their tier is present, so the suite stays green on a
 machine with no compiler and no GPU.
 
@@ -2496,10 +2496,21 @@ One measured lesson from building it: log-scaled features alone squashed the
 decision boundaries until the classical brain collapsed to the majority class
 (exactly 0.60 at every capacity tried); pairing linear with log views lifted
 it to 0.87. Experience files carry a feature version so records from one
-scheme can never poison policies trained on another. Wiring the scheduler
-into the forge's `tier="auto"` path and the GUI compute tab is the recorded
-next step; the decision core, its persistence and the shootout are held by
-`tests/test_scheduler.py`.
+scheme can never poison policies trained on another.
+
+The scheduler is wired in. `ModelForge` with `tier="auto"` asks the machine's
+own experience: a cold start probes by training the *first* expert on every
+available configuration — measured live, the old static walk would have taken
+CUDA at 49 ms first-touch where `cpp@half` cost 0.67 ms (73×), and threads
+measurably matter (`cpp@1` 0.87 ms vs `cpp@half` 0.66 ms) — then the full
+build runs on the winner. Enough distinct workload shapes make later builds
+decide without probing; any scheduler failure falls back to the static walk,
+because dispatch may never break a build. The build CLI prints the decision;
+the GUI's Compute tab and the TUI's compute screen show the recorded verdicts
+and timings — and the GUI previously *resolved* "auto" to a concrete device
+before the forge ever ran, silently bypassing the scheduler, which is exactly
+the kind of wiring gap only end-to-end use finds. Held by the dispatch-wiring
+tests in `tests/test_forge.py` alongside `tests/test_scheduler.py`.
 
 #### The staged path, closed out
 
