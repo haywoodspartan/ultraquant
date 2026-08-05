@@ -377,19 +377,7 @@ class LearnedDispatch:
 
     def __init__(self, path: str | os.PathLike | None = None,
                  available: dict[str, list[str]] | None = None,
-                 seed: int = 0, well: Any | None = None) -> None:
-        #: Optional EntropyWell. A learned policy exploits what it measured,
-        #: and a machine drifts - thermal throttling, background load, a
-        #: driver update - so exploitation alone goes stale without noticing.
-        #: The well's whimsy pulse occasionally answers "probe" even when the
-        #: policy is confident, buying fresh measurements. Off by default,
-        #: receipted when on. Gate (pre-registered, then measured, not the
-        #: hoped-for "halve regret" which random exploration does not reach):
-        #: on a *stable* machine exploration costs ~0 regret - re-probing the
-        #: standing winner just re-confirms it - and under *drift* it removes
-        #: >=25% of the exploit-only regret (measured 35% at a 1/3 pulse). The
-        #: asymmetry is the point: free when unneeded, helpful when needed.
-        self.well = well
+                 seed: int = 0) -> None:
         self.experience = DispatchExperience(path)
         self.available = {
             kind: list(configs) for kind, configs in
@@ -466,9 +454,6 @@ class LearnedDispatch:
         if policy is not None:
             config, confidence = policy.decide(features)
             if confidence >= _CONFIDENCE_FLOOR and config in self.available[kind]:
-                if self.well is not None and self.well.occasionally(
-                        "dispatch", f"explore:{kind}"):
-                    return config, "explore"
                 return config, "learned"
         return self.available[kind][-1], "probe"
 

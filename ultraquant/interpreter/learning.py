@@ -626,29 +626,13 @@ class LearningSession:
     # ------------------------------------------------------------- asking
 
     def next_question(self) -> Question | None:
-        """The most valuable unanswered question, or None.
-
-        With a whimsy well on the session, curiosity occasionally lifts a
-        lower-ranked question instead — every pending question is *worth
-        asking* (acceptable-equals, which is what makes the draw admissible),
-        the ranking is a value estimate, and always asking the top of a crude
-        estimate never wanders. The draw is receipted and replayable; without
-        a well, behaviour is exactly the deterministic ranking.
-        """
-        open_questions = [
-            question for question in self.pending
+        """The most valuable unanswered question, or None."""
+        for question in self.pending:
             if question.id not in self.skipped and not any(
                 a.question.id == question.id for a in self.answered
-            )
-        ]
-        if not open_questions:
-            return None
-        well = getattr(self.session, "whimsy", None)
-        if (well is not None and len(open_questions) > 1
-                and well.occasionally("learning", "curiosity", out_of=6)):
-            return well.choose("learning", "curiosity-pick",
-                               open_questions[1:])
-        return open_questions[0]
+            ):
+                return question
+        return None
 
     def skip(self, question_id: int) -> None:
         """Set a question aside for this session."""
