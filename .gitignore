@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated model homes - rebuilt in ~6s by the redeploy script; the library
+# ships as .uql artifacts, not as source. dispatch.json inside them is
+# machine-specific learned experience.
+uq_home/
+uq_home_demo/
+uq_probe/
+uq_gui_home*/
+artchive_store/
+forged/
+
+# Native build intermediates (the prebuilt DLLs in ultraquant/native/_bin ARE
+# tracked - they are the optional accelerators the quick start references).
+native/_build/
+*.obj
+*.pdb

@@ -1,0 +1,2524 @@
+# UltraQuant — Architecture
+
+**Version 2.3 · 773 tests green · pure-Python core with optional C++/CUDA acceleration**
+
+UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
+model with a catalogued, pageable shard library and an interactive interpreter.
+Everything in the core is written from scratch against the Python standard library
+— the qubit engine, the neural network, the memory, the archive. Native
+acceleration and a real QPU are strictly *optional accelerants*: the pure-Python
+tier defines the semantics, and every other tier is verified to reproduce it to
+1e-9.
+
+- [0. Quick start](#0-quick-start)
+- [1. Design principles](#1-design-principles)
+- [2. System overview](#2-system-overview)
+- [3. Subsystems (class diagrams)](#3-subsystems)
+- [4. Runtime behaviour (sequence diagrams)](#4-runtime-behaviour)
+- [5. Lifecycles (state diagrams)](#5-lifecycles)
+- [6. Execution tiers and measured performance](#6-execution-tiers-and-measured-performance)
+- [7. The quantum reality check](#7-the-quantum-reality-check)
+- [7.1 What a QPU could actually do for a shard library](#71-what-a-qpu-could-actually-do-for-a-shard-library)
+- [8. File formats](#8-file-formats)
+- [9. Testing](#9-testing)
+- [10. Limitations and roadmap](#10-limitations-and-roadmap)
+- [11. The distance to general](#11-the-distance-to-general)
+- [11.5 Stage 1 was run, and it failed](#115-stage-1-was-run-and-it-failed)
+- [11.6 Stage 2 was run, and it passed](#116-stage-2-was-run-and-it-passed)
+- [11.7 Hypervectors: half a pass](#117-hypervectors-half-a-pass)
+- [11.8 Stage 3 was run, and it passed](#118-stage-3-was-run-and-it-passed)
+- [11.9 Stage 4 was run, and it passed](#119-stage-4-was-run-and-it-passed)
+- [11.10 Stage 5 was run, and it passed](#1110-stage-5-was-run-and-it-passed)
+
+---
+
+## 0. Quick start
+
+**Double-click `UltraQuant.bat`.** That is the whole installation: no packages to
+install, no environment to activate. It finds Python, checks Tkinter is present,
+and opens the desktop app — falling back to a plain terminal message with
+instructions if either is missing.
+
+| Tab | What it does |
+|-----|--------------|
+| **Chat** | The thought pipeline, colon-commands, and the trace of the last turn beside it |
+| **Forge** | Build a model from scratch — invent categories, pick a tier, watch it train |
+| **Library** | The shard catalog, what is resident, and the RAM budget (change it live) |
+| **Stash** | Triage web claims: promote what is corroborated, reject the rest |
+| **Learn** | The model finds its own knowledge gaps and asks you about them |
+| **Compute** | Pick CPU / GPU / both, thread count, quantum tier, RAM slider |
+| **Storage** | Backend picker (NVMe-oF, Ceph, SAN…), RAM tier, array snapshots |
+| **Benchmark** | Measure the execution tiers on this machine |
+
+The title bar strip shows which accelerators were detected (e.g. `CUDA: NVIDIA
+GeForce RTX 4090 | C++ | forge-GPU | QPU: none`).
+
+Everything is also reachable from a terminal:
+
+```bash
+python -m ultraquant.gui                       # the same desktop app
+python -m ultraquant.tui                       # the same surfaces in a terminal
+python -m ultraquant.interpreter.chat          # terminal chat
+python -m ultraquant.forge.build --synthetic 64 --compare
+python -m ultraquant.bench
+python -m unittest discover -s tests
+```
+
+PowerShell users can use `.\ultraquant.ps1 -Mode forge -Rest '--synthetic','128'`
+instead of remembering module paths.
+
+**Linux and macOS.** `./ultraquant.sh` is the equivalent launcher: it opens the
+desktop app when Tkinter is present and the terminal UI when it is not, which is
+the usual case on a headless box. `native/build.sh` builds the accelerators as
+`.so` / `.dylib`.
+
+The native loaders now resolve the library name per platform. They were
+hardcoded to `.dll`, so the accelerators could never load anywhere but Windows
+-- and the failure was silent, because the pure-Python tier simply took over and
+the only symptom was that everything ran slower.
+
+**The terminal UI is deliberately not curses.** `curses` ships with CPython on
+Linux and macOS and *not* on Windows, so a curses interface would have run on
+exactly the platforms that already had the desktop app and failed on the one that
+did not. `ultraquant/tui.py` renders with plain writes and optional ANSI, so it
+works on a Windows console, an xterm, a serial console, a CI log and a pipe. Each
+screen is a function from a command to text, which is why the whole interface is
+tested with no terminal attached.
+
+**Optional native tiers.** The C++ and CUDA accelerators are prebuilt into
+`ultraquant/native/_bin/`. To rebuild them (needs Visual Studio C++ tools, and
+the CUDA toolkit for the GPU targets):
+
+```bash
+powershell -ExecutionPolicy Bypass -File native\build.ps1 -Target all
+```
+
+Without them, everything still runs on the pure-Python tier — slower, identical
+results.
+
+---
+
+## 1. Design principles
+
+| # | Principle | Consequence |
+|---|-----------|-------------|
+| 1 | **The simulator is the reference** | Exact statevector maths defines correct behaviour. QPU and GPU are accelerants, never semantics. This is *why* the classical path loses nothing. |
+| 2 | **Never load what you don't need** | Model data is sharded, catalogued and paged. Store size is bounded by disk, not RAM. |
+| 3 | **Recall reinforces** | Every access bumps counts and association weights, so the catalog reorganises around what is actually used. |
+| 4 | **Found ≠ believed** | Web content is quarantined and analysed before it can become fact. Corroboration promotes; opinion does not. |
+| 5 | **Refuse by default** | The code sandbox whitelists; the network is gated off; the archive verifies digests. |
+| 6 | **Degrade, never fail** | Missing DLL, missing GPU, missing qiskit, missing network — each falls back a tier and keeps working. |
+
+---
+
+## 2. System overview
+
+```mermaid
+graph TB
+    subgraph Interface
+        GUI["UltraQuantGUI<br/><i>one-click desktop app</i>"]
+        CHAT["ChatCLI<br/><i>REPL / --script / --once</i>"]
+        DEMO["demo.py"]
+        BENCH["bench.py"]
+    end
+
+    subgraph Cognition
+        THOUGHTS["Thought pipeline<br/>Perceive→Recall→Route→Reason→Respond→Learn"]
+        SELF["SelfLearner<br/><i>teach · consolidate</i>"]
+        CODE["SafeCodeRunner<br/><i>AST whitelist sandbox</i>"]
+    end
+
+    subgraph Knowledge
+        MEM["SystematicMemory<br/><i>episodic · semantic · working</i>"]
+        STASH["ContemporaryStash<br/><i>web quarantine</i>"]
+        WEB["WebAccess<br/><i>gated</i>"]
+        ARCH["ArTchive<br/><i>T-numbered snapshots</i>"]
+    end
+
+    subgraph "Model store"
+        ROUTER["CategoryRouter"]
+        VAULT["ShardVault<br/><i>catalog + .uql libraries</i>"]
+        CACHE["ShardCache<br/><i>LRU under byte budget</i>"]
+        EXPERTS["ExpertPool<br/><i>per-category nets</i>"]
+    end
+
+    subgraph Forge
+        FORGE["ModelForge<br/><i>grow a model from scratch</i>"]
+        CORPUS["corpus<br/><i>pattern augmentation</i>"]
+        TRAIN["train_experts<br/><i>CUDA / C++ / Python</i>"]
+    end
+
+    subgraph "Compute"
+        NET["UltraQuantNet<br/><i>ternary weights</i>"]
+        QMAP["QuantumFeatureMap"]
+        DISPATCH["best_backend()"]
+        QPU["QPUBackend"]
+        CUDA["CudaSimulatorBackend"]
+        NCPU["NativeSimulatorBackend"]
+        SIM["SimulatorBackend<br/><i>reference</i>"]
+    end
+
+    FORGE --> CORPUS
+    FORGE --> TRAIN
+    FORGE --> VAULT
+    FORGE --> ARCH
+    CORPUS --> NET
+    GUI --> CHAT
+    GUI --> FORGE
+    GUI --> BENCH
+    CHAT --> THOUGHTS
+    CHAT --> SELF
+    DEMO --> QMAP
+    BENCH --> DISPATCH
+    THOUGHTS --> MEM
+    THOUGHTS --> CODE
+    THOUGHTS --> WEB
+    THOUGHTS --> ROUTER
+    THOUGHTS --> EXPERTS
+    WEB --> STASH
+    STASH -.->|"promote()<br/>only when corroborated"| MEM
+    SELF --> VAULT
+    SELF --> ARCH
+    ROUTER --> VAULT
+    EXPERTS --> CACHE
+    EXPERTS --> NET
+    CACHE --> VAULT
+    NET --> QMAP
+    QMAP --> DISPATCH
+    DISPATCH --> QPU
+    DISPATCH --> CUDA
+    DISPATCH --> NCPU
+    DISPATCH --> SIM
+
+    classDef gate fill:#3d2b1f,stroke:#c98a3a,color:#f5e6d3
+    class STASH,CODE,WEB gate
+```
+
+The dashed edge is the only path from the network into stored knowledge, and it
+is guarded — see [§5.2](#52-stash-entry-lifecycle).
+
+### Package layout
+
+```
+ultraquant/
+  quantum/     gates · state · circuit · backend · qlayer      from-scratch qubit engine
+               ansatz · vqc · kernel · noise · search ·        trainable circuits, kernels,
+               analysis · encodings · benchmark_kernels ·      mitigation, Grover, cloud,
+               bluequbit                                       the hard-map experiment
+  model/       quantize · network                              ternary weights, STE training
+  memory/      systematic                                      episodic / semantic / working
+  archive/     artchive                                        tamper-evident T-snapshots
+  pattern/     recognition                                     glyph dataset + recognizer
+  reason/      blackboard                                     where partial results meet
+  shards/      vault · budget · router · sketch · scale_demo   the pageable library
+  experts/     moe                                             per-category experts
+  forge/       corpus · trainer · forge · build                grow a model from scratch
+  hybrid/      expert · pool                                  quantum vs classical experts
+  storage/     base · local · blockdev · ceph · ram ·          pluggable byte-range storage
+               tiered · index · registry · vendors · scale
+  interpreter/ codefunc · webaccess · stash · thoughts ·       the chat layer
+               selflearn · learning · chat                     (learning = it asks you)
+  native/      accel · backends · hetero · dispatch · _bin/    C++/CUDA tiers
+  gui.py  demo.py  bench.py
+native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
+               uq_forge.cu · build.ps1
+tests/         40 modules, 773 tests
+```
+
+---
+
+## 3. Subsystems
+
+### 3.1 Quantum engine
+
+```mermaid
+classDiagram
+    class QuantumState {
+        +int num_qubits
+        +list~complex~ amplitudes
+        +apply_gate(matrix, qubit)
+        +apply_controlled(matrix, control, target)
+        +probabilities() list~float~
+        +expectation_z(qubit) float
+        +measure_all(shots) dict
+        +norm() float
+    }
+    class Circuit {
+        +int num_qubits
+        +list~Op~ ops
+        +h(q) Circuit
+        +ry(q, theta) Circuit
+        +cnot(control, target) Circuit
+        +apply_to(state)
+    }
+    class Op {
+        <<frozen>>
+        +str name
+        +tuple qubits
+        +tuple params
+    }
+    class Backend {
+        <<abstract>>
+        +str name
+        +run(circuit, shots) BackendResult
+    }
+    class BackendResult {
+        +list~float~ expectations_z
+        +dict counts
+    }
+    class SimulatorBackend {
+        +run(circuit, shots)
+    }
+    class NativeSimulatorBackend {
+        +run(circuit, shots)
+    }
+    class CudaSimulatorBackend {
+        +run(circuit, shots)
+    }
+    class QPUBackend {
+        +available()$ bool
+        +run(circuit, shots)
+    }
+    class QuantumFeatureMap {
+        +int num_qubits
+        +encode(features) Circuit
+        +extract(features) list~float~
+    }
+
+    Circuit "1" *-- "many" Op
+    Circuit ..> QuantumState : apply_to
+    Backend <|-- SimulatorBackend
+    Backend <|-- NativeSimulatorBackend
+    Backend <|-- CudaSimulatorBackend
+    Backend <|-- QPUBackend
+    Backend ..> BackendResult
+    SimulatorBackend ..> QuantumState
+    QuantumFeatureMap --> Backend
+    QuantumFeatureMap ..> Circuit
+```
+
+**Conventions.** Little-endian: qubit *q* is bit *q* of the basis index, and
+`measure_all` returns bitstrings with qubit 0 rightmost. Amplitudes are dense
+`complex`; a 2-qubit `X` on qubit 0 puts amplitude 1 at index 1 and yields the
+key `"01"`. Every native tier reproduces this exactly.
+
+**Feature map.** `theta_i = pi * tanh(f_i)` (bounded, so extreme features can't
+wrap the rotation), an RY layer, a ring of CNOTs, then *data re-uploading* —
+repeat the layer with the next chunk until features are exhausted. Output is one
+`<Z>` per qubit in [-1, 1].
+
+### 3.2 Ultra-quantized model
+
+```mermaid
+classDiagram
+    class TernaryLinear {
+        +w : master weights, full precision
+        +b : bias, full precision
+        +bool quantized
+        +forward(x) list~float~
+        +backward(grad_out) list~float~
+        +step(lr)
+        +state_dict() dict
+    }
+    class UltraQuantNet {
+        +int input_dim
+        +list~int~ hidden_dims
+        +int num_classes
+        +forward(x) list~float~
+        +predict(x) tuple
+        +train_batch(xs, ys, lr) float
+        +state_dict() dict
+        +load_state_dict(d)
+    }
+    class quantize {
+        <<module>>
+        +quantize_ternary(w) tuple
+        +dequantize(q, alpha) list
+        +fake_quantize_activation(x, bits, clip) list
+    }
+    UltraQuantNet "1" *-- "many" TernaryLinear
+    TernaryLinear ..> quantize : uses
+```
+
+Weights are ternary `{-1, 0, +1}` with one fp32 scale α per layer:
+`δ = 0.75 · mean|w|`, `q = sign(w)·[|w| > δ]`, `α = mean(|w|)` over non-zeros.
+Training keeps full-precision *master* weights and uses a **straight-through
+estimator** — the forward pass uses quantized weights, and their gradient passes
+straight through to the master copy, which is then clamped to [-1, 1].
+Activations are fake-quantized to 8 bits over [-4, 4].
+
+### 3.3 The shard library — brain-like cataloguing
+
+```mermaid
+classDiagram
+    class ShardVault {
+        +Path root
+        +add_shard(id, category, payload, kind) dict
+        +get(id) dict
+        +load_bytes(id) bytes
+        +touch(id)
+        +reinforce(id, keywords, delta)
+        +pack(library, ids, prune_loose) int
+        +attach(library) int
+        +catalog() list
+        +stats() dict
+    }
+    class CatalogEntry {
+        <<record>>
+        +str shard_id
+        +str category
+        +str location
+        +str library_path
+        +int offset
+        +int length
+        +str sha256
+        +int access_count
+        +dict associations
+    }
+    class ShardCache {
+        +int max_bytes
+        +get(id, loader) dict
+        +invalidate(id)
+        +set_budget(bytes)
+        +resident() list
+        +stats() dict
+    }
+    class CategoryRouter {
+        +register(category, keywords)
+        +route(text, top_k) list
+        +learn(text, category, delta)
+        +state() dict
+    }
+    class ExpertPool {
+        +ensure_expert(category, labels)
+        +predict(category, features) tuple
+        +train_expert(category, xs, ys, labels) dict
+        +shard_id(category)$ str
+    }
+
+    ShardVault "1" *-- "many" CatalogEntry
+    ExpertPool --> ShardCache : loads through
+    ExpertPool --> ShardVault : source of truth
+    ShardCache ..> ShardVault : loader callback
+    CategoryRouter --> ShardVault : reads associations
+```
+
+Three ideas make this brain-like rather than merely a cache:
+
+1. **Association weights.** Each shard carries `associations: {keyword: strength}`,
+   strengthened on every use (capped at 5.0). Routing scores a category by base
+   keywords *plus* the accumulated associations of its shards, so the store
+   reorganises around actual usage.
+2. **Reinforcement survives retraining.** Re-adding a shard overwrites the bytes
+   but preserves `access_count` and `associations` — relearning a skill doesn't
+   erase that you use it.
+3. **Consolidation.** Shards recalled at least twice get packed out of loose
+   files into a library container and the state is snapshotted — scattered recent
+   learning becomes one compact, verifiable layer.
+
+### 3.4 The forge — creating a model from scratch
+
+```mermaid
+classDiagram
+    class ModelForge {
+        +ShardVault vault
+        +ShardCache cache
+        +CategoryRouter router
+        +ExpertPool experts
+        +ArTchive archive
+        +build(corpora, epochs, lr, batch_size) ForgeReport
+        +verify(corpora, samples) dict
+    }
+    class CategoryCorpus {
+        +str name
+        +list~str~ labels
+        +list xs
+        +list~int~ ys
+        +list~str~ keywords
+        +dict prototypes
+    }
+    class ExpertSpec {
+        +str category
+        +list~str~ labels
+        +list xs
+        +list~int~ ys
+    }
+    class TrainedExpert {
+        +w1
+        +b1
+        +w2
+        +b2
+        +float loss
+        +float accuracy
+    }
+    class ForgeReport {
+        +str tier
+        +int experts
+        +int parameters
+        +float train_seconds
+        +float mean_accuracy
+        +str library
+        +str snapshot
+    }
+    class trainer {
+        <<module>>
+        +train_experts(specs, tier) TrainReport
+        +forge_tier_report() dict
+    }
+
+    ModelForge ..> CategoryCorpus : consumes
+    ModelForge ..> trainer : delegates training
+    trainer ..> ExpertSpec
+    trainer ..> TrainedExpert
+    ModelForge ..> ForgeReport
+    ModelForge --> ShardVault : writes shards
+    ModelForge --> ArTchive : snapshots
+```
+
+A model here is not one big tensor — it is a **library of pattern experts**, one
+per category, each a ternary network stored as its own shard.  That is what makes
+the forge and the paging store two halves of one idea: the thing you build is
+already the thing you can page.
+
+```mermaid
+sequenceDiagram
+    participant CLI as forge.build
+    participant Corpus as corpus.py
+    participant T as trainer
+    participant GPU as CUDA kernel
+    participant Vault as ShardVault
+    participant Arch as ArTchive
+
+    CLI->>Corpus: taxonomy (built-in glyphs or invented)
+    Corpus->>Corpus: augment each prototype with seeded pixel noise
+    Corpus-->>CLI: one CategoryCorpus per category
+    CLI->>T: train_experts(specs, tier="auto")
+    T->>T: seeded init + shuffle order (identical on every tier)
+    alt CUDA available
+        T->>GPU: one block per expert, all experts at once
+        GPU->>GPU: per minibatch — ternarize, batch-parallel fwd/bwd, fused update
+        GPU-->>T: weights, loss, accuracy
+    else fall back
+        T->>T: C++ threads over experts, else pure Python
+    end
+    T-->>CLI: TrainReport(tier, experts)
+    loop per expert
+        CLI->>Vault: add_shard(expert:<category>, state_dict + prototypes)
+        CLI->>Vault: associations from category keywords
+    end
+    CLI->>Vault: pack(forged_model.uql, prune_loose=True)
+    CLI->>Arch: commit("forge", catalog + accuracy + tier)
+    CLI->>Vault: verify — page every expert back in and re-measure
+```
+
+The verification step matters: it re-measures accuracy by pulling each expert
+*back out of the packed library* through the normal serving path (catalog lookup,
+byte-range read, digest check, cache admission), so the number reported describes
+the model on disk rather than the weights that happened to be in memory.
+
+### 3.5 Interpreter
+
+```mermaid
+classDiagram
+    class Session {
+        +SystematicMemory memory
+        +ShardVault vault
+        +ShardCache cache
+        +CategoryRouter router
+        +ExpertPool experts
+        +WebAccess web
+        +ContemporaryStash stash
+        +SafeCodeRunner coder
+        +ArTchive archive
+        +save()
+    }
+    class ThoughtContext {
+        +str text
+        +list trace
+        +list response_parts
+        +dict data
+        +note(thought, summary)
+        +say(text)
+    }
+    class Thought {
+        <<abstract>>
+        +str name
+        +run(ctx)
+    }
+    class ContemporaryStash {
+        +add_page(url, title, text) list
+        +analyze(memory) dict
+        +promote(id, memory, force) str
+        +reject(id, reason)
+        +classify(claim)$ str
+    }
+    class SafeCodeRunner {
+        +int max_ops
+        +float timeout_s
+        +run(source) dict
+    }
+    class WebAccess {
+        +bool online
+        +fetch(url) dict
+    }
+    class SelfLearner {
+        +extract_facts(text)$ list
+        +teach_glyph(category, labels, rows, label) dict
+        +consolidate(min_access) dict
+    }
+
+    Thought <|-- Perceive
+    Thought <|-- Recall
+    Thought <|-- Route
+    Thought <|-- Reason
+    Thought <|-- Respond
+    Thought <|-- Learn
+    Thought ..> ThoughtContext
+    ThoughtContext --> Session
+    Session *-- ContemporaryStash
+    Session *-- SafeCodeRunner
+    Session *-- WebAccess
+    SelfLearner --> Session
+```
+
+---
+
+### 3.6 Storage: where the library actually lives
+
+The vault rests on one primitive — *read `length` bytes at `offset`* — so any
+medium that can serve that can back the model.
+
+```mermaid
+classDiagram
+    class ShardStorage {
+        <<abstract>>
+        +read_range(key, offset, length) bytes
+        +read_all(key) bytes
+        +write(key, data)
+        +capabilities() StorageCapabilities
+    }
+    class LocalStorage
+    class BlockDeviceStorage {
+        +profile : nvmeof|pure|3par|lightbits
+        +direct_io, queue_depth, readahead
+    }
+    class CephFSStorage
+    class RadosStorage {
+        +native ranged object reads
+    }
+    class RamStorage {
+        +volatile
+    }
+    class TieredStorage {
+        +block_size
+        +pin_range(key, offset, length)
+        +tier_stats() dict
+    }
+    ShardStorage <|-- LocalStorage
+    ShardStorage <|-- BlockDeviceStorage
+    ShardStorage <|-- RamStorage
+    ShardStorage <|-- RadosStorage
+    LocalStorage <|-- CephFSStorage
+    ShardStorage <|-- TieredStorage
+    TieredStorage --> ShardStorage : cold tier
+```
+
+Pure Storage, 3PAR, NVMe-oF and Lightbits are **one parameterised backend**, not
+four classes: from the host they are all block devices, and what differs is
+host-side tuning (unbuffered aligned I/O, queue depth, readahead). What is
+genuinely vendor-specific is the *control plane* — provisioning and snapshots —
+which lives in `storage/vendors.py` and is exercised against mocked endpoints,
+never a real array.
+
+**RAM is a tier, never the home.** `TieredStorage` caches *blocks*, so reading
+one shard out of a packed library brings in only the blocks it spans; an early
+version cached whole objects and would have pulled an entire multi-hundred-
+gigabyte library into memory on first touch.
+
+**The index is paged too.** At 1.2 M shards a catalog held as Python objects is
+gigabytes — the machine would exhaust memory *describing* a model it never
+loaded. `storage/index.py` stores a sorted fixed-width table read by byte range,
+with only a sparse fence array resident:
+
+| model | library on storage | index on storage | **index resident** |
+|---|---:|---:|---:|
+| 7 B | 1.3 GB | 916 KB | **680 B** |
+| 175 B | 32.6 GB | 22.4 MB | **4.5 KB** |
+| 1.2 T | 223.5 GB | 153.4 MB | **28 KB** |
+
+Measured on a real 200 000-record index: 5.1 KB resident, 9 byte-range reads per
+lookup, 11.3 µs. RAM cost is set by the fence stride and the working set, not by
+the parameter count.
+
+### 3.7 Hybrid experts: quantum where it measurably helps
+
+```mermaid
+classDiagram
+    class HybridExpertPool {
+        +build_category(...) CategoryOutcome
+        +predict(category, features) tuple
+        +kind_of(category) str
+    }
+    class QuantumExpert {
+        +theta : 20 angles
+        +state_dict() dict
+        +parameter_count int
+    }
+    class UltraQuantNet {
+        +ternary weights
+    }
+    HybridExpertPool ..> QuantumExpert : trains both
+    HybridExpertPool ..> UltraQuantNet : trains both
+    HybridExpertPool --> ShardVault : stores the winner
+```
+
+Both kinds are trained per category, scored on the same held-out split, and the
+winner is kept under a stated rule. Neither wins everywhere — see §6.3.
+
+---
+
+## 4. Runtime behaviour
+
+### 4.1 A chat turn — the predefined set of thought
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CLI as ChatCLI
+    participant P as Perceive
+    participant R as Recall
+    participant RT as Route
+    participant RS as Reason
+    participant RP as Respond
+    participant L as Learn
+    participant Mem as SystematicMemory
+    participant Cache as ShardCache
+    participant Vault as ShardVault
+
+    User->>CLI: "what shape is this?"
+    CLI->>P: run(ctx)
+    P->>P: tokenize, classify intent
+    P-->>CLI: intent=question
+    CLI->>R: run(ctx)
+    R->>Mem: recall_fact(candidate keys)
+    R->>Mem: recall_episodes(limit=3)
+    Mem-->>R: facts + episodes
+    CLI->>RT: run(ctx)
+    alt glyph input (no words to route on)
+        RT->>Vault: signatures() — from the catalog, no shard reads
+        RT->>RT: cosine vs each category's prototypes
+    else text input
+        RT->>Vault: association weights per category
+    end
+    RT->>Cache: resident()
+    RT-->>CLI: ranked categories + "would page in"
+    CLI->>RS: run(ctx)
+    alt glyph, best similarity >= 0.85
+        RS->>Cache: get("expert:<routed>", loader)
+        alt cache miss
+            Cache->>Vault: get(shard) → seek+read chunk
+            Vault-->>Cache: payload (sha256 verified)
+            Cache->>Cache: evict LRU until under budget
+        end
+        Cache-->>RS: expert net
+        RS->>RS: predict(features)
+    else glyph, below the floor
+        RS-->>CLI: "I do not recognise that pattern" + nearest match
+        RS->>Mem: remember_episode("unknown-pattern")
+    else code / url / question / chat
+        RS->>RS: dispatch to handler
+    end
+    CLI->>RP: run(ctx)
+    RP-->>CLI: assembled response
+    CLI->>L: run(ctx)
+    L->>Mem: remember_fact / store_signature
+    L->>Vault: reinforce(shard, tokens)
+    L->>Mem: remember_episode(interaction)
+    CLI-->>User: response (+ :trace to inspect)
+```
+
+### 4.1.1 Routing a pattern that contains no words
+
+Keyword routing is the natural way to pick a category, and it is useless for an
+image. A glyph has no tokens, so keyword overlap scores zero everywhere and every
+pattern falls through to the same default category — where a freshly invented,
+untrained expert answers instead of the library. **Every unit test passed while
+end-to-end recognition was 0/8.** `tests/test_chat_library.py` exists because of
+that, and it is the reason the integration test is not optional.
+
+The fix is to route on *content*. Each expert shard carries a `signature` in the
+catalog — the pixel prototypes its category was trained on — and
+`CategoryRouter.route_pattern` scores categories by cosine similarity against
+them. Two properties matter:
+
+- **Signatures live in the catalog, not the shards.** Routing therefore reads
+  nothing from storage; `test_routing_reads_no_shards` asserts the cache miss
+  count is unchanged across a routing call. Deciding *which* shard to page in
+  must not itself page shards in.
+- **A category is as close as its nearest prototype, not its mean.** Mean-pooling
+  `plus` and `cross` into one "crosses" vector put the average nearer `arrows`
+  than either member was: 7/8 with means, **8/8 per-prototype**.
+
+```mermaid
+flowchart LR
+    G["glyph rows"] --> V["render → 25 pixels"]
+    V --> S{"cosine vs every\nstored prototype"}
+    S -->|"best ≥ 0.85"| C["route to that category"]
+    C --> E["page expert, predict"]
+    S -->|"best < 0.85"| U["'I do not recognise that pattern'\n+ nearest match"]
+    U --> Q["unknown-pattern episode"]
+    Q --> L["learning mode asks"]
+    L --> T["teach → new signature"]
+    T -.->|"routes correctly thereafter"| S
+```
+
+**The floor is a dissimilarity test, not novelty detection.** This distinction is
+worth stating plainly because the stronger claim is tempting and false. Measured
+on the built-in taxonomy: novel glyphs reach **0.97** cosine similarity against
+stored prototypes, and expert confidence separates novel from known by only
+**0.876 vs 0.942**. Neither signal admits a threshold that works — every cut
+tried missed 5–6 of 6 novel patterns. Out-of-distribution detection is not solved
+here and is not claimed.
+
+What *is* defensible is the floor at 0.85, chosen from the measured
+distributions: noisy copies of known glyphs never fall below **0.866**, so the
+floor costs almost no false alarms. Measured behaviour:
+
+| case | result |
+|---|---|
+| known prototypes + one-pixel-noise copies | **56/56 accepted** (no false alarms) |
+| patterns unlike anything stored | **4/6 flagged unfamiliar** |
+
+The two that slip through are a square-with-a-centre-dot read as `square` and a
+noisy diagonal cross read as `cross`. Those are arguably the *right* answers: a
+novel pattern that genuinely resembles a known one should be recognised as it.
+The floor rejects what resembles nothing, and nothing more.
+
+**The loop this closes.** An unrecognised pattern is not a dead end — it is
+recorded as an `unknown-pattern` episode, which `LearningSession` surfaces as a
+question (scored 1.8, above weak-pattern gaps). Answering it with
+`<category> <label>` trains the category, **inventing it if it does not exist**,
+and stores its signature. A session opened afterwards routes the same input to
+the new category at 0.95 confidence, with the pre-existing categories untouched.
+That is the full self-learning cycle: *cannot place it → asks → taught →
+places it*, verified end-to-end in `tests/test_unfamiliar_patterns.py`.
+
+**An empty library says so.** There is a third case, and it was the worst of the
+three. With no library forged and no signatures stored, the floor never engaged:
+the pipeline invented an expert on the spot and read out its random
+initialisation. Measured on a fresh session, that scored **0/8** on the built-in
+glyphs while reporting confidences of 0.16–0.35 — a coin toss phrased as a
+considered answer, and two tests were asserting it. An untrained net carries no
+information about its input, so the model now declines to read a shape when it
+has nothing to compare against, and records the attempt as something to learn.
+
+**Keeping it off an O(library) path.** Content routing as first written compared
+the input against every prototype in the library — exactly the linear scan the
+keyword path had been rewritten to eliminate. Measured, it was worse than the
+original problem:
+
+| categories | prototypes | exact scan | with screen | sketch index |
+|---:|---:|---:|---:|---:|
+| 100 | 300 | 0.9 ms | 0.5 ms | 4 KB |
+| 1,000 | 3,000 | 8.9 ms | 0.4 ms | 35 KB |
+| 5,000 | 15,000 | 46 ms | 1.3 ms | 176 KB |
+| 20,000 | 60,000 | **201 ms** | **4.2 ms** | **703 KB** |
+
+At the 20,000-shard configuration used for the 1.2-trillion-parameter costing
+([§3.6](#36-storage-where-the-library-actually-lives)) a single pattern query cost
+201 ms and 1.5 million pure-Python multiply-accumulates, against 7.6 µs for the
+keyword path. "Even the weakest computer can load it" does not survive that.
+
+The fix is sign-random-projection sketching (`ultraquant/shards/sketch.py`).
+Each prototype is projected onto 64 fixed random hyperplanes and reduced to the
+*signs* — one 64-bit word — because for vectors separated by angle θ a random
+hyperplane splits them with probability θ/π, so agreeing-bit count estimates
+cosine directly. Comparing two sketches is an XOR and a `bit_count`; the closest
+128 prototypes are then scored **exactly**, so the similarity a caller sees is
+always the true cosine and the sketch only decides what gets scored.
+
+Two design choices are worth stating because the obvious alternatives fail:
+
+- **The index is array-backed** (`array('Q')` + `array('I')`), not a dict of
+  lists of tuples. Python object overhead on 60,000 entries would have made the
+  index larger than the signatures it screens — an index that costs more memory
+  than the data is worse than no index.
+- **Small libraries are never screened.** Below 512 prototypes everything is
+  scored exactly, so the ordinary case carries no approximation risk at all.
+
+The screen width was chosen by measurement against a full exact scan over 60,000
+prototypes, on a deliberately hostile case — 25-dimensional all-positive random
+vectors sit at ~0.75 mean pairwise cosine, so nearly everything resembles
+everything:
+
+| screen | agreement with exact | worst similarity lost |
+|---:|---:|---:|
+| 32 | 194/200 | 0.078 |
+| 64 | 196/200 | 0.076 |
+| **128** | **200/200** | **0.000** |
+| 256 | 200/200 | 0.000 |
+
+128 is the default: perfect agreement for 6% more time than 64. Real glyph
+signatures separate far more than the test case, so this is a floor on the
+achieved recall rather than an estimate of it.
+
+**What the screen did not fix.** With routing off the linear path, the resident
+cost became the binding constraint: **74.4 MB** for the catalog at 20,000
+categories, of which the sketch index was only 1.4 MB. The rest was the parsed
+catalog, and 46 MB of it was 1.5 million Python float objects — CPython charges
+about 32 bytes for each once the object header and the list's pointer are
+counted. Two changes, neither of which touches the on-disk format:
+
+| change | resident |
+|---|---:|
+| baseline | 74.4 MB |
+| signature vectors as `array('d')` (bit-identical) | 39.7 MB |
+| interning repeated `kind` / `codec` / `location` / `library_path` on load | **37.0 MB** |
+
+`json.load` builds a fresh string object per occurrence, so a 20,000-shard
+catalog held 20,000 separate copies of `"expert-net"`. Folding the repeats onto
+one object each is three lines. Against 223.5 GB of library on disk that is a
+**1:6,200** resident-to-stored ratio, which is what "even the weakest computer
+can load it" has to mean.
+
+One consequence of signature-based routing is worth flagging because it caused a
+silent, expensive bug: `ShardVault.add_shard` preserves `access_count` and
+`associations` across a re-add so that learning survives re-training. `signature`
+was added later and was *not* preserved, so every re-train discarded what a
+category looked like — leaving it trained, stored, and unroutable. Signatures are
+now carried over with the rest of the learned state.
+
+### 4.2 Web intake — found vs. believed
+
+This is the flow that keeps rumour out of memory.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant TH as Reason
+    participant Web as WebAccess
+    participant Stash as ContemporaryStash
+    participant Mem as SystematicMemory
+    participant L as Learn
+
+    User->>TH: ":fetch https://source-a/…"
+    TH->>Web: fetch(url)
+    alt offline
+        Web-->>TH: WebDisabled
+        TH-->>User: "web access is off"
+    else online
+        Web-->>TH: {title, text} — no memory access at all
+        TH->>Stash: add_page(url, title, text)
+        Stash->>Stash: split into claims, dedup by normalized form
+        TH->>Stash: analyze(memory)
+        Stash->>Stash: classify → factual-claim | opinion | hedged
+        Stash->>Mem: recall_fact(subject) — contradiction check
+        alt contradicts a stored fact
+            Stash->>Stash: status = disputed
+        else ≥2 independent netlocs
+            Stash->>Stash: status = corroborated
+        else
+            Stash->>Stash: status = staged
+        end
+        TH-->>User: "stashed N claims — nothing stored as fact"
+        TH->>L: (pipeline continues)
+        L->>Stash: promote() corroborated claims only
+        Stash->>Mem: remember_fact(key, value, confidence=0.8)
+        Stash->>Mem: remember_episode("promotion", sources)
+    end
+    Note over Stash,Mem: opinion / hedged / disputed require<br/>an explicit ":promote <id> force"
+```
+
+### 4.3 Consolidation
+
+```mermaid
+sequenceDiagram
+    participant SL as SelfLearner
+    participant Vault as ShardVault
+    participant FS as Filesystem
+    participant Arch as ArTchive
+
+    SL->>Vault: catalog() — find loose shards with access_count ≥ 2
+    SL->>Vault: pack(library, hot_ids, prune_loose=True)
+    Vault->>Vault: build offset index (2-pass, offsets affect index size)
+    Vault->>FS: write MAGIC + index_len + index + payloads
+    Vault->>FS: re-read each chunk, verify sha256
+    Vault->>FS: delete loose files (only after verification)
+    Vault->>Vault: entries → location="library" + offset/length
+    SL->>Arch: commit("consolidation", {catalog, router, memory, cache, stash})
+    Arch->>FS: snapshots/T-000N.json + manifest sha256
+    Arch-->>SL: "T-0001"
+```
+
+---
+
+## 5. Lifecycles
+
+### 5.1 Shard lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Loose: add_shard()
+    Loose --> Loose: touch() / reinforce()
+    Loose --> Packed: pack()
+    Packed --> [*]: (bytes live in .uql forever)
+
+    state "Residency (orthogonal)" as R {
+        [*] --> Absent
+        Absent --> Resident: cache.get() miss → seek+read chunk
+        Resident --> Resident: cache.get() hit
+        Resident --> Absent: LRU eviction (over budget)
+        Resident --> Absent: invalidate() after retraining
+    }
+
+    note right of Packed
+        Reading a packed shard never
+        loads the library: seek(offset),
+        read(length), verify sha256.
+    end note
+```
+
+### 5.2 Stash entry lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Staged: add_page()
+
+    Staged --> Corroborated: analyze() — ≥2 independent netlocs
+    Staged --> Disputed: analyze() — contradicts a stored fact
+    Staged --> Promoted: promote() — factual-claim, conf 0.55
+    Corroborated --> Promoted: auto-promoted by Learn, conf 0.80
+    Disputed --> Promoted: promote(force=True), conf 0.30
+    Staged --> Rejected: reject()
+    Corroborated --> Rejected: reject()
+    Disputed --> Rejected: reject()
+    Promoted --> [*]
+    Rejected --> [*]
+
+    note left of Disputed
+        classification ∈ {factual-claim,
+        opinion, hedged, unclassified}
+        — opinion and hedged can never
+        auto-promote, only force.
+    end note
+```
+
+### 5.3 Backend selection
+
+```mermaid
+stateDiagram-v2
+    [*] --> CheckQPU: best_backend(prefer_qpu)
+    CheckQPU --> QPU: qiskit + saved account
+    CheckQPU --> CheckCUDA: unavailable / not preferred
+    CheckCUDA --> CUDA: ultraquant_cuda.dll + device
+    CheckCUDA --> CheckCPP: unavailable
+    CheckCPP --> NativeCPU: ultraquant_native.dll
+    CheckCPP --> Python: unavailable
+    QPU --> [*]
+    CUDA --> [*]
+    NativeCPU --> [*]
+    Python --> [*]
+    note right of Python
+        Always reachable. Pure stdlib,
+        exact expectations. This is why
+        a traditional machine loses
+        nothing.
+    end note
+```
+
+---
+
+## 6. Execution tiers and measured performance
+
+All four tiers compute the same values (verified to 1e-9 in
+`tests/test_native_*.py`); only speed differs.
+
+```mermaid
+graph LR
+    PY["Pure Python<br/><i>reference · always available</i>"] --> CPP["C++ / MSVC<br/><i>uq_core.cpp</i>"]
+    CPP --> CUDA["CUDA / sm_89<br/><i>uq_cuda.cu</i>"]
+    CUDA --> HET["Heterogeneous<br/><i>CPU ∥ GPU, throughput-split</i>"]
+    PY -.->|"identical results"| HET
+```
+
+**Measured on RTX 4090 / CUDA 12.6 / MSVC 14.38, Python 3.13:**
+
+| Workload | Pure Python | C++ | CUDA | Winner |
+|---|---:|---:|---:|---|
+| Feature map, 512 samples × 5 qubits | 21.08 ms | **0.37 ms** (56×) | 0.48 ms (44×) | CPU |
+| Single circuit, 18 qubits (262 144 amplitudes) | 5327 ms | 51.9 ms (103×) | **3.61 ms (1475×)** | GPU |
+| Ternary inference, 512 × (30→32) | 19.97 ms | 1.93 ms (10×) | **0.86 ms (23×)** | GPU |
+
+**On using CPU and GPU simultaneously.** It is implemented, correct, and
+adaptively calibrated — `HeterogeneousFeatureExtractor` marshals the batch once
+into a shared buffer, hands each processor a pointer into its own slice (so
+neither holds the GIL while computing), runs them concurrently, and reports the
+split. But the honest measurement is that **for narrow feature maps it does not
+pay**, and the reason is instructive:
+
+| Component (131 072 samples × 5 qubits) | Time | Share |
+|---|---:|---:|
+| Marshalling Python lists → `array('d')` | 25.9 ms | 43 % |
+| Unchunking flat buffer → lists of floats | 33.8 ms | 50 % |
+| **C++ kernel** | **4.34 ms** | 7 % |
+| CUDA kernel | 22.5 ms | — |
+
+The 4090 is *five times slower than the CPU* at this shape: a 5-qubit
+statevector is 512 bytes, it never leaves L1, and the GPU pays PCIe transfer plus
+launch overhead for almost no arithmetic. Meanwhile 93 % of wall-clock is Python
+data conversion that no split can parallelise. Auto-dispatch therefore measures
+throughput (on a probe proportional to the batch, because the ratio is
+size-dependent) and hands the whole batch to the winner when one processor is
+more than 4× faster. Result: ~0.94× of the best single tier — the residual gap is
+the probe itself.
+
+**The GPU's real domain is wide statevectors** (18 qubits: 3.61 ms vs 51.9 ms on
+C++), where memory traffic finally justifies the transfer. The lesson is
+generic: pick the processor by measured shape, not by reputation.
+
+### 6.1 Training a model library — where the GPU does win
+
+Forging a model is *many independent training problems at once*, which is the
+shape a GPU is built for. Measured, 30 epochs, 120 samples/expert, 30→32→8:
+
+| Experts | Pure Python | C++ (32 threads) | CUDA | GPU vs CPU |
+|---:|---:|---:|---:|---:|
+| 16 | 11 637 ms | 18.2 ms | 17.3 ms | 1.05× |
+| 64 | — | 61.2 ms | 52.1 ms | 1.17× |
+| 256 | — | 256.8 ms | 195.5 ms | **1.31×** |
+| 512 | — | 513.6 ms | 415.4 ms | 1.24× |
+
+Training accuracy is identical across all three tiers at every size. The C++
+tier alone is **639× faster than pure Python** (11 637 ms → 18.2 ms at 16
+experts); CUDA adds a further 1.05–1.31× over 32 CPU threads.
+
+Getting there took three rounds of measurement, and the first two guesses were
+wrong:
+
+1. **Thread mapping** (128 threads, 32 hidden units → most threads idle). Fixing
+   it moved 1.05× → 1.09×. Not the bottleneck.
+2. **Batch-parallel rewrite.** Each expert's training is inherently *sequential*
+   — 3600 sample-steps, each with barriers. Forwarding a whole minibatch at once
+   and computing every weight gradient as one batch reduction cut barriers 16×
+   and let the update fuse into the gradient (no accumulator arrays at all).
+   1.09× → 1.27×. This was the bottleneck.
+3. **Barrier cost.** Warp-shuffle reductions (3 barriers instead of 10), two sums
+   per barrier sequence, and skipping the loss reduction on every epoch but the
+   last: → 1.31×.
+
+Each thread owns whole weight elements and accumulates its batch sum in a fixed
+order, so there are **no atomics and the GPU result is deterministic** — which is
+why the accuracies match the CPU exactly rather than merely closely.
+
+Honest ceiling: at 256 categories the *training* is 0.32 s of a 1.9 s build —
+corpus generation and shard serialization (pure Python) now dominate. Further
+kernel tuning would be optimizing the wrong 17%.
+
+---
+
+### 6.2 The quantum layer, measured
+
+Everything here is exact on the simulator and runs on a normal PC.
+
+| Component | What was verified | Result |
+|---|---|---|
+| Amplitude encoding | fidelity vs target state, widths 1–6, signed | **1.000000000000** |
+| Circuit inverse | `C·C†` returns to \|0…0⟩, random 30-gate circuits | **1.000000000000** |
+| Parameter-shift gradient | against central finite differences | **3.9e-10** |
+| Kernel overlap | inversion test vs swap test vs direct fidelity | agree to **8e-16** |
+| Grover search | success probability, N = 8…64 | 0.94–0.99, speedup 2.0×→5.3× |
+| Zero-noise extrapolation | error removed at p₂q = 0.005 / 0.01 / 0.02 | **72% / 67% / 16%** |
+| Entanglement entropy | product / Bell / GHZ | 0.000 / 1.000 / 1.000 |
+
+Two diagnostics exist because a variational circuit can fail while still
+returning plausible numbers. **Separability**: our 5-qubit model measures mean
+entropy 0.884, so it is genuinely entangled rather than a disguised product
+state. **Barren plateaus**: gradient variance falls 0.105 → 0.0044 across widths
+2→6, which is the exponential decay that makes deep random ansätze untrainable
+regardless of optimiser.
+
+The ZNE collapse at 2% error is kept visible on purpose: extrapolation leaves its
+linear regime and stops helping, which is the honest boundary of the technique.
+
+### 6.3 Quantum vs classical experts
+
+Both trained on identical data, scored on the same held-out split.
+
+Easy task (2 classes, 1-pixel noise):
+
+| category | chosen | quantum acc | classical acc | quantum bytes | classical bytes | smaller |
+|---|---|---:|---:|---:|---:|---:|
+| lines | quantum | 1.000 | 1.000 | 494 | 4 655 | 9.4× |
+| arrows | quantum | 1.000 | 1.000 | 496 | 4 648 | 9.4× |
+| frames | quantum | 1.000 | 1.000 | 498 | 4 676 | 9.4× |
+| crosses | quantum | 1.000 | 1.000 | 491 | 4 652 | 9.5× |
+
+Harder task (4 classes, 3-pixel noise) — and this is the more informative one:
+
+| category | chosen | quantum acc | classical acc |
+|---|---|---:|---:|
+| setA | quantum | 1.000 | 1.000 |
+| setB | **classical** | 0.917 | 0.958 |
+
+**Quantum lost on setB and the pool kept the classical expert**, which is the
+selection mechanism working rather than failing. Across the hard task the
+classical mean is higher (0.979 vs 0.958).
+
+The trade, stated plainly: quantum experts are **6.8–9.4× smaller** on disk for
+comparable accuracy, and cost **24–44× more to train**, because parameter-shift
+needs `2P + 1` circuit evaluations per example. That is worth taking in a paged
+library — trained once, paged many times — and not worth taking if you retrain
+often. No speedup is claimed anywhere in this table.
+
+---
+
+## 7. The quantum reality check
+
+An honest statement of what the quantum layer does and does not do.
+
+**What is real.** The statevector engine is a genuine from-scratch quantum
+simulator: correct gate algebra, entanglement, interference, exact expectation
+values, verified against hand-computed Bell states and analytic RY results. The
+feature map is a real variational-style encoding with data re-uploading. Circuits
+translate to Qiskit and can execute on IBM hardware.
+
+**What is not claimed.** Running the current circuits on a QPU would produce a
+*noisier* version of what the simulator already computes exactly — nothing that
+the simulation cannot explain. The measured benchmark says so plainly: hybrid
+93.3 %, classical 91.7 %, ratio 0.982. There is no quantum advantage here, and
+the architecture does not pretend otherwise.
+
+**Why that is by design, not an accident.** Principle 1 makes the exact simulator
+the semantic reference. That is precisely what delivers the requirement that the
+model stay fully effective on a traditional machine — you cannot simultaneously
+have "the classical path loses nothing" and "the QPU does something classically
+inaccessible". The 50 % floor is met at ~100 % because the classical path *is*
+the reference path.
+
+**What genuine QPU utilisation would require** (roadmap, not implemented):
+
+| Requirement | Why the current design falls short |
+|---|---|
+| Circuits past classical simulability (≳40 qubits, or deep entanglement) | Current circuits are 5 qubits. **But this is a choice, not a wall** — see [§7.1](#71-what-a-qpu-could-actually-do-for-a-shard-library): a 50-qubit linear-ZZ encoding costs 196 two-qubit gates and is reachable on today's hardware. |
+| Topology-aware transpilation, SWAP routing | `QPUBackend` uses a preset pass manager and never optimises for a specific device's coupling map. |
+| Error mitigation: ZNE, Pauli twirling, dynamical decoupling | **Zero-noise extrapolation is now implemented and measured** (§6.2): 67–72% of the error removed at realistic noise. Twirling and dynamical decoupling remain absent. |
+| Regimes where sampling *is* the result (e.g. sampling-hard distributions, quantum kernels on hard feature spaces) | **`ZZFeatureMap` now provides one** and it is classically hard at width. Measured on the glyph task it *generalises worse* than the cheap map — the open question is which problems reward it. |
+| Hardware-native effects used as a resource (true randomness, device noise) | Not exploited. |
+
+Until those exist, treat `QPUBackend` as a *correctness-preserving execution
+path*, not a source of exotic outcomes. It is wired, it is honest, and it is off
+by default (`prefer_qpu=False`).
+
+---
+
+## 7.1 What a QPU could actually do for a shard library
+
+**This section previously concluded that data loading costs O(N) and closes the
+door. That was wrong, and the correction matters.** The measurement was right but
+it was taken on *amplitude* encoding alone, and the conclusion was generalised to
+encoding as such. Amplitude encoding is the expensive one because it buys
+compression — 2**n values in n qubits — and pays for it in gates. Other encodings
+do not.
+
+### What encoding actually costs
+
+Two-qubit gates needed to encode data, measured to 12 qubits and projected beyond
+(building a 30-qubit amplitude encoder would emit a billion gates):
+
+| qubits | amplitude | angle | ZZ map (full) |
+|---:|---:|---:|---:|
+| 4 | 14 | 4 | 24 |
+| 12 | 4 094 | 12 | 264 |
+| 32 | 4 294 967 294 | 32 | 1 984 |
+| 50 | 1.1 × 10¹⁵ | **50** | 4 900 |
+| 100 | 1.3 × 10³⁰ | **100** | 19 800 |
+
+Amplitude encoding is exponential. Angle encoding is **linear**. The ZZ feature
+map is **quadratic** with full entanglement and **linear** with nearest-neighbour
+entanglement. So a wide register is not blocked by data loading at all — it is
+blocked only if you insist on cramming 2**n values into n qubits.
+
+### The regime that is actually reachable
+
+A ZZ feature map with linear entanglement, 2 repetitions:
+
+| qubits | two-qubit gates | survival at p=0.003 | at p=0.0005 | at p=0.0001 |
+|---:|---:|---:|---:|---:|
+| 20 | 76 | 0.796 | 0.963 | 0.992 |
+| **50** | **196** | **0.555** | 0.907 | 0.981 |
+| 100 | 396 | 0.304 | 0.820 | 0.961 |
+| 200 | 796 | 0.092 | 0.672 | 0.924 |
+
+**A 50-qubit encoding costs 196 two-qubit gates and survives at ~55% on today's
+hardware** — and with zero-noise extrapolation removing 67–72% of the error
+(§6.2), that is a usable signal. Fifty qubits is already past exact classical
+simulation: 2⁵⁰ amplitudes cannot be stored. So the classically-hard regime is
+reachable *now*, with an account, not after error correction.
+
+That is a materially different conclusion from the one this section used to
+carry, and it came from measuring the alternatives instead of extrapolating from
+the first one tried.
+
+### The honest obstacle is usefulness, not feasibility
+
+Being hard to simulate is not the same as being good. Leave-one-out accuracy and
+class separation on the glyph task, each encoding used as a kernel:
+
+| encoding | accuracy | class separation |
+|---|---:|---:|
+| amplitude (5q) | 1.000 | +0.441 |
+| angle (10q) | 0.950 | +0.550 |
+| ZZ linear (10q) | 0.950 | +0.103 |
+| ZZ full (10q) | 0.900 | +0.100 |
+
+The classically-hard maps **generalise worse here**. That is the expressibility
+trade in its usual form: spreading data across an enormous space is exactly what
+defeats classical simulation and exactly what dilutes similarity between related
+inputs. A map expressive enough to be hard is often too expressive to learn from.
+
+So the open question was not "can we reach the hard regime" — the gate counts say
+yes — but "is there a task where the hard map wins". **That experiment has now
+been run, and the answer is yes.**
+
+### The task where the entangling map wins
+
+`python -m ultraquant.quantum.benchmark_kernels` builds parity tasks of
+increasing interaction order: the label is the parity of a hidden subset of
+features, so at order 1 it depends on a single coordinate and at order 2 it
+depends on a *product* that no function of individual coordinates can see.
+Accuracy, averaged over 5 dataset draws:
+
+| interaction order | linear | quadratic | angle | angle+ent | ZZ linear | ZZ full |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 (separable) | 0.830 | 0.850 | **1.000** | 1.000 | 0.610 | 0.510 |
+| **2 (XOR-like)** | 0.470 | 0.510 | 0.560 | 0.560 | 0.700 | **0.770** |
+| 3 | 0.510 | 0.510 | 0.530 | 0.530 | **0.600** | 0.460 |
+
+The pattern is exactly the one the physics predicts, in both directions:
+
+* **Order 2: the entangling map wins by 0.26** over the best classical kernel
+  tested. The ZZ map puts feature *products* into the phase, which is precisely
+  the structure the label depends on.
+* **Order 1: it loses badly** — 0.510 against the cheap angle map's 1.000.
+  Expressive power is not free; spreading data across a huge space destroys the
+  simple structure that was there.
+
+The quadratic kernel is in the table deliberately: it is classical and it also
+sees pairwise products, so beating only the linear kernel would have shown
+nothing. It scores 0.510, because it mixes *all* pairs symmetrically while the
+label depends on one specific pair — and the quantum map finds that pair without
+being told which one it is.
+
+**What this does and does not establish.** It shows entanglement earning its cost
+on a task with genuine feature interactions, against two reasonable classical
+kernels, under a deliberately trivial classifier so that the kernel is the only
+variable. It does *not* show quantum advantage over all classical methods: a
+model given explicit interaction features, or simply a small MLP, would also
+learn order-2 parity. The honest claim is narrower and still useful — the
+entangling map extracts interaction structure *without being told where to look*,
+and that is the property worth scaling to widths where classical simulation
+stops.
+
+### What the QPU should touch
+
+The division of labour still holds, for a different reason than before. The
+library is hundreds of gigabytes of classical bytes on NVMe; encoding *that*
+would be pointless at any gate cost, because the interesting objects are the
+patterns, not the storage. The QPU's targets are:
+
+* **model parameters** — a quantum expert is 20 angles, measured 9.4× smaller
+  than its classical equivalent (§6.3), and this works today;
+* **feature maps over compact derived features** — 10–50 numbers per pattern,
+  which is exactly the regime angle and ZZ encodings serve;
+* **kernels between patterns**, where the quantum part is the similarity measure
+  and everything downstream stays classical.
+
+None of these require loading the library. All three run on hardware reachable
+today.
+
+### A staged path, with the gate for each stage
+
+1. **Run the existing circuits on hardware.** `QPUBackend` and `BlueQubitBackend`
+   already take them; `mitigation_report` measures whether ZNE closes the gap.
+   *Gate: hardware ⟨Z⟩ matching the simulator inside the mitigated error bar.*
+2. **Widen to 20–50 qubits with an angle or linear-ZZ map.** Gate counts are
+   known (76–196 two-qubit gates) and survival is measured above.
+   *Gate: a kernel matrix from hardware that still separates classes.*
+3. **Find a task where the hard map wins.** The measurements above say the glyph
+   task is not it — it is too easy, and separable classically. Candidates are
+   problems with genuinely high-order feature interactions.
+   *Gate: hard-map accuracy above the classical baseline on held-out data.*
+4. **Error correction** for anything needing thousands of logical gates. Hardware
+   timeline, not ours.
+
+Stages 1 and 2 need an account and no new physics. Stage 3 is the real research
+question, and it is a question about *problems*, not about hardware.
+
+---
+
+## 8. File formats
+
+### 8.1 `.uql` shard library
+
+```
+ offset  0        4                  12                    12+index_len         EOF
+         ├────────┼──────────────────┼─────────────────────┼────────────────────┤
+         │ "UQL1" │ index_len u64 BE │ index JSON (utf-8)  │ payload bytes      │
+         │ 4 B    │ 8 B              │ [{shard_id, offset, │ zlib-compressed    │
+         │        │                  │   length, sha256,   │ shard blobs,       │
+         │        │                  │   codec, category,  │ concatenated       │
+         │        │                  │   kind, signature}, │                    │
+         │        │                  │   …]                │                    │
+         └────────┴──────────────────┴─────────────────────┴────────────────────┘
+                                              │                      ▲
+                                              └── offset ────────────┘
+                                            (absolute file position)
+```
+
+`attach()` reads only the header and index (kilobytes) and merges it into the
+catalog; payloads stay on disk until requested. `load_bytes()` then does
+`seek(offset); read(length)` — one shard, never the file. Offsets are absolute,
+which makes the writer two-pass (the index size depends on the offsets it
+contains).
+
+**`signature` is in the index for a reason.** It was not, originally, and the
+consequence only shows up on a machine that did not train the library: the index
+carried offsets, hashes, categories and kinds, so every expert arrived intact —
+and completely unreachable, because pattern routing had nothing to match against
+([§4.1.1](#411-routing-a-pattern-that-contains-no-words)). "The model is a
+library" has to survive copying the library somewhere else, which is what
+`ShippedLibraryTests` checks: attach the parts into a vault that has never seen
+them, and all eight glyphs still route and read correctly. Locally-learned
+signatures win over the shipped ones on attach, so receiving a library never
+overwrites what a machine has learned since.
+
+### 8.2 Sharded libraries
+
+One container per library is wrong once a library is real: it cannot be synced
+incrementally, replicated in pieces, spread across volumes, or handed to an
+object store, and touching a single shard shadows the whole file. So a library is
+a **directory of bounded parts**, the way large models ship as
+`part-00001-of-00042`:
+
+```
+vault/library/
+  library.json                    manifest: format, part list, shard count
+  part-00001-of-00005.uql         a complete .uql — own magic, index, payloads
+  part-00002-of-00005.uql
+  seg002-00001-of-00003.uql       a later expansion wave, its own prefix
+  ...
+```
+
+**Every part is a complete `.uql`.** Nothing depends on its neighbours, which is
+what makes the properties below hold:
+
+| Property | Why it follows |
+|---|---|
+| Replicate in pieces | A part copied on its own still reads |
+| Survive partial loss | A missing part costs only its own shards; `attach_directory` reports it rather than failing |
+| Spread across volumes | Parts are ordinary files with no shared state |
+| Grow without rewriting | An expansion wave writes new parts under its own prefix |
+| One file per shard | `max_shards_per_part=1`, for object stores that want it |
+
+Measured: 40 shards into 5 parts, all readable; deleting a part leaves the
+remaining 32 shards readable with the gap named; a cold vault attaches 11 parts
+across three expansion waves and reads all 22 shards.
+
+The catalog already stored `library_path` per shard, so reads needed no change at
+all — only the writer learned to roll over.
+
+### 8.3 Ar(T)chive
+
+`root/manifest.json` + `root/snapshots/T-000N.json`. Payloads are serialised
+canonically (`sort_keys=True`, tight separators) and the manifest records the
+SHA-256 of the exact bytes written; `restore()` recomputes it and raises
+`IntegrityError` on any mismatch. The name is the pun: a **T**emporal archive of
+model ar**T**ifacts, versioned `T-0001`, `T-0002`, …
+
+---
+
+## 9. Testing
+
+```
+tests/test_quantum.py          gate algebra, Bell states, little-endian, sampling
+tests/test_qlayer.py           feature map, re-uploading, determinism
+tests/test_model.py            ternary quantization, STE, XOR convergence, round trip
+tests/test_memory.py           reinforcement, revision, persistence, signatures
+tests/test_archive.py          commit/restore, tamper detection, diff
+tests/test_pattern.py          recognizer accuracy, snapshot fidelity
+tests/test_shards.py           vault, pack/attach, chunked reads, LRU eviction
+tests/test_experts.py          on-demand paging, continued training, routing
+tests/test_codeweb.py          sandbox escapes, gated fetch, stash classification
+tests/test_interpreter.py      pipeline order, corroboration flow, CLI end-to-end
+tests/test_native_cpu.py       C++ parity vs pure Python (1e-9)
+tests/test_native_cuda.py      CUDA parity vs pure Python (1e-9)
+tests/test_native_dispatch.py  tier selection, heterogeneous split parity
+tests/test_forge.py            corpora, multi-tier training parity, forge pipeline
+tests/test_gui.py              window build, chat round trip, forge from the UI
+tests/test_storage.py          backends, RAM tier, paged index, working set
+tests/test_vendors.py          Pure / 3PAR / Lightbits control planes (mocked)
+tests/test_learning.py         gap discovery, question ranking, applied answers
+tests/test_ansatz.py           amplitude encoding, parameter-shift, VQC training
+tests/test_quantum_advanced.py kernels, noise + ZNE, Grover, entanglement
+tests/test_encodings.py        angle / sparse / ZZ maps and their scaling
+tests/test_expansion.py        growing a library, compaction, the kernel experiment
+tests/test_bluequbit.py        cloud backend against a stub SDK
+tests/test_hybrid.py           quantum vs classical expert selection
+tests/test_chat_library.py     chat -> recognition -> routing -> library shards
+tests/test_unfamiliar_patterns.py  the similarity floor and the teaching loop
+tests/test_sketch.py           screen agrees with the exact scan, index staleness
+tests/test_multimodal.py       mixed feature widths in one library, no cross-talk
+tests/test_encoder.py          the encoder, and the gate's experimental integrity
+tests/test_blackboard.py       composition, slots, and the paging discipline
+tests/test_tui.py              the terminal UI, console safety, portability
+tests/test_hypervector.py      binding algebra, split determinism, gate integrity
+tests/test_discovery.py        clustering, chance correction, self-proposed concepts
+tests/test_planner.py          goal search, novel capabilities, the goal intent
+tests/test_language.py         induction, the no-template proof, grounding
+tests/test_seed.py             starter knowledge, vocabulary decisions, the doubt loop
+tests/test_prototypes.py       trace consolidation, medoid fidelity, the tripwire
+tests/test_scheduler.py        learned dispatch, the three-brain shootout, determinism
+tests/test_chat_selflearn.py   the whole self-learning loop at the chat surface
+```
+
+`python -m unittest discover -s tests` → **773 tests, all passing, ~143 s.**
+Native tests `skipUnless` their tier is present, so the suite stays green on a
+machine with no compiler and no GPU.
+
+---
+
+## 10. Limitations and roadmap
+
+**Honest limitations.**
+- The interpreter is **symbolic and template-driven** — pattern matching over its
+  own stores. It is not a language model and does not generate open-ended prose.
+  See [§11](#11-the-distance-to-general) for what that rules out and what closing
+  the gap would actually require.
+- Corroboration counts *distinct network locations*, which is a weak proxy for
+  source independence (two mirrors of one wire story would corroborate).
+- Sentence-level claim splitting is regex-based; it will mis-split some prose.
+- The sandbox is a whitelist over a deliberately small language, hardened against
+  the standard `__class__`/import/attribute escapes — not a general Python jail.
+- `--timeout` on sandboxed code cannot forcibly kill a wedged worker thread; the
+  operation budget is the real backstop.
+- No QPU advantage, as set out in [§7](#7-the-quantum-reality-check); the
+  data-loading wall in [§7.1](#71-what-a-qpu-could-actually-do-for-a-shard-library)
+  is why that is unlikely to change for the library itself.
+- The vendor control planes (Pure, 3PAR, Lightbits) and the BlueQubit cloud
+  backend are **written to published documentation and tested against mocks**.
+  Neither has been run against real hardware.
+- Quantum experts cost 24–44x more to train than classical ones; they pay for
+  themselves only in a library that is trained once and paged often.
+- "GPU and CPU together" splits correctly and is measured at 0.92–0.95x of the
+  best single device: Python-level marshalling dominates, so the split cannot
+  win until that is moved into C.
+- **The unfamiliar-pattern floor is a dissimilarity test, not out-of-distribution
+  detection** ([§4.1.1](#411-routing-a-pattern-that-contains-no-words)). A novel
+  pattern that resembles a known one is still reported as that one — measured at
+  4/6 novel glyphs flagged, with 0 false alarms on 56 known and noisy-known
+  cases. Neither cosine similarity nor expert confidence separates novel from
+  known well enough to do better, and this is measured rather than assumed.
+- Pattern routing compares against stored prototypes, so a category's routing
+  quality degrades as its prototype set grows unrepresentative. Nothing prunes or
+  clusters prototypes yet.
+- The resident catalog is 37 MB at 20,000 categories, against 223.5 GB of
+  library on disk — a 1:6,200 ratio. Roughly 12 MB of that is signature vectors
+  and the rest is per-entry metadata (sha256 hex, ISO timestamps, ids). Cutting
+  it further means changing the on-disk catalog format, which has not been
+  judged worth it.
+
+**Roadmap.**
+
+Capability work — the staged path toward generality, each step with a
+falsifiable gate — is in [§11.3](#113-a-staged-path-with-the-gate-for-each-stage).
+Stage 0 is done. The items below are engineering on the existing substrate; they
+make the system better at what it already does and do not, on their own, make it
+more general.
+
+1. Zero-copy output path for the native tiers — the 93% marshalling overhead in
+   §6 is still the single biggest available win.
+2. Source-independence scoring for corroboration (registrable-domain grouping,
+   citation graphs) rather than bare netloc counting.
+3. Run the existing circuits on real hardware and measure the mitigated gap
+   (§7.1 stage 1) — reachable today with an account.
+4. Widen to a 20-50 qubit angle or linear-ZZ map on real hardware — gate
+   counts and survival are already measured (§7.1 stage 2).
+5. Find a task whose feature interactions reward a classically-hard map;
+   the glyph task demonstrably does not (§7.1 stage 3).
+6. Shard-level mmap and streaming for libraries beyond available address space.
+7. ~~Prototype clustering per category~~ — done: `shards/prototypes.py`,
+   consolidation in the housekeeping pass plus a teaching tripwire; see the
+   note below §11.10's deployment section.
+8. A genuine out-of-distribution test to replace the dissimilarity floor —
+   density estimation over the signature space, or an explicit reject class
+   trained on the categories a library does *not* hold.
+
+---
+
+## 11. The distance to general
+
+This section exists because the question was asked directly: is this the start of
+a general system? The answer matters more than the flattering version of it, so
+what follows is an assessment first and a plan second.
+
+### 11.1 What this is, stated plainly
+
+**It is a narrow pattern-recognition system with unusually good memory and
+provenance machinery.** Four properties bound it, and none is a matter of scale:
+
+| Bound | Where it lives |
+|---|---|
+| The perceptual world was 25 pixels | `render()` fixed at 5x5; features 25 + 5 row means |
+| Reasoning is one route → one expert → one label | `Reason._glyph` — no chaining, no intermediate state |
+| Language is template fill-in | six regex-dispatched intent handlers |
+| Learning needs a labelled demonstration *and* a human-supplied category name | `teach_glyph`, `LearningSession` |
+
+A system with those bounds cannot generalise no matter how large the library
+grows. Adding categories, shards, parameters or qubits scales the **substrate**,
+not the cognition — which is why "1.2 trillion parameters" is a storage claim in
+this architecture and has never been presented as a capability one.
+
+What *is* real, and is worth building on:
+
+- a catalogued, pageable library at a **1:6,200** resident-to-stored ratio
+  ([§4.1.1](#411-routing-a-pattern-that-contains-no-words)) that ships between
+  machines intact ([§8.1](#81-uql-shard-library));
+- content-addressed routing that reaches the right expert without reading shards;
+- an exact quantum simulator with hardware-compatible gradients ([§3.1](#31-quantum-engine));
+- **found ≠ believed** — a quarantine that makes provenance a property of every
+  stored fact ([§4.2](#42-web-intake--found-vs-believed));
+- the seed of metacognition: the system can say *"I do not recognise that"* and
+  turn the gap into a question it asks unprompted.
+
+That last one is the only item on the list that is about cognition rather than
+plumbing, and it is deliberately modest — a dissimilarity test with measured
+error rates, not novelty detection.
+
+### 11.2 The two things actually missing
+
+Strip away the details and the gap reduces to two absences.
+
+**No shared representation.** Every expert sees raw pixels. Nothing learned in
+one category is available to any other, so the hundredth category costs exactly
+what the first did. Transfer is the difference between a lookup table and a
+learner, and there is currently no mechanism for it.
+
+**No composition.** One input selects one expert and produces one label. There is
+no way to represent *"an arrow inside a frame"*, because there is nowhere for two
+partial results to meet. Generality is mostly recombination, and the architecture
+has no combining surface.
+
+Everything else — grounded language, planning, self-modelling — sits downstream
+of those two.
+
+### 11.3 A staged path, with the gate for each stage
+
+Each stage has a **falsifiable gate**: a measurement that says whether it worked.
+A stage that fails its gate does not get built on. This is the same discipline
+applied to the QPU question in [§7.1](#71-what-a-qpu-could-actually-do-for-a-shard-library),
+where the honest conclusion was that the data-loading wall is real.
+
+```mermaid
+flowchart TD
+    S0["Stage 0 — modality-agnostic library<br/><b>DONE</b>"] --> S1
+    S1["Stage 1 — shared learned encoder<br/><b>RUN — FAILED</b>"] --> S2
+    S2["Stage 2 — blackboard working memory<br/><b>RUN — PASSED</b>"] --> S3
+    S3["Stage 3 — self-proposed concepts<br/><b>RUN — PASSED</b>"] --> S4
+    S4["Stage 4 — goal-directed action<br/><b>RUN — PASSED</b>"] --> S5
+    S5["Stage 5 — grounded language<br/><b>RUN — PASSED</b>"]
+
+    G1{"few-shot beats<br/>from-scratch?"} -.-> S1
+    G2{"compound inputs<br/>no single expert can do?"} -.-> S2
+    G3{"discovered categories<br/>beat chance?"} -.-> S3
+    G4{"multi-step tasks<br/>single-step cannot?"} -.-> S4
+    G5{"novel sentences<br/>that are correct?"} -.-> S5
+
+    classDef done fill:#1f3d2b,stroke:#3ac98a,color:#d3f5e6
+    classDef dead fill:#3d1f1f,stroke:#c93a3a,color:#f5d3d3
+    class S0,S2,S3,S4,S5 done
+    class S1 dead
+```
+
+**Stage 0 — the library stops being single-modality.** *Done.* `ExpertPool` no
+longer imposes one `input_dim` on every expert it creates; the width comes from
+the training data and is stored per expert. The sketch index is segregated by
+feature width, so a 30-feature glyph and a 12-feature text vector cannot be
+compared — that used to happen silently by truncating to the shorter vector.
+Feeding an expert the wrong modality now raises rather than answering
+confidently.
+*Gate: two modalities coexist in one library, route independently, survive
+packing and attaching, and never cross-talk.* **Met** — `tests/test_multimodal.py`.
+
+**Stage 1 — a shared encoder.** One representation over the feature space, with
+experts reading it instead of raw pixels, so that what is learned for one
+category is available to the next.
+*Gate: a held-out category trained on 5 examples through the encoder beats the
+same category trained on 5 raw-pixel examples, by a margin larger than seed
+variance.*
+**Run. FAILED — see [§11.5](#115-stage-1-was-run-and-it-failed).** The stage is
+abandoned in this form, and the failure changed the order of what follows.
+
+**Stage 2 — a blackboard.** A per-input working structure that several experts
+write into and a combiner reads, replacing single-expert dispatch. This is the
+combining surface the architecture lacked.
+*Gate: correct answers on compound inputs that **no** single expert classifies
+correctly.* Composition that only reproduces single-expert results has not
+composed anything.
+**Run. PASSED — see [§11.6](#116-stage-2-was-run-and-it-passed).** Shipped in
+`ultraquant/reason/blackboard.py` and wired into the interpreter.
+
+**Stage 3 — concepts the system proposes itself.** Cluster episodic traces and
+offer the clusters as candidate categories, instead of requiring a human to name
+one. `LearningSession` already asks questions; this changes *who chooses what is
+worth learning*.
+*Gate: discovered clusters align with held-out labels above chance, measured with
+an assignment-invariant score.*
+**Run. PASSED — see [§11.8](#118-stage-3-was-run-and-it-passed).** Shipped in
+`ultraquant/reason/discovery.py` and wired into learning mode.
+
+**Stage 4 — goal-directed action.** The pipeline is `Perceive → … → Respond`;
+it never chooses to *do* anything. A planner that selects among available actions
+(query the library, run sandboxed code, fetch and quarantine, ask the user) to
+satisfy a goal makes it an agent rather than a responder.
+*Gate: solves multi-step tasks that the single-step pipeline cannot, without a
+hand-written script per task.*
+**Run. PASSED — see [§11.9](#119-stage-4-was-run-and-it-passed).** Shipped in
+`ultraquant/reason/planner.py` + `actions.py`, reachable as `goal:` in chat.
+
+**Stage 5 — grounded language.** Templates replaced by composition over learned
+concepts.
+*Gate: produces correct sentences it was never given a template for.*
+**Run. PASSED — see [§11.10](#1110-stage-5-was-run-and-it-passed).** Shipped in
+`ultraquant/reason/language.py`; the model speaks about what it perceives.
+
+### 11.4 What this would and would not be
+
+If every gate above were met, the result would be a **compositional few-shot
+learner with durable memory, provenance, and self-directed curiosity** — a
+genuinely interesting system, and a defensible use of the word *architecture*.
+
+It still would not be AGI, and the reason is worth writing down rather than left
+implicit: nothing in stages 0–5 addresses open-ended goal formation, robust
+transfer to domains structurally unlike the training distribution, or the
+capacity to reformulate a problem. Those are not deferred implementation work.
+They are unsolved.
+
+The value of the staged form is that each step is independently useful and
+independently falsifiable. Stage 1 either buys transfer or it does not, and the
+measurement is cheap. That is the difference between an architecture and an
+aspiration — and it is the same reason [§7.1](#71-what-a-qpu-could-actually-do-for-a-shard-library)
+concludes that the QPU cannot help the library today, instead of promising that
+it will.
+
+### 11.5 Stage 1 was run, and it failed
+
+The gate in [§11.3](#113-a-staged-path-with-the-gate-for-each-stage) was written
+before the experiment. This section reports what happened, including the parts
+that would have been easier to leave out.
+
+**Setup.** Seven families of four labels each; the last family is held out. Each
+label is the union of two strokes drawn from a shared vocabulary of eleven
+(`ultraquant/experiments/transfer_gate.py`). Every stroke *pair* is globally
+unique, so a held-out label cannot be recognised by memorising a combination seen
+during pretraining — but every *part* of it was seen. That is the structure a
+shared representation should be able to reuse, and it is the most favourable
+honest setting for the hypothesis.
+
+The comparison is **paired**: per seed, the same data, the same held-out family,
+the same classifier architecture and the same hyperparameters in both arms. Only
+the input representation differs.
+
+**A control, because the structured result alone would prove nothing.** The same
+measurement is run on unstructured families, where labels are arbitrary pixel
+patterns sharing no parts. Transfer *must* fail there. A method that helps in
+both conditions is adding capacity, not transferring structure — and would sail
+through a gate that only tested the favourable case.
+
+**The first run was invalid and is worth recording.** At the original noise level
+the baseline scored **0.992**, so neither arm had room to differ and the
+experiment could not have detected transfer in either direction. It reported a
+confident FAIL that meant nothing. The noise level was then calibrated **on the
+baseline arm alone**, before the encoder was run — choosing an operating point
+from baseline difficulty is legitimate; choosing it from the treatment's result
+would not be. `tests/test_encoder.py` now asserts the baseline stays off both
+ceiling and floor, so this cannot silently recur.
+
+**Two mechanisms were tried, not one.**
+
+| mechanism | compositional | control (should not help) |
+|---|---:|---:|
+| masked reconstruction (unsupervised) | +0.001 ± 0.067 | −0.123 ± 0.090 |
+| discriminative trunk (supervised across pretraining families) | +0.014 ± 0.069 | −0.118 ± 0.082 |
+
+*24 paired seeds, 5-shot, baseline 0.72. The discriminative trunk was re-run at
+100 seeds: **+0.0140, 95% CI [+0.0002, +0.0278]**.*
+
+**The verdict, and the temptation in it.** At 100 seeds the discriminative
+trunk's interval clears zero, and it would have been easy to call that a pass.
+It is not one. The gate asked for a margin **larger than seed variance**, and the
+seed-to-seed standard deviation is 0.0705 — the effect is **0.2× the noise a
+practitioner would actually see**. Clearing zero at n=100 is a statement about
+the precision of an average, and enough seeds will make it true of an
+arbitrarily small effect. The code now reports `delta / seed sd` next to
+`distinguishable from zero` so the two questions cannot be confused, and the
+gate criterion is the one that was written down.
+
+**Why it failed, which is the useful part.** Both representations *worked* as
+machinery — reconstruction loss fell 0.234 → 0.099, embeddings did not collapse,
+and the null held across bottleneck widths 16/24/32 and training budgets
+40/100/200 epochs. The problem is the premise. For these patterns **raw pixels
+are already close to an ideal representation**: classes are unions of strokes,
+linearly separable in pixel space. A bottleneck over that can only lose
+information, which is exactly what the control shows at −0.12. On compositional
+data the learned structure roughly cancels its own compression cost, and no more.
+
+**What that changes.** The *need* for shared representation is not refuted; the
+idea that you get it by compressing the existing feature space is. Transfer
+requires a representation that raw features do not already provide — which means
+either a perceptual domain where pixels are a poor representation, or a mechanism
+that **adds** structure rather than compressing it.
+
+Composition is such a mechanism, so **Stage 2 now comes first**. A blackboard
+that lets several experts contribute partial results builds representational
+structure that is not present in the input at all, rather than re-encoding what
+is. If composition lands, the shared-representation question is worth reopening
+over composed features — where the premise that failed here would no longer hold.
+
+This is what the staged form is for. A cheap experiment moved the roadmap instead
+of a plausible story surviving into the architecture unmeasured, which is the same
+outcome as [§7.1](#71-what-a-qpu-could-actually-do-for-a-shard-library) reaching
+the conclusion that the QPU cannot help the library today.
+
+### 11.6 Stage 2 was run, and it passed
+
+Composition is the second of the two absences in
+[§11.2](#112-the-two-things-actually-missing), and unlike the first it survived
+its gate. `ultraquant/reason/blackboard.py` is the combining surface: a shared
+workspace, independent contributors that read and write it, and a controller that
+runs them to quiescence.
+
+Three things make it more than a loop over experts:
+
+* **Slots.** A contribution is filed against an *aspect* of the input. Two
+  contributors on the same slot compete; two on different slots compose.
+* **Rounds.** A contributor sees what earlier ones wrote, which is what lets a
+  constraint *repair* a weak reading rather than merely veto it — it revises the
+  least confident slot, so a confident factor corrects an uncertain one.
+* **Opting out.** `applies()` lets a contributor decline, so answering one
+  question does not consult everything the library holds.
+
+#### The result
+
+Seven border shapes × four interior marks, overlaid on one 5×5 grid. Training
+sees 10 of the 16 combinations; the other 6 are never seen *together*, though
+every part of them is seen apart. **Both experts read the whole image** — handing
+one the border pixels and the other the interior would do the decomposition by
+hand and leave nothing to learn.
+
+| | seen pairs | unseen pairs |
+|---|---:|---:|
+| monolithic (given the pair output space) | 0.955 | **0.000** |
+| composed (blackboard) | 0.940 | **0.539** |
+
+*12 seeds. Chance on a pair is 1/16 = 0.0625; delta on unseen +0.539 at 2.42×
+seed variance, against the same > 1.0 bar Stage 1 was held to.*
+
+**The hollow way to pass this was avoided.** A compound input is named by a
+*pair*, and no single expert has pairs in its output space — so "no single expert
+gets it right" is true by construction and proves nothing. The baseline is
+therefore a monolithic classifier **given the pair output space directly**, all
+16 classes, same images, same budget. Its 0.955 on seen pairs is what makes the
+0.000 on unseen pairs meaningful: the arm is strong, and it fails only where it
+has no training signal. Composition scores 0.539 there because it never needed
+one.
+
+**What limits the 0.539.** Diagnosis, not excuse: the shape factor generalises
+well (0.88–0.99 on unseen pairs) and the mark factor does not (0.24–0.93), with
+pair accuracy tracking their product — so composition is working and one factor
+is simply hard to see. The cause is a flaw in the vocabulary chosen before any
+result was known: `dot` ⊂ `bar` ⊂ `plus`, three nested marks that two pixels of
+noise can turn into one another. A secondary condition with a non-nested
+vocabulary (`DISTINCT_MARKS`) scores **0.682**. The gate number stays 0.539,
+because restating a passing result on an easier task is worth less than reporting
+why it was capped.
+
+#### Delivered into the system, not left in a script
+
+The interpreter composes across whatever aspects the library declares. A category
+records the slot it fills; the reasoning step consults the **best-routed category
+per slot**, so:
+
+- a library that never declares slots pages exactly one expert and behaves as it
+  always did — categories are alternatives and compete;
+- a library that declares two aspects pages exactly two, one per aspect, and
+  answers `shape:corners + mark:plus`.
+
+That keeps the paging discipline honest: one expert per aspect of the answer and
+never more, which is [principle 2](#1-design-principles) intact. Slots survive
+re-training, packing and shipping, alongside signatures.
+
+**An escalation heuristic was built and then removed.** The first wiring
+consulted a runner-up expert whenever the leading reading looked weak or routing
+was close. Measured over 200 noisy glyphs it fired 8 times and changed **no
+answer at all**, so it was deleted rather than kept on the argument that it might
+help somewhere. The same standard that failed Stage 1 applies to a feature inside
+a stage that passed.
+
+**A tension worth naming.** The unfamiliar-pattern floor
+([§4.1.1](#411-routing-a-pattern-that-contains-no-words)) judges similarity
+against *whole* stored prototypes, while composition works at the level of
+factors. A genuinely novel *combination* of familiar parts is unlike anything
+stored as a whole, so the floor can report it as unfamiliar even though the
+blackboard could read it — observed on 1 of 6 held-out combinations. For a
+factored library the floor should apply per slot. That is not done, and it is
+recorded here rather than left to be discovered.
+
+### 11.7 Hypervectors: half a pass
+
+Stage 2 shipped composition as a flat `{slot: value}` dict. A dict cannot nest
+with repeated slot names, cannot be one fixed-width object, and cannot be dropped
+into the library's similarity index. `ultraquant/reason/hypervector.py` is the
+representation that can: concepts as 10,000-bit random vectors, **bind** = XOR,
+**bundle** = per-bit majority, **permute** = rotation, **similarity** = XOR +
+popcount.
+
+It fits this project unusually well. Python's arbitrary-precision integers do
+XOR, AND and `bit_count` in C across every bit at once, so the whole algebra is
+bit-parallel **with no extension module** — measured at 25.8 bit-operations per
+nanosecond, **807× faster** than the equivalent float dot product in pure Python.
+One vector is 1,250 bytes, so a whole composed scene sits in L1. It also runs
+unchanged on one core and splits across many, because counting is associative and
+nothing is random at runtime.
+
+#### The gate, stated in advance
+
+> Represent and correctly query **nested** structure the flat slot dict cannot
+> hold, **and** retrieve that whole scene from the library by similarity, at
+> ≥90%, at depth 3 with 24 scenes.
+
+| task | result | target | |
+|---|---:|---:|---|
+| A. structural query | **1.000** (sd 0.000) | 0.90 | **PASS** |
+| B. scene retrieval | **0.743** (sd 0.179) | 0.90 | **FAIL** |
+
+Depth scaling shows where each half lives: structural query holds at **1.000 for
+depths 2–5** and 0.966 at depth 6, while retrieval sits at 0.62–0.70 throughout.
+
+**Verdict: the gate was a conjunction, so it FAILS.**
+
+#### What passed is real
+
+Nesting is recovered exactly, at every depth measured. `frame(box(arrow))` is one
+1,250-byte vector at any depth, and each level unbinds back to its filler. The
+flat slot dict genuinely cannot hold this — two container levels collide on one
+key — so that half is not an optimisation wearing an architecture costume.
+
+#### What failed, and why
+
+Unbinding is exact **because the key is known**. Comparing whole scenes is lossy:
+each level of bundling adds crosstalk, and the difference between scenes sharing
+most of their levels sits underneath it. That is a property of superposition, not
+a tuning problem.
+
+#### Two flaws in the experiment, recorded rather than quietly fixed
+
+Both would have produced a confident wrong answer, and both are the same class of
+error as the ceiling effect in [§11.5](#115-stage-1-was-run-and-it-failed).
+
+**The task had no answer.** Cues were made by corrupting one level at random.
+Measured afterwards, the best accuracy *any* method could reach was **0.000 at
+depth 2 and 0.246 at depth 3** — a corrupted cue sat as close to other library
+scenes as to the one it came from. Both arms scored at that ceiling, so the first
+run was measuring the ambiguity of the task. Rejecting ambiguous cues puts the
+oracle at exactly 1.000, and 0.743 is the number that came out of the fixed task.
+
+**The baseline was the oracle.** A path-keyed dict compared by Jaccard was chosen
+specifically to avoid the hollow claim that "a dict cannot nest" — it nests fine
+with keys like `0/container`. But Jaccard over path keys **is** the ground-truth
+similarity the task is defined by, so that arm scores the oracle by construction
+and no lossy representation can ever beat it. Requiring hypervectors to beat it
+was unwinnable: the mirror image of Stage 2's hollow pass, and just as useless.
+Task B is therefore judged on its absolute number against the pre-registered
+target, with the baseline reported as what it is.
+
+#### Disposition
+
+The module stays, scoped to what it demonstrated: **structured representation and
+exact structural query**, not library retrieval. Nothing in the architecture is
+changed to depend on whole-scene similarity, and no claim is made that it works.
+
+A bug found during this work is worth carrying forward, because it was silent.
+Majority ties were broken with the XOR of the inputs — deterministic, so it
+satisfied the cross-core requirement. But a tie at even *n* means exactly *n*/2
+ones, and when *n*/2 is even their XOR is **always 0**: the tiebreak was
+degenerate precisely where it was used. Bundles came out at 4,053 of 10,000 bits
+instead of ~5,000, and that density bias made every unbound probe resemble the key
+it was unbound with, costing 11 of 48 retrievals. Ties now break on a hash of the
+counter planes, which is order-independent, so any split of the work still agrees.
+
+| | before | after |
+|---|---:|---:|
+| bundle density | 4,053/10,000 | ~5,010/10,000 |
+| capacity, cleanup over 128 items | 37/48 | **64/64** |
+
+### 11.8 Stage 3 was run, and it passed
+
+Everything the model knew, it knew because a person named a category and
+demonstrated it. Learning mode already chose *which* gap to ask about, but the
+vocabulary of possible answers still came from outside. `ConceptDiscovery` closes
+that: it looks at what recognition could not place, finds groups in it, and asks
+only what to call them.
+
+The raw material is already being produced. Patterns the router cannot place are
+recorded as `unknown-pattern` episodes
+([§4.1.1](#411-routing-a-pattern-that-contains-no-words)) — which are exactly the
+observations a genuinely *new* concept would have to be made of.
+
+#### The result
+
+| measure | value |
+|---|---:|
+| adjusted Rand index vs true classes | **1.000** (sd 0.000) |
+| chose the true number of classes | **100%** (12/12) |
+| control: labels shuffled | **+0.002** |
+| control: no structure at all | **−0.000** (sd 0.016) |
+
+*12 seeds, target ARI ≥ 0.50 pre-registered.* **PASS.**
+
+**The class count is never supplied.** Handing the clusterer the true *k* would
+leak the answer into every number above. `discover()` searches k in 2–8 and picks
+by silhouette, which uses only geometry and never a label — and it landed on the
+right count in every one of the 12 runs.
+
+**ARI, not accuracy.** Cluster 0 here and cluster 3 there may be the same set, so
+accuracy is undefined. The adjusted Rand index counts agreeing pairs and
+subtracts the agreement expected by chance, which is what makes "above chance" a
+statement about zero rather than about a baseline that has to be argued for. Both
+controls sitting at zero is what says the metric and pipeline are sound; without
+them a headline of 1.000 would be worth very little.
+
+#### Where it stops working
+
+A perfect score is exactly what made Stage 1's first run meaningless, so the
+operating point was pushed until it broke:
+
+| noise (pixels flipped) | 3 | 5 | 7 | 9 | 11 |
+|---|---:|---:|---:|---:|---:|
+| ARI | 1.000 | 0.991 | 0.462 | 0.054 | −0.009 |
+| silhouette | 0.330 | 0.170 | 0.077 | 0.054 | 0.054 |
+
+It also degrades with less evidence per concept — ARI 0.958 at 18 examples per
+class, 0.530 at 10, 0.371 at 4 — and **silhouette systematically under-counts
+above four classes**: at 5 and 6 true classes it still chooses k = 4, scoring
+0.775 and 0.674 by merging groups. The gate's operating point is therefore an
+easy one, and that is stated rather than left for someone to find.
+
+#### The floor that stops it inventing categories
+
+k-means always returns clusters. A system that proposes its own concepts will
+therefore confidently manufacture them out of noise unless something stops it,
+and at 9+ flips it was still proposing k ≈ 3 groups with silhouette 0.05.
+
+Measured over 20 datasets each: genuine structure never scored below **0.314**,
+and structureless data never above **0.104**. `SILHOUETTE_FLOOR = 0.12` sits in
+that gap, and it tracks usefulness rather than merely separating the extremes —
+at the noise levels where it starts refusing, the clustering it would have offered
+had already fallen to ARI 0.46 and below. Below the floor, the model says nothing.
+
+#### Delivered into the system
+
+`LearningSession` gained a `proposed-concept` gap, scored **2.2** — above
+`unknown-pattern`, because naming one group settles several unplaceable inputs at
+once. Answering it creates the category and trains it on every member of the
+cluster.
+
+End to end, on a library forged from the built-in taxonomy and then shown 28
+patterns from two families it had never been taught: it placed none of them,
+**proposed exactly two concepts** of sizes 14 and 14 at silhouette 0.377, and
+naming one trained it to accuracy 1.00 and made it routable in a fresh session —
+with the original categories untouched.
+
+That is the loop this stage was for: *met something I cannot place → decided
+these belong together → asked what they are called → learned it.* The model still
+cannot invent the name. It can now invent the question.
+
+### 11.9 Stage 4 was run, and it passed
+
+The pipeline dispatches one input to one handler, so it can answer "what is the
+tower height?" and cannot answer "add it to the bridge length" — not for want of
+pieces but because nothing ever decides to do *two* things in order.
+`ultraquant/reason/planner.py` is a plain breadth-first forward search over
+declared actions; `actions.py` declares nine capabilities the session already
+had (recall, four arithmetic ops, recognise, categorise, count shards, sandboxed
+evaluation), each stating what it needs and what it produces. Order is found,
+never written.
+
+#### The result
+
+| | planner | single-step pipeline |
+|---|---:|---:|
+| all 9 tasks | **9/9** | 3/9 |
+| the 6 genuinely multi-step tasks | **6/6** | **0/6** |
+
+Longest plan 5 steps, pool of 9 actions, goals stated as conditions — most say
+only "a value derived from these facts", not which operation or in what order.
+
+**The clause that does the work is "without a hand-written script per task"**,
+and four things guard it:
+
+* the pool is wider than any task needs, so selection is a real choice;
+* tasks supply goals, never sequences;
+* two tasks are single-step *by design*, so the baseline solving them (3/9) is
+  what shows the comparison is fair rather than rigged;
+* a capability invented **after** the planner was written — `square`, registered
+  from outside — was folded into a plan for a goal nobody anticipated, with
+  `planner.py` untouched. A dispatch table cannot pass that test; a planner does
+  not notice the difference.
+
+One task initially failed and the failure was a real bug: the sandbox action
+called `float()` on `coder.run()`'s result dict, raised `TypeError`, and
+silently became "never applicable" — the planner's honest report of an
+unreachable goal is what surfaced it.
+
+Delivered as the `goal:` intent in chat. The same request through both paths:
+
+    > add the tower height to the bridge length
+    That lands near 'tower height', which I hold as: 324.
+
+    > goal: the tower height and the bridge length
+    Plan (3 steps): recall(tower height); recall(bridge length);
+                    add(bridge length, tower height)
+    Result: bridge length+tower height = 810
+
+It is a prefix rather than a guess because inferring goals from free text is a
+different problem, and getting it wrong would silently route ordinary questions
+into a search.
+
+#### Facts moved into the library (found by the user, not by a gate)
+
+While Stage 4 was being wired, a structural inconsistency surfaced: **facts were
+stored in `memory.json` and nowhere else** — not sharded, not paged, invisible to
+the vault's keyword index, left behind when a library was packed and shipped, and
+outside the reinforcement loop. Four stated properties broken at once, and the
+planner's first draft leaned on it by reading the private fact dict directly.
+
+`ultraquant/memory/factshards.py` fixes it structurally. Facts hash into
+**bucket shards** (256 buckets; one shard per fact would bloat the catalog, one
+shard for all would page the whole store), each bucket carrying its keys'
+keyword associations in the catalog, so facts sit on the same routing path as
+everything else. Measured on a 60-fact store, cold session each time:
+
+| operation | buckets paged |
+|---|---:|
+| direct recall | **1** of 54 |
+| selective search ("item37 weight") | 8 of 54 (bounded) |
+| unselective search ("weight") | 8 of 54 (bounded, was 54) |
+
+`memory.json` no longer carries facts when a vault is present; old stores are
+migrated on first open. A `SystematicMemory` with no vault behaves exactly as it
+always did. Two more callers were found reading the private dict (learning
+mode's shaky-fact survey, the chat `:facts` command) and moved to the public
+API — reaching for the dict was how learning mode went blind the day facts
+moved.
+
+### 11.10 Stage 5 was run, and it passed
+
+The interpreter's responses were templates, and a template can only say what
+someone anticipated. `ultraquant/reason/language.py` learns to say things
+instead: from `(utterance, meaning)` pairs it induces a **lexicon** (which word
+realises which concept, by co-occurrence exclusivity), an **order** (mark before
+or after its containers; containers inner-first or outer-first, by majority
+vote), and a **frame** (the function words before the first content word and
+between each adjacent *role pair*). Meanings are the same structures the
+blackboard produces when it reads a compound glyph, which is what makes the
+language grounded: the words bottom out in perception, not in other words.
+
+#### The result
+
+Two hidden languages live in the experiment — `"a speck inside a box inside a
+grill"` (mark first, inner-first) and `"a grill holding a box holding a speck"`
+(mark last, outer-first) — with several surface words deliberately unlike their
+internal atom names, so string matching cannot substitute for learned alignment.
+
+| clause (pre-registered) | target | 'nested' | 'holding' |
+|---|---:|---:|---:|
+| held-out combinations, exact | ≥ 0.80 | **1.000** | **1.000** |
+| held-out combinations, content | ≥ 0.90 | **1.000** | **1.000** |
+| depth 4, never seen at all, exact | ≥ 0.80 | **1.000** | **1.000** |
+| comprehension (parse back), exact | ≥ 0.80 | **1.000** | **1.000** |
+| control (no consistent mapping) | ≤ 0.10 | **0.000** | **0.000** |
+
+*10 seeds per language; memoriser baseline 0.000 on held-out by construction —
+the sanity line, not the competitor (§11.6's lesson).* **PASS on every clause.**
+
+**The no-template proof has three parts.** The same code learns both languages,
+and one baked-in order could satisfy one but never both. The hidden languages'
+words appear in **no string literal and no identifier** of the learner's source
+— asserted by a test that parses the AST, because a template would have to live
+in one of those. And the depth-4 clause: the frame is keyed by *role pair*, not
+by position, so a language learned at depths 2–3 is spoken correctly one
+recursion deeper than anything ever seen. (The AST test's first version swept
+docstrings too and failed on the English word "inside" in a sentence about
+packed libraries — prose is not a template, and the test now says precisely
+what the claim is.)
+
+#### Where it breaks, measured
+
+| probe | result |
+|---|---|
+| training pairs needed | exact at **16**; collapse below ~10 (0.34 at 10) |
+| scrambled-utterance noise | exact through **25%**; 0.875 at 50% |
+| a homonym (one word, two atoms) | generation and parse drop to **0.75** |
+
+The homonym result is structural: the lexicon is a bijection, so a word that
+realises two atoms breaks both directions. Real languages are full of such
+words; this one cannot hold them.
+
+#### Grounded, end to end
+
+On a factored library (§11.6) with a language induced from that library's own
+vocabulary and stored **as a shard** — learned data lives in the library, the
+fact-store lesson of §11.9 — the chat pipeline, shown compound glyphs whose
+factor pairs were never seen together:
+
+    > (a plus drawn inside a box, as pixels)
+    I see a plus inside a box. That pattern reads as 'shape:box + mark:plus'...
+
+4 of 6 unseen scenes were spoken correctly. Both misses are **perception**
+errors already documented — the nested-marks confusability and the
+whole-prototype unfamiliarity floor of §11.6 — and the language layer spoke
+correctly for every reading it was handed. Sessions with no language shard
+behave exactly as before.
+
+#### What this is not
+
+The same discipline as the novelty floor (§4.1.1): the strong claim is tempting
+and false. This is **grammar induction within a fixed structural family** — one
+mark, a chain of containers, a single consistent linear order, a deterministic
+frame. It cannot learn free word order, agreement, synonymy, homonymy, or any
+meaning outside container-nesting. "Produces correct sentences it was never
+given a template for" is satisfied, measured, and narrow. It is not open
+language, and §11.4 stands unchanged.
+
+#### Deployed
+
+`uq_home` is retrained as a full deployment: 28 whole-pattern categories, the
+factored `border`/`inner` experts with slots declared, **three languages** as
+shards (`plain`, `nested`, `holding` — chat speaks the primary and offers the
+rest), and facts in bucket shards. A compound glyph answers:
+
+    I see a plus inside a box. Also: in 'holding', a box holding a plus;
+    in 'nested', a plus inside a box. That pattern reads as
+    'shape:box + mark:plus' (confidence 0.89, via border+inner).
+
+Deployment surfaced a rule the factored-library tests could not: once whole
+and factored experts share a library, the default slot must be treated as a
+competing **whole interpretation**, never as a third aspect. A margin alone
+cannot separate the cases — a plain 'square' pushes the shape expert past 0.95
+because a square IS the box border — so whichever interpretation holds the
+single best route wins outright, and factored slots compose only among
+themselves. Measured after the rule: 7/8 plain glyphs read plain, 4/4 compound
+scenes read as clean two-slot compositions, and the eighth plain glyph is a
+finding rather than a failure: plain `cross` is **pixel-for-pixel identical**
+to the `corners`+`ex` compound, both interpretations route at exactly 1.0, and
+the system gives the factored reading — which is a true description of that
+image.
+
+#### Whole-label coverage and starter knowledge
+
+The languages now cover both kinds of reading the interpreter produces. A
+whole-pattern label is a depth-1 meaning — a bare mark with no containers — so
+`"a square"` (plain) and `"a quad"` (the coined languages) come from the same
+induction machinery, and a plain glyph is spoken in every stored language just
+as compounds are. Coverage is honest about its edge: the 24 synthetic families
+are excluded from whole-label speech because their labels (`sym_0`, `sym_1`)
+repeat across every family — a language should not be taught to say something
+it cannot mean, so uncovered labels stay silent rather than ambiguous. One
+homonym was dodged deliberately: whole-label `cross` becomes `"crux"`, not
+`"saltire"`, because one word for two atoms was measured to cut both directions
+to 0.75.
+
+Extending coverage surfaced two real bugs in the lexicon learner, both found by
+a four-pair fixture: tie-breaking between candidate words depended on **set
+iteration order** — nondeterministic under hash randomisation, which this
+project forbids — and two atoms could claim the same word, yielding sentences
+like `"a box box"`. Assignment is now greedy, exclusive, and deterministic
+(score, then joint count, then alphabetical).
+
+`seed_knowledge` plants 19 starter facts through the ordinary pipeline —
+definitions of the system's own vocabulary and its geometry — with **three left
+deliberately shaky at 0.40 confidence**, because self-learning starts from
+doubt: the first learning-mode survey asks *"I hold 'densest builtin pattern'
+as 'square', but only at 40% confidence. Is that right?"*, and a confirmation
+measurably raises it. Seeding also exposed a recall bug: stored keys have
+articles stripped, candidate keys did not, so *"what is the number of glyph
+pixels?"* answered from the 1-gram `glyph` instead of the specific fact.
+Candidates now include article-stripped variants and try longer n-grams first.
+
+#### The loop, at the chat surface
+
+Driving the self-learning loop end to end exposed a surface gap: the GUI and
+TUI had learning mode, the chat CLI did not. `:learn` now runs the survey and
+asks; `:learn answer <text>` applies (glyph-expecting questions read five rows,
+as `:teach` does); `:learn skip` sets one aside. The transcript of the loop
+against the deployed library, verbatim:
+
+    > :facts densest
+        densest builtin pattern = square  (conf 0.40, x0)
+    > :learn
+      12 question(s) worth asking: 5 shaky, 3 unknown-term, 4 untrained-category
+      ...
+      [shaky] I hold 'densest builtin pattern' as 'square', but only at 40%
+      confidence. Is that right?
+    > :learn answer yes
+      learned: confirmed 'densest builtin pattern' at higher confidence
+    > :facts densest
+        densest builtin pattern = square  (conf 0.90, x1)
+
+    > (:recognize x28 - patterns from two families it was never taught)
+      I do not recognise that pattern. ...
+    > :learn
+      12 question(s): 2 proposed-concept, 3 unknown-pattern, ...
+      [proposed-concept] I have met 14 patterns that group together and I have
+      no name for them. ... What should I call this category?
+    > :learn answer diagonals
+      learned: named the group 'diagonals' and trained it on 14 examples:
+      accuracy 1.00
+    > :recognize (the same pattern)
+      That pattern reads as 'diagonals' (confidence 1.00, via diagonals).
+
+Both halves of the loop — *doubt → confirm* and *unfamiliar → cluster → name →
+known* — run through `ChatCLI.handle`, the same entry point the REPL,
+`--script` and `--once` forms use, and are held by `tests/test_chat_selflearn.py`.
+
+#### Remedies that fit the gap, and the web as first resort
+
+Driving the loop exposed an absurd request: the model asking for five rows of
+pixels in order to learn about *arithmetic*. Untrained-category questions are
+now remedy-aware — a **pattern** category (the glyph fallback, or anything
+holding content signatures) still asks for a drawn demonstration, while a
+**topic** category asks for knowledge ("Tell me something about arithmetic - a
+statement like 'X is Y'"), stores the answer as facts, and strengthens routing
+from the statement's words to the category.
+
+`LearningSession.research()` then makes the human the *second* resort: for
+researchable gaps (unknown terms, topic categories) the subject is fetched from
+configurable source templates — Wikipedia by default, a local server in tests —
+and everything found goes through the contemporary stash exactly as a
+user-pasted URL would. Found is still not believed (§4.2): only a claim the
+stash judges factual is promoted, and only if it *defines* the subject.
+
+That last clause exists because the first live run against real Wikipedia
+promoted a hatnote ("For the 1703 Russian textbook, see Arithmetic (book).")
+under the junk key `web:en.wikipedia.org:1` — a factual claim that merely
+*mentioned* the term. Selection now requires a claim that splits as
+``key is value`` with the subject in the key, exact matches first,
+singular/plural tolerated. The same live run also showed the quarantine doing
+its job unprompted: Wikipedia's actual definition of arithmetic arrived
+**disputed**, because it contradicted the fact a user had just taught — so it
+became a disputed question for the human instead of silently overwriting
+either side.
+
+**Intake quality, measured against the live web and fixed.** Re-running
+research against real pages exposed four defects, each now held by a test:
+
+* `add_page` took the first eight sentences in document order, and real pages
+  front-load navigation — the sentence actually defining *pixel* never made the
+  claim budget. Cross-reference boilerplate ("For other uses...", "X redirects
+  here") is now dropped outright and declarative sentences spend the budget
+  first; *pixels* went from `stashed` to `resolved`.
+* A resolved question could still be unanswerable: the fact landed under
+  `early example of a code`, so "what is code?" failed after its own question
+  closed. The bare term now receives the promoted value alongside the
+  provenance key.
+* Encyclopedia leads qualify the subject ("In digital imaging, a pixel is...")
+  and the length-capped key scoring rejected exactly those. Keys are also
+  scored comma-trimmed, and the 300-character claim cap — which silently cost
+  the best claim on a real page — is 420.
+* A second research source (`simple.wikipedia.org`) lets corroboration fire in
+  principle. In practice it did not fire once live: corroboration matches
+  normalized sentences verbatim, and two sites describing the same thing never
+  phrase it identically. Netloc-counting independence was already recorded as
+  weak; *verbatim matching across sites is effectively mirror detection only*,
+  and similarity-based corroboration joins the roadmap.
+
+One live mediocrity stands, deliberately: "what is code?" answers from a tier-2
+claim because Wikipedia's defining sentence for *code* contains "sometimes" —
+the stash classifies it hedged and refuses to promote it. That is the
+quarantine judging a hedged sentence as weak evidence, which is its job;
+forcing hedged promotions to polish one answer would soften found-is-not-
+believed everywhere.
+
+**Corroboration became a new algorithm, because the standard ones measured
+zero.** The chain, each step forced by a live measurement:
+
+1. *Verbatim source-counting*: fired *never* against the live web — mirror
+   detection only.
+2. *Paraphrase gate* (two judges in conjunction — content-token Jaccard and
+   hypervector bag similarity, thresholds from the measured live boundary
+   J 0.250/0.207, H 0.311/0.231): correct on the measured pair, and **also
+   fired zero times live** — because two sites describing the same thing
+   state *different aspects* of it. One defines a pixel; the other describes
+   its RGB representation. No sentence pair aligns, yet the sites plainly
+   agree.
+3. **Subject-level evidence accumulation** (`ContemporaryStash
+   .subject_support`): everything each source says about a subject is bundled
+   into one hypervector — order-free superposition of claim vectors — and
+   support is the strongest cross-source agreement between those bundles.
+   Partial overlaps no sentence pair would clear *add up*.
+
+Measured live (en vs simple Wikipedia): same subject 0.111–0.327 across four
+subjects, different subjects never above 0.048 — every subject fires where
+sentence-level fired for none. Research then grades belief instead of
+switching it: support above the 0.08 floor (chosen above the largest
+cross-subject agreement ever measured) lifts confidence linearly to a 0.85
+cap, full credit at 0.30 (the strongest live agreement). Live:
+
+    pixels   resolved  ...; cross-site support 0.13 -> confidence 0.60
+    code     resolved  ...; cross-site support 0.10 -> confidence 0.57
+
+The paraphrase gate stays — when a sentence pair *does* align it is stronger
+evidence and marks the entry corroborated outright — and both new mechanisms
+compose the structural half of §11.7 (bundling + Hamming agreement), which
+now carries production weight it did not have. Honest limits: four subjects
+is a small measurement base, the en/simple independence caveat stands, and
+subject-level agreement says the sources discuss the subject consistently —
+it cannot say *which* individual claim they jointly endorse, which is why it
+grades confidence rather than granting `corroborated` status.
+
+**Contradiction detection joined the same programme.** The old dispute test
+was string inequality on exact-matching keys — it could not see two *sources*
+disagreeing at all, and it produced a live false dispute (a taught definition
+of arithmetic against Wikipedia's differently-phrased but *agreeing* one).
+Measurement on labelled pairs showed value similarity cannot carry this
+signal: descriptive agreement pairs scored 0.11-0.12 and different-aspect
+pairs 0.00. The signal is the **type structure of the values**
+(`claim_relation`):
+
+* **numeric vs numeric** — the numbers are the claim: equal sets agree,
+  different sets contradict (324/330, 4/6, 486/512 all separate cleanly).
+* **short vs short** — a short definite value competes for an identity slot:
+  every measured true contradiction (Paris/Lyon, blue/red, square/diamond)
+  had zero token overlap; overlap means agreement.
+* **descriptive** — never contradicts (one subject supports many true
+  descriptions), agrees only when both judges are emphatic. This single rule
+  is what kills the live false dispute.
+
+Wired in: web claims that *agree* with memory now **reinforce** the stored
+fact (+0.05 confidence) instead of being suspected; a claim memory backs is
+never marked disputed by its rival — the rival carries the dispute; two
+sources clashing with no memory either way marks **both** disputed, and
+disputed claims were already questions for the human.
+
+Three interaction bugs were caught by driving it before writing the unit
+tests, all now regression-held: a memory-confirmed claim being disputed by
+its own rival; *a contradiction corroborating its rival* ("...330 metres"
+shares nearly every content word with "...324 metres" and sailed past both
+paraphrase judges until the typed relation was given veto); and two
+content-empty values ("4" vs "6" after token filtering) producing two empty
+hypervector bundles — which score similarity **1.0**. Known limits, stated:
+units are not normalised (324 m vs 0.324 km would wrongly contradict), and
+short/short treats synonyms as rivals ("car" vs "automobile" would read as a
+contradiction) — both are the next measurement targets if they ever fire.
+
+Reachable as `:learn research` in the chat (`:online on` first); offline it
+reports the gate rather than failing. Held by `tests/test_chat_selflearn.py`
+against a local server — the suite never touches the network.
+
+#### Prototype consolidation, and a mechanism deleted honestly
+
+Every lesson appends what it saw to the category's signature — right instinct,
+unbounded consequence. Measured at 200 lessons into one category: **202
+prototypes**, 25.6 KB of catalog-resident signature, 377 µs per routing call.
+`shards/prototypes.py` consolidates: traces are clustered (**Stage 3's
+machinery doing maintenance duty** — k chosen by silhouette, never supplied)
+and each cluster keeps its **medoid**, a real stored trace, because
+mean-pooling was measured harmful in §4.1.1. The budget's remainder goes to
+farthest-point coverage so boundary traces survive. It runs inside
+`SelfLearner.consolidate()` — the sleep-like pass where episodic traces become
+semantic structure — and fires automatically from teaching at twice the
+budget. After the same 200-lesson run: **20 prototypes, 2.5 KB, 58 µs, 8/8
+library routing, 30/30 noisy acceptance**.
+
+Two mistakes from this work are recorded because both would have shipped
+falsehoods:
+
+* **The stress driver itself was buggy** — rows and labels inverted, so it
+  taught cross-shaped glyphs as 'plus' 200 times. The resulting perfectly
+  confident label swap was briefly misdiagnosed as catastrophic drift under
+  continued training. It was nothing of the kind: the model faithfully
+  learned 200 deliberately swapped lessons, which is *correct* behaviour.
+* **A rehearsal mechanism built against that phantom** (labelled exemplars in
+  each expert shard, replayed into every lesson) was A/B measured with the
+  corrected driver in both the alternating regime and the 60-lessons-one-label
+  regime: **identical results with and without, in both** — the small
+  continued-training updates never dislodge the forged basin. It was deleted,
+  the same standard that removed §11.6's escalation heuristic. Teaching
+  regimes aggressive enough to need rehearsal (higher learning rates, longer
+  per-lesson epochs) would need the measurement redone first.
+
+#### The dispatcher learned its own machine
+
+Tier selection was a fixed preference walk — CUDA, then C++, then Python —
+and against a 12-shape workload grid on the real hardware that walk cost
+**94.6 ms where measured-best cost 7.3 ms: 13× regret**, with the worst single
+cell a 2-qubit batch the GPU ran 350× slower than pure Python. Cores, threads
+and tiers are a decision problem, so `native/scheduler.py` gives them a
+decision maker: workloads become feature vectors, cold starts **probe** (run
+the options, keep the winner — a measurement, not a guess), and policies
+train on the accumulated experience of this machine. The safety property that
+makes learned dispatch acceptable at all is principle 1: every tier computes
+identical values, so a wrong decision costs time, never correctness.
+
+**Three brains compete for the job**, because the right one is an empirical
+question:
+
+* a classical `UltraQuantNet` over the workload features;
+* a **variational quantum circuit** (three qubits, amplitude-encoded
+  features) — the quantum simulator deciding how to run the quantum
+  simulator;
+* a **committee of one single-qubit circuit per core**, each member reading
+  its own seeded projection of the workload — diversity by construction —
+  with reliability-weighted votes, threaded across the machine, and a depth
+  budget that grows when a GPU is present. More hardware seats more, deeper
+  judgement; whether that complexity *earns* anything is the shootout's call,
+  not an assumption.
+
+The shootout (held-out experience; accuracy first, decision latency second —
+a decider that costs more than it saves is worse than the static walk) is
+re-fought as experience grows, and its verdict is stored with its numbers.
+Today, on this machine's first 12 probes: all three brains tie at 0.75
+accuracy, so latency rules — **classical 17.5 µs beats the VQC's 59.9 µs
+beats the 32-member depth-2 committee's 1198 µs**. The complex brains keep
+their seats and their chance; the numbers keep them honest.
+
+One measured lesson from building it: log-scaled features alone squashed the
+decision boundaries until the classical brain collapsed to the majority class
+(exactly 0.60 at every capacity tried); pairing linear with log views lifted
+it to 0.87. Experience files carry a feature version so records from one
+scheme can never poison policies trained on another. Wiring the scheduler
+into the forge's `tier="auto"` path and the GUI compute tab is the recorded
+next step; the decision core, its persistence and the shootout are held by
+`tests/test_scheduler.py`.
+
+#### The staged path, closed out
+
+| stage | verdict |
+|---|---|
+| 0 — modality-agnostic library | **PASSED** |
+| 1 — shared learned encoder | **FAILED**, twice, honestly (§11.5) — reordered the roadmap |
+| 2 — blackboard composition | **PASSED** (§11.6) |
+| 3 — self-proposed concepts | **PASSED** (§11.8) |
+| 4 — goal-directed action | **PASSED** (§11.9) |
+| 5 — grounded language | **PASSED** (§11.10) |
+| hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
+
+Every gate was stated before its experiment ran; two experiments had their own
+flaws caught and recorded (§11.5's ceiling, §11.7's oracle-baseline); one
+passing stage had a feature deleted for measuring nothing (§11.6's escalation
+heuristic). What the system now is: a pattern library that pages itself, reads
+compound scenes by composition, proposes its own concepts, plans multi-step
+actions from goals, and says what it sees in a language it induced — every
+capability behind a measured gate. What it still is not is what §11.4 said at
+the start: open-ended goal formation, transfer across structural novelty, and
+problem reformulation are not deferred work. They are unsolved.
