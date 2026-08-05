@@ -1,123 +1,103 @@
 # UltraQuant
 
-UltraQuant is a small **hybrid quantum/classical pattern-recognition model** written
-entirely from scratch in pure Python stdlib — no numpy, no ML frameworks. It
-classifies noisy 5x5 pixel glyphs (8 classes: plus, cross, square, diamond, arrows,
-stripes) with a ternary-weight neural network whose input is augmented by a quantum
-feature map. The quantum layer runs on a real IBM QPU when one is reachable and on
-the built-in exact statevector simulator otherwise.
+A **hybrid quantum/classical pattern library** built entirely from scratch in
+pure Python stdlib — no numpy, no ML frameworks. The model is not a monolith:
+it is a **sharded, catalogued library of learned patterns** that stays on disk
+and pages in only what a thought needs, the way a brain recalls rather than
+reloads. Optional C++/CUDA accelerators and real quantum hardware are strictly
+accelerants — the pure-Python tier defines the semantics, and every other tier
+reproduces it to 1e-9.
 
-To be clear about scope: **this is a compact, educational hybrid-ML demo — it is not
-AGI, and it does not claim quantum advantage.** See [Effectiveness](#effectiveness-honest-numbers).
-While it could claim quantim advantage. QPU access even from IBM is extremely expensive.
+To be clear about scope up front: **this is not AGI, and it does not claim
+quantum advantage.** What it is: a system with unusually honest machinery,
+where every capability sits behind a pre-registered, measured gate — and the
+failures are documented next to the passes
+([ARCHITECTURE.md §11](ARCHITECTURE.md)).
 
-## Architecture
+## What it does
+
+| capability | the measurement behind it |
+|---|---|
+| **Pageable shard library** | 1:6,200 resident-to-stored at the 1.2T-parameter design point; ships between machines inside `.uql` containers |
+| **From-scratch quantum engine** | exact statevector sim, Mottonen encoding, parameter-shift gradients, kernels, ZNE, Grover; IBM QPU / BlueQubit optional |
+| **Content routing** | sketch-screened cosine over stored prototypes: 47x faster than exact scan at 20k categories, exact rerank always |
+| **Composition** (blackboard) | reads compound scenes a monolithic classifier scores 0.000 on (0.539, at 2.4x seed variance) |
+| **Self-proposed concepts** | clusters what it could not place and asks *you* what to call the group (ARI 1.000, class count never supplied) |
+| **Goal planning** | multi-step action sequences from goals alone — no per-task scripts; capabilities added later are usable without planner changes |
+| **Grounded language** | induced lexicon, order and frame — no templates, asserted over the AST; speaks what it perceives, in three languages, at nesting depths never seen in training |
+| **Self-learning loop** | finds its own gaps, asks the web first (through a found-is-not-believed quarantine), asks the human second |
+| **Evidence accumulation** | corroboration and contradiction typed and graded from live-web measurement; belief rises by degree, conflicts become questions |
+| **Learned dispatch** | cores, threads and tiers decided by machine-learned experience — three brains (classical net / variational quantum circuit / one-qubit-per-core committee) in a measured shootout; 13x regret removed vs the static preference walk |
+
+Where a mechanism failed its gate, that is in the book too: the shared-encoder
+stage failed twice, honestly, and reordered the roadmap; hypervector retrieval
+passed on structure and failed on similarity; a rehearsal mechanism and an
+escalation heuristic were deleted for measuring nothing.
+
+## Quick start
+
+**Windows:** double-click `UltraQuant.bat` — no packages, no environment.
+**Linux/macOS:** `./ultraquant.sh` (desktop app with Tkinter, terminal UI
+without).
+
+```
+python -m ultraquant.gui                   # desktop app: 8 tabs
+python -m ultraquant.tui                   # the same surfaces over SSH
+python -m ultraquant.interpreter.chat     # terminal chat
+python -m ultraquant.forge.build --synthetic 64 --compare
+python -m unittest discover -s tests      # 778 tests, ~2.5 min
+```
+
+In the chat, try:
+
+```
+#####            <- paste a 5x5 glyph; it says what it sees, in its languages
+:learn           <- the model surveys its own gaps and asks you questions
+:learn research  <- it tries the web first (':online on'), quarantined
+goal: the tower height and the bridge length    <- multi-step planning
+:trace           <- the thought pipeline behind the last answer
+```
+
+## Layout
 
 ```
 ultraquant/
-  quantum/     from-scratch qubit engine
-    gates.py      gate matrices (H, X, Y, Z, S, T, RX/RY/RZ) as list[list[complex]]
-    state.py      dense statevector simulator (little-endian: qubit 0 = LSB)
-    circuit.py    backend-agnostic gate-list Circuit with chainable builders
-    backend.py    SimulatorBackend (exact or shot-sampled), QPUBackend (IBM Runtime
-                  Estimator, guarded qiskit imports), auto_backend() dispatch
-    qlayer.py     QuantumFeatureMap: RY angle encoding (pi*tanh(f)), CNOT entangler
-                  ring, data re-uploading; outputs per-qubit <Z> in [-1, 1]
-  model/       ultra-quantized neural network
-    quantize.py   ternary weight quantization ({-1,0,+1} + one fp scale, straight-
-                  through estimator), activation fake-quantization, TernaryLinear
-    network.py    UltraQuantNet: MLP with ternary hidden layers, fp head, softmax
-                  cross-entropy SGD, JSON-safe state_dict round trips
-  memory/      systematic memory
-    systematic.py episodic log + bounded FIFO working memory + semantic facts with
-                  reinforcement/revision + bit-signature index (Hamming similarity),
-                  all JSON-persistable
-  archive/     the Ar(T)chive
-    artchive.py   **T**emporal archive of model ar**T**ifacts — hence Ar(T)chive:
-                  T-numbered snapshots (T-0001, T-0002, ...), sha256 tamper-evident
-                  manifest, restore-time integrity verification, top-level diffs
-  pattern/     the glue
-    recognition.py built-in glyph dataset, PatternRecognizer (hybrid or classical
-                  feature pipeline -> UltraQuantNet -> memory logging), snapshots
-  demo.py      CLI: train/recognize/archive round trip, and a benchmark
+  quantum/     gates - state - circuit - ansatz - vqc - kernels - noise - search
+  model/       ternary quantization - UltraQuantNet - the (failed, kept) encoder
+  shards/      vault - sketch screen - router - budget - prototype consolidation
+  experts/     per-category nets, paged on demand
+  reason/      blackboard - discovery - planner - hypervectors - language
+  memory/      episodic/semantic stores - facts as bucket shards
+  interpreter/ thought pipeline - chat CLI - stash quarantine - learning mode
+  forge/       build libraries from scratch - deployment languages - seed facts
+  native/      C++/CUDA accelerators - the learned dispatch scheduler
+  storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
+  experiments/ the gates: every capability's pre-registered measurement
+tests/         778 tests across 40 modules
 ```
 
-**How a recognition flows:** a glyph's 25 pixels are kept as-is, its 5 per-row means
-are squashed to rotation angles and encoded into a 5-qubit circuit (RY layer + CNOT
-ring, re-uploaded in chunks), and the measured/computed Z expectations become 5 extra
-features. The 30-dim vector goes through the ternary MLP; the prediction is logged as
-an episode in systematic memory and the glyph's bit signature is indexed under the
-predicted label. Model snapshots are committed to the Ar(T)chive, whose manifest
-sha256s make any on-disk tampering detectable at restore time.
+The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
+principles, measured performance of every execution tier, the honest QPU
+analysis (§7 — including why the data-loading wall is real), and the staged
+path toward generality with every gate's verdict, pass or fail (§11).
 
-## Quickstart
+## Rebuilding the native accelerators (optional)
 
-From the project root (Python 3.13, no dependencies to install):
+Prebuilt Windows DLLs ship in `ultraquant/native/_bin/`. To rebuild:
 
 ```
-# full test suite (~2 s)
-python -m unittest discover -s tests -v
-
-# train a hybrid recognizer, recognize noisy glyphs, archive round trip
-python -m ultraquant.demo --epochs 25
-
-# classical-only pipeline
-python -m ultraquant.demo --mode classical
-
-# shot-sampled quantum layer (finite-shot noise, like real hardware)
-python -m ultraquant.demo --shots 512
-
-# hybrid-exact vs hybrid-512-shots vs classical comparison
-python -m ultraquant.demo --benchmark
+powershell -ExecutionPolicy Bypass -File native\build.ps1 -Target all   # Windows
+native/build.sh --target all                                            # Linux/macOS
 ```
 
-## QPU vs. simulator dispatch
+Without them everything runs on the pure-Python tier — slower, identical
+results.
 
-`auto_backend()` in `ultraquant/quantum/backend.py` is the single dispatch point:
+## The rules this codebase is built under
 
-- If `qiskit` + `qiskit_ibm_runtime` are installed **and** a saved IBM Quantum
-  account exists, it returns `QPUBackend`, which translates UltraQuant circuits to
-  Qiskit and estimates Z expectations on real hardware via the Runtime Estimator
-  primitive (default 1024 shots).
-- Otherwise it silently falls back to `SimulatorBackend`, the built-in pure-Python
-  dense statevector engine. It never raises.
-
-All qiskit imports are guarded inside `QPUBackend` methods, so the package — and its
-whole test suite — works identically with or without qiskit installed. Tests always
-use the simulator explicitly and never touch a QPU.
-
-## Effectiveness (honest numbers)
-
-Measured with `python -m ultraquant.demo --benchmark` (25 epochs, seed 0, 320
-training / 120 evaluation samples, evaluation glyphs corrupted with 3 pixel flips):
-
-| config           | train acc | eval acc |
-|------------------|-----------|----------|
-| hybrid-exact     | 0.969     | 0.933    |
-| hybrid-shots512  | 0.963     | 0.933    |
-| classical        | 0.972     | 0.917    |
-
-**Ratio: classical / hybrid-exact = 0.917 / 0.933 = 0.982**, far above the 0.5
-("classical must retain at least 50% of hybrid effectiveness") requirement.
-
-What these numbers honestly mean:
-
-- The hybrid and classical pipelines perform **essentially the same** on this task.
-  The quantum feature map is a nonlinear transform of 5 row means; the classical
-  pipeline feeds the same row means directly, and the ternary MLP learns the task
-  either way. There is no quantum advantage here, and none is claimed — the task is
-  small, the encoding is simple, and 25 raw pixels already carry most of the signal.
-- A traditional machine loses nothing by not having a QPU: the classical statevector
-  simulator computes **exact** expectation values, whereas a real QPU can only
-  *estimate* them from finite shot samples (plus hardware noise). The
-  `hybrid-shots512` row shows the shot-sampled regime — on this task even 512-shot
-  estimation matches the exact result, and exact simulation is strictly the cleaner
-  signal.
-- What the project *does* demonstrate: a working end-to-end hybrid architecture — a
-  correct little-endian statevector engine, angle encoding with data re-uploading,
-  ternary weight quantization trained with a straight-through estimator, systematic
-  memory, and tamper-evident model archiving — in ~2,500 lines of dependency-free
-  Python, with the same code path able to target real IBM hardware.
-
-UltraQuant is a hybrid quantum/classical ML demo. It is not AGI, and its name
-describes its quantization scheme, not its intelligence for now...
+1. **The simulator is the reference** — accelerators are never semantics.
+2. **Never load what you don't need** — store size is bounded by disk, not RAM.
+3. **Recall reinforces** — the catalog reorganises around what is used.
+4. **Found is not believed** — web content is quarantined until it earns belief.
+5. **Gates before experiments** — thresholds are stated in advance, failures
+   are published, and mechanisms that measure nothing get deleted.
