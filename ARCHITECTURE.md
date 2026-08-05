@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.4 · 778 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.5 · 795 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         40 modules, 778 tests
+tests/         41 modules, 795 tests
 ```
 
 ---
@@ -1481,7 +1481,7 @@ tests/test_scheduler.py        learned dispatch, the three-brain shootout, deter
 tests/test_chat_selflearn.py   the whole self-learning loop at the chat surface
 ```
 
-`python -m unittest discover -s tests` → **778 tests, all passing, ~153 s.**
+`python -m unittest discover -s tests` → **795 tests, all passing, ~156 s.**
 Native tests `skipUnless` their tier is present, so the suite stays green on a
 machine with no compiler and no GPU.
 
@@ -2511,6 +2511,51 @@ and timings — and the GUI previously *resolved* "auto" to a concrete device
 before the forge ever ran, silently bypassing the scheduler, which is exactly
 the kind of wiring gap only end-to-end use finds. Held by the dispatch-wiring
 tests in `tests/test_forge.py` alongside `tests/test_scheduler.py`.
+
+#### Quarantined chaos: unpredictability with receipts
+
+A deterministic system cannot surprise itself, and this one is deterministic on
+purpose — nondeterminism has been hunted as a bug (the set-iteration tie-break).
+So the user's idea — quantum-machine noise and timing instability as chaos for
+whimsical, out-of-the-box decisions — arrives the way web content does: through
+a quarantine, on terms that keep the rest of the system provable
+(`reason/whimsy.py`). Three rules make it admissible:
+
+1. **Chaos chooses only among acceptable-equals** — which valid option, never
+   whether an option is valid. Routing answers, fact confidences, gate
+   measurements and test outcomes never touch the well. It is the sibling of
+   found-is-not-believed: *random is not reasoned*.
+2. **Every draw leaves a receipt** — consumer, purpose, bits, choice — so any
+   whimsical run replays exactly from its log. Whimsy with an audit trail.
+3. **Off by default.** The 795-test suite passing unchanged *is* the proof the
+   chaos is contained: an un-opted session is bit-for-bit deterministic.
+
+Sources are measured before they are trusted. Timing jitter scored **1.59
+bits/byte** raw (41 distinct deltas, 508/750 unique blocks) — real but weak,
+credited at one bit per byte and always mixed with `os.urandom`. Genuine
+quantum bits are the premium tier the idea began with: per-decision QPU calls
+die on the §7.1 latency wall, so quantum entropy is a *harvested resource* — an
+explicit, user-approved (billable) job measures a uniform-superposition circuit
+and the bits become the `entropy:quantum` shard, metered one draw at a time.
+
+**A trap is kept as a warning in the module.** The first jitter harvester
+produced all-zero bits (Windows' 100 ns timer swallowed the workload), and
+whitening laundered that constant into *statistically perfect-looking* output.
+Balance tests cannot detect zero entropy after hashing, so sources are credited
+by **raw** measurements (distinct values, unique blocks), never by whitened
+prettiness — and a test asserts the harvest is not a constant.
+
+Wired into two places, each gated. Learning-mode **curiosity** occasionally
+lifts a lower-ranked question (all pending questions are worth asking — the
+ranking is a crude value estimate, and always taking its top never wanders);
+held to stay within the pending set. Dispatch **exploration** occasionally
+re-probes even when the policy is confident, against machine drift. The gate
+was pre-registered *and then corrected to what was measured*: random
+exploration does **not** halve drift regret, so the gate does not claim it —
+what holds is an asymmetry, **zero regret on a stable machine** (re-probing the
+standing winner just re-confirms it) and **35% of drift regret removed** at a
+1/3 pulse. Free when unneeded, helpful when needed; `:whimsy on` in the chat,
+`:whimsy receipts` to audit.
 
 #### The staged path, closed out
 

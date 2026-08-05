@@ -47,6 +47,7 @@ UltraQuant Chat/Interpreter - commands:
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
   :learn research        try the web first (quarantined; needs ':online on')
+  :whimsy on|off         quarantined chaos: curiosity picks, receipted draws
   :teach <cat> <label>   then 5 glyph rows of [#.]{5}
   :recognize             then 5 glyph rows of [#.]{5}
   :consolidate           pack hot shards into a library + snapshot
@@ -354,6 +355,37 @@ class ChatCLI:
             self.emit("  answer with ':learn answer' then 5 rows of [#.]{5}")
         else:
             self.emit("  answer with ':learn answer <text>', or ':learn skip'")
+
+    def _cmd_whimsy(self, args: list[str], more) -> None:
+        """Turn quarantined chaos on or off for this session.
+
+        On: curiosity may lift lower-ranked learning questions, exploration
+        may re-probe dispatch - always among acceptable-equals, always
+        receipted (':whimsy receipts'), never touching correctness. Off is
+        the default and the suite's world: fully deterministic.
+        """
+        from ultraquant.reason.whimsy import EntropyWell
+
+        verb = args[0].lower() if args else "status"
+        if verb == "on":
+            self.session.whimsy = EntropyWell(self.session, enabled=True)
+            self.emit("Whimsy is ON - chaos quarantined to acceptable-equal "
+                      "choices, every draw receipted.")
+        elif verb == "off":
+            self.session.whimsy = None
+            self.emit("Whimsy is OFF - fully deterministic.")
+        elif verb == "receipts":
+            well = self.session.whimsy
+            if well is None or not well.receipts:
+                self.emit("No draws recorded.")
+                return
+            for record in well.receipts[-12:]:
+                self.emit(f"  {record['consumer']:<10} {record['purpose']:<18}"
+                          f" value={record['value']} -> {record['choice']}")
+            self.emit(f"  {well.report()}")
+        else:
+            state = "ON" if self.session.whimsy is not None else "OFF"
+            self.emit(f"Whimsy is {state}. Usage: :whimsy on|off|receipts")
 
     def _cmd_recognize(self, args: list[str], more) -> None:
         """Recognize a glyph."""

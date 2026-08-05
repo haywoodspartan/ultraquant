@@ -99,6 +99,8 @@ class Session:
     storage: Any | None = None
     #: Pattern-driven prefetcher, present when the storage has a RAM tier.
     working_set: Any | None = None
+    #: Quarantined chaos (reason.whimsy.EntropyWell), None until opted into.
+    whimsy: Any | None = None
 
     def save(self) -> None:
         """Persist every store that has one."""
