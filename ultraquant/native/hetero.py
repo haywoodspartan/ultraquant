@@ -275,18 +275,18 @@ class HeterogeneousFeatureExtractor:
         if thread is not None:
             thread.join()
 
-        results = [
-            list(out[s * self.num_qubits:(s + 1) * self.num_qubits]) for s in range(n)
-        ]
+        results: object = accel.Rows(out, self.num_qubits)
 
         gpu_tier = "gpu"
         if n_gpu and gpu_err:
             self._gpu_dead = True
             recovered, gpu_tier = self._run_degrading(batch[:n_gpu], ("cpu", "python"))
+            results = results.tolist() if isinstance(results, accel.Rows) else results
             results[:n_gpu] = recovered
         if n_cpu and cpu_err is not None:
             self._cpu_dead = True
             recovered, cpu_tier = self._run_degrading(batch[n_gpu:], ("python",))
+            results = results.tolist() if isinstance(results, accel.Rows) else results
             results[n_gpu:] = recovered
 
         if n_gpu:

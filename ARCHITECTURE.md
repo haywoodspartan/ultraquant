@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         41 modules, 810 tests
+tests/         42 modules, 833 tests
 ```
 
 ---
@@ -1479,6 +1479,7 @@ tests/test_seed.py             starter knowledge, vocabulary decisions, the doub
 tests/test_prototypes.py       trace consolidation, medoid fidelity, the tripwire
 tests/test_scheduler.py        learned dispatch, the three-brain shootout, determinism
 tests/test_symbols.py          the Greek letters against their reference values
+tests/test_entropy_blackbox.py each entropy test earning its place
 tests/test_chat_selflearn.py   the whole self-learning loop at the chat surface
 ```
 
@@ -1536,8 +1537,8 @@ Stage 0 is done. The items below are engineering on the existing substrate; they
 make the system better at what it already does and do not, on their own, make it
 more general.
 
-1. Zero-copy output path for the native tiers — the 93% marshalling overhead in
-   §6 is still the single biggest available win.
+1. ~~Zero-copy output path for the native tiers~~ — done: `accel.Rows`; the
+   join is free, the remaining cost is *input* flattening (see below).
 2. Source-independence scoring for corroboration (registrable-domain grouping,
    citation graphs) rather than bare netloc counting.
 3. Run the existing circuits on real hardware and measure the mitigated gap
@@ -2603,6 +2604,75 @@ self-test no coincidence passes, since perturbing either component breaks the
 symmetry measurably. All reachable from the chat sandbox (`calc: zeta(2)`,
 `calc: xi(0.3) - xi(0.7)`) as bare names, with attribute escapes still
 blocked.
+
+#### Zero-copy output, and what it revealed about the split
+
+The wrapper profile said the kernels were a minority of their own runtime. At
+131k samples the batch path spent **49% re-boxing** the flat C output into
+Python lists and **33% flattening** inputs, leaving the DLL 16%. `accel.Rows`
+removes the first half: it is a view whose rows are `memoryview` slices of the
+buffer the DLL wrote, so the join costs nothing per row and the old list price
+is paid only by an explicit `tolist()`. Rows are **read-only** on purpose —
+every row is a window on one shared buffer, so a caller mutating row 3 would
+silently corrupt it for every other holder.
+
+The measurement that followed is the useful part, and it corrects the §6
+headline in both directions:
+
+| | 131k x 8 qubits |
+|---|---:|
+| cpu alone (full wrapper) | 115.3 ms |
+| gpu alone (full wrapper) | 118.4 ms |
+| **split, cold** | **89.1 ms — 1.29x** |
+| cpu kernel alone (no marshalling) | 37.4 ms |
+| gpu kernel alone (no marshalling) | 34.7 ms |
+| **input flatten alone** | **38.4 ms** |
+| fair best single (kernel + flatten) | 73.1 ms |
+| split, warm (warmup amortised) | 77.8 ms — **0.94x** |
+
+Two honest readings. Against the *wrapper* the split now wins 1.29x, where §6
+measured 0.92-0.95x — the zero-copy join is what changed. But against a *fair*
+baseline that pays the same flatten and skips the same chunking, the steady
+state is still **0.94x**: the split does not beat a single tier, it beats the
+old marshalling. Input flattening (38.4 ms) now costs more than either kernel
+(34.7 / 37.4 ms), which is the remaining item — and it cannot be viewed away,
+because a list-of-lists must genuinely be copied into a flat buffer once.
+Callers that can hold their batches in an `array('d')` from the start would
+skip it entirely; that is the next measurement, not a claim.
+
+#### The entropy black box
+
+The chaos *injection* was reverted for a wrong measurement. The chaos
+*measurement* is the part worth building, and the black-box framing is what
+makes it trustworthy: `quantum/entropy_blackbox.py` judges a source by the
+bytes it emits and nothing else. No configuration describes the source, so no
+plausible story about where randomness comes from can buy credit.
+
+Credit is the **minimum** across independent tests — a source is only as
+trusted as its weakest measured property — and the design claim that each test
+catches what the others miss is *demonstrated*, not asserted:
+
+| source | min-entropy | serial | compression | caught by |
+|---|---:|---:|---:|---|
+| `os.urandom` | 7.09 | 7.88 | 8.00 | *(credited 7.09)* |
+| counter | **8.00** | 0.18 | 0.60 | serial only |
+| slow ramp (sensor-like) | **8.00** | 0.01 | 0.81 | serial only |
+| **whitened constant** | **4.42** | **4.68** | **0.20** | **compression only** |
+| biased 90% zero | 0.15 | 1.11 | 1.46 | min-entropy only |
+| all zeros | — | — | — | collapse guard |
+
+A counter has a *perfect* histogram, so a histogram-only assessor credits it
+the full 8 bits/byte. And the row that matters most is the whitened constant —
+**the exact trap that made the reverted work look sound**: hashing a constant
+passes both the histogram and the correlation test at ~4.5 bits/byte, and only
+compressibility sees through it. Monobit balance, the test a whitener passes
+flawlessly, is reported and **never credited** — crediting it is precisely how
+the earlier work convinced itself.
+
+Judged honestly, this machine's timing jitter credits **0.10-1.16 bits/byte**
+and is refused as a standalone source, which is the assessor doing its job on
+the very source that started the thread. Reachable as `:entropy` and
+`:entropy jitter` in the chat.
 
 #### The staged path, closed out
 

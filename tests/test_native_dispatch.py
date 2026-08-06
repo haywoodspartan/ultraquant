@@ -342,5 +342,87 @@ class TestRecognizerExtractorHook(unittest.TestCase):
         self.assertLessEqual(confidence, 1.0)
 
 
+class TestRowsZeroCopy(unittest.TestCase):
+    """The zero-copy output view that replaced per-row list re-boxing.
+
+    Measured problem: at 131k samples the split spent its wrapper time
+    re-boxing a flat C buffer into n Python lists (49%) and flattening inputs
+    (33%), leaving the kernels 16%. ``Rows`` returns one object whose rows are
+    memoryview slices of the buffer the DLL wrote - the join costs nothing per
+    row, and the old list price is paid only by an explicit ``tolist()``.
+    """
+
+    def _rows(self):
+        from array import array
+        from ultraquant.native.accel import Rows
+
+        return Rows(array("d", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), 3)
+
+    def test_rows_present_the_batch_shape(self):
+        rows = self._rows()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(list(rows[0]), [1.0, 2.0, 3.0])
+        self.assertEqual(list(rows[1]), [4.0, 5.0, 6.0])
+
+    def test_rows_iterate_in_order(self):
+        self.assertEqual([list(r) for r in self._rows()],
+                         [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    def test_negative_and_out_of_range_indexing(self):
+        rows = self._rows()
+        self.assertEqual(list(rows[-1]), [4.0, 5.0, 6.0])
+        with self.assertRaises(IndexError):
+            _ = rows[2]
+
+    def test_rows_are_read_only(self):
+        """Every row is a window on one shared buffer; mutation would corrupt
+        the batch for every other holder, so it is refused."""
+        rows = self._rows()
+        with self.assertRaises(TypeError):
+            rows[0][0] = 99.0
+
+    def test_tolist_reproduces_the_old_representation(self):
+        self.assertEqual(self._rows().tolist(),
+                         [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    def test_empty_width_is_survivable(self):
+        from array import array
+        from ultraquant.native.accel import Rows
+
+        self.assertEqual(len(Rows(array("d", []), 0)), 0)
+
+
+class TestSplitReturnsAView(_Close):
+    """The heterogeneous split hands back a Rows view, values unchanged."""
+
+    def _extractor(self, force=None):
+        from ultraquant.native.hetero import HeterogeneousFeatureExtractor
+
+        return HeterogeneousFeatureExtractor(num_qubits=4, force=force)
+
+    def test_split_output_matches_the_cpu_tier_exactly(self):
+        import random
+
+        rng = random.Random(0)
+        batch = [[rng.random() for _ in range(4)] for _ in range(200)]
+        split = self._extractor().extract_batch(batch)
+        cpu = self._extractor("cpu").extract_batch(batch)
+        self.assertEqual(len(split), len(cpu))
+        for a_row, b_row in zip(split, cpu):
+            for a, b in zip(a_row, b_row):
+                self.assertAlmostEqual(a, b, places=9)
+
+    def test_a_view_row_equals_the_python_tier(self):
+        import random
+
+        rng = random.Random(1)
+        batch = [[rng.random() for _ in range(4)] for _ in range(50)]
+        got = self._extractor().extract_batch(batch)
+        want = self._extractor("python").extract_batch(batch)
+        for a_row, b_row in zip(got, want):
+            for a, b in zip(list(a_row), b_row):
+                self.assertAlmostEqual(a, b, places=9)
+
+
 if __name__ == "__main__":
     unittest.main()

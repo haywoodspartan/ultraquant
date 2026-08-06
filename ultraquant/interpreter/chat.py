@@ -43,6 +43,7 @@ UltraQuant Chat/Interpreter - commands:
   :online on|off         gate network access
   :fetch <url>           fetch a URL into the contemporary stash
   :code <source>         run one line through the sandboxed code function
+  :entropy [src]         judge an entropy source by its output alone
   :learn                 survey for gaps; the model asks what it wants to know
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
@@ -354,6 +355,48 @@ class ChatCLI:
             self.emit("  answer with ':learn answer' then 5 rows of [#.]{5}")
         else:
             self.emit("  answer with ':learn answer <text>', or ':learn skip'")
+
+    def _cmd_entropy(self, args: list[str], more) -> None:
+        """Judge an entropy source by its output alone - the black box.
+
+        ``:entropy`` assesses the OS pool; ``:entropy jitter`` this machine's
+        timing wobble. Nothing about a source's internals is consulted, which
+        is the point: a plausible story about where randomness comes from
+        cannot buy trust, only measured output can.
+        """
+        import os as _os
+
+        from ultraquant.quantum.entropy_blackbox import assess
+
+        which = (args[0].lower() if args else "urandom")
+        if which == "jitter":
+            import time as _time
+
+            def source(n: int) -> bytes:
+                deltas = []
+                for _ in range(n):
+                    start = _time.perf_counter_ns()
+                    churn: dict[str, list[int]] = {}
+                    for i in range(60):
+                        churn[str(i)] = [i] * 7
+                    deltas.append(_time.perf_counter_ns() - start)
+                floor = min(deltas)
+                return bytes(((d - floor) // 100) & 0xFF for d in deltas)
+        elif which == "urandom":
+            def source(n: int) -> bytes:
+                return _os.urandom(n)
+        else:
+            self.emit("Usage: :entropy [urandom|jitter]")
+            return
+
+        verdict = assess(source, sample_bytes=4096, draws=2)
+        self.emit(f"  source     : {which}")
+        self.emit(f"  credited   : {verdict.credited_bits_per_byte:.2f} bits/byte "
+                  f"(of 8 ideal)")
+        self.emit(f"  trustworthy: {verdict.trustworthy}")
+        self.emit(f"  reason     : {verdict.reason}")
+        for name, score in sorted(verdict.tests.items()):
+            self.emit(f"    {name:<28} {score:.3f}")
 
     def _cmd_recognize(self, args: list[str], more) -> None:
         """Recognize a glyph."""
