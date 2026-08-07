@@ -97,6 +97,14 @@ class UltraQuantTUI:
         self.learner: Any = None
         self.running = True
         self._last_trace: list[dict] = []
+        from ultraquant.config import Settings
+
+        self.settings = Settings.load()
+        # An explicit home always wins; the saved one is only the fallback.
+        if home is None:
+            saved = self.settings.get("home", "")
+            if saved:
+                self.home = Path(saved)
 
     # ------------------------------------------------------------------ #
     # output
@@ -173,7 +181,29 @@ class UltraQuantTUI:
             from ultraquant.interpreter.thoughts import build_session
 
             self.session = build_session(self.home, seed=0)
+            self._apply_settings()
         return self.session
+
+    def _apply_settings(self) -> None:
+        """Push saved settings onto a freshly opened session."""
+        budget = self.settings.get("budget_bytes")
+        if isinstance(budget, int) and budget > 0:
+            self.session.cache.set_budget(budget)
+        if self.settings.get("online"):
+            self.session.web.set_online(True)
+
+    def _save_settings(self) -> None:
+        """Record the current session state and write it out."""
+        if self.session is not None:
+            try:
+                self.settings.set(
+                    "budget_bytes",
+                    int(self.session.cache.stats()["budget_bytes"]))
+                self.settings.set("online", bool(self.session.web.online))
+            except Exception:  # noqa: BLE001 - a settings write is never fatal
+                pass
+        self.settings.set("home", str(self.home))
+        self.settings.save()
 
     # ------------------------------------------------------------------ #
     # dispatch
@@ -206,8 +236,16 @@ class UltraQuantTUI:
         name = name.lower()
         rest = rest.strip()
         if name in ("q", "quit", "exit"):
+            # Saved on the way out as well as on change, so a setting altered
+            # through some path that forgot to persist is not lost.
+            self._save_settings()
             self.running = False
             return "bye"
+        if name == "settings":
+            if rest == "save":
+                self._save_settings()
+                return f"saved to {self.settings.path}"
+            return self.settings.describe()
         if name in ("h", "help", "?"):
             return self.help_text()
         if name == "status":
@@ -217,7 +255,9 @@ class UltraQuantTUI:
                 self.home = Path(rest)
                 self.session = None
                 self.learner = None
-                return f"home is now {self.home} (session will reopen on next use)"
+                self._save_settings()
+                return (f"home is now {self.home} and saved "
+                        "(session will reopen on next use)")
             return str(self.home)
         if name == "trace":
             if not self._last_trace:
@@ -243,7 +283,8 @@ class UltraQuantTUI:
             "anywhere",
             "  :status     detected tiers and session state",
             "  :trace      the thought trace of the last chat turn",
-            "  :home <dir> point at a different session root",
+            "  :home <dir> point at a different session root (saved)",
+            "  :settings   where preferences live, and what is in them",
             "  :help  :quit",
         ]
         return "\n".join(lines)
@@ -425,7 +466,12 @@ class UltraQuantTUI:
             session = self.ensure_session()
             megabytes = int(rest)
             session.cache.set_budget(megabytes * 1024 * 1024)
-            return f"shard cache budget set to {megabytes} MB"
+            # Stored in bytes; this field is megabytes and the GUI's is
+            # kilobytes, so the conversion happens here rather than in the file.
+            self.settings.set("budget_bytes", megabytes * 1024 * 1024)
+            self.settings.save()
+            return (f"shard cache budget set to {megabytes} MB "
+                    f"(saved to {self.settings.path.name})")
         return "commands: detect | ram <MB>"
 
     def _screen_forge(self, line: str) -> str:
@@ -493,7 +539,8 @@ class UltraQuantTUI:
         if verb in ("library", "forge"):
             self.home = Path(rest)
             self.session = None
-            return f"{verb} location set to {rest}"
+            self._save_settings()
+            return f"{verb} location set to {rest} (saved)"
         return "commands: show | use <uri> | library <dir> | forge <dir>"
 
     def _screen_stash(self, line: str) -> str:

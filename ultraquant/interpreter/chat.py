@@ -44,6 +44,7 @@ UltraQuant Chat/Interpreter - commands:
   :fetch <url>           fetch a URL into the contemporary stash
   :code <source>         run one line through the sandboxed code function
   :entropy [src]         judge an entropy source by its output alone
+  :settings              where preferences live, and what is in them
   :learn                 survey for gaps; the model asks what it wants to know
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
@@ -515,6 +516,19 @@ class ChatCLI:
                           "however many models back it.")
         except LMStudioUnavailable as exc:
             self.emit(f"  LM Studio unavailable: {exc}")
+
+    def _cmd_settings(self, args: list[str], more) -> None:
+        """Show the persistent settings, and where they are kept.
+
+        Read-only here on purpose. The chat CLI takes its budget and network
+        state from flags and colon-commands for the life of one run; the GUI
+        and TUI are the surfaces that hold a session open long enough for a
+        preference to be worth remembering. This exists so the file is
+        discoverable from every surface, not just the two that write it.
+        """
+        from ultraquant.config import Settings
+
+        self.emit(Settings.load().describe())
 
     def _cmd_recognize(self, args: list[str], more) -> None:
         """Recognize a glyph."""

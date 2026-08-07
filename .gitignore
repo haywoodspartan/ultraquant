@@ -13,6 +13,12 @@ uq_gui_home*/
 artchive_store/
 forged/
 
+# Portable-mode settings. ultraquant/config.py writes here when the file
+# already exists beside the checkout, so a working copy keeps its own
+# preferences - which are machine-specific (paths, device choice, RAM budget)
+# and never belong to anyone else.
+ultraquant.json
+
 # Native build intermediates (the prebuilt DLLs in ultraquant/native/_bin ARE
 # tracked - they are the optional accelerators the quick start references).
 native/_build/

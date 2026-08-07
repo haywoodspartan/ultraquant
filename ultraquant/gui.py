@@ -150,6 +150,44 @@ class _QueueStream:
         """No-op; the queue is always current."""
 
 
+def _schema_default(key: str):
+    """The declared default for a dotted settings key, or None."""
+    from ultraquant.config import DEFAULTS
+
+    node = DEFAULTS
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _stored_value(key: str, value):
+    """Coerce a widget value to the type the settings schema declares.
+
+    The config file stays typed - ints as ints - so a value written by one
+    surface is readable by another without a string/number mismatch quietly
+    reverting it on the next load.
+    """
+    default = _schema_default(key)
+    if default is None or isinstance(default, str):
+        return str(value)
+    if isinstance(default, bool):
+        return bool(value)
+    return type(default)(value)
+
+
+def _widget_value(var, saved):
+    """Coerce a stored value to what this particular Tk variable accepts."""
+    if isinstance(var, tk.BooleanVar):
+        return bool(saved)
+    if isinstance(var, tk.IntVar):
+        return int(saved)
+    if isinstance(var, tk.DoubleVar):
+        return float(saved)
+    return str(saved)
+
+
 class UltraQuantGUI:
     """The main window."""
 
@@ -171,6 +209,12 @@ class UltraQuantGUI:
         self.last_error: str | None = None
         #: model id -> ModelCard for the Panel tab's current catalogue.
         self._panel_cards: dict = {}
+        # Loaded before any tab is built, applied after: the tab builders
+        # hard-code their defaults, so overriding them has to come second.
+        from ultraquant.config import Settings
+
+        self.settings = Settings.load()
+        self._settings_ready = False
 
         root.title("UltraQuant")
         root.geometry("1080x720")
@@ -190,6 +234,7 @@ class UltraQuantGUI:
         self._build_panel_tab()
         self._build_bench_tab()
         self._build_status_bar()
+        self._apply_settings()
 
         self.root.bind("<Destroy>", self._on_destroy)
         self.root.after(_POLL_MS, self._pump)
@@ -204,7 +249,10 @@ class UltraQuantGUI:
         session.add_command(label="Change session folder...", command=self._choose_home)
         session.add_command(label="Consolidate (pack + snapshot)", command=self._consolidate)
         session.add_separator()
-        session.add_command(label="Quit", command=self.root.destroy)
+        session.add_separator()
+        session.add_command(label="Where are my settings?",
+                            command=self._show_settings)
+        session.add_command(label="Quit", command=self.close)
         menu.add_cascade(label="Session", menu=session)
 
         helpmenu = tk.Menu(menu, tearoff=0)
@@ -1961,6 +2009,135 @@ class UltraQuantGUI:
         self._append(self.transcript, f"[stash] rejected {entry_id}\n")
         self._refresh_stash()
 
+    # ---------------------------------------------------------- settings
+
+    #: Setting key -> the Tk variable holding it. One table drives both
+    #: directions, so a setting cannot be loaded but never saved (or the
+    #: reverse), which is the usual way these two lists drift apart.
+    #:
+    #: Types are *not* listed. A single declared type cannot serve both
+    #: directions: several of these are ``StringVar``s holding numbers, which
+    #: need ``int`` on the way to a typed config file and ``str`` on the way
+    #: back into the widget. Naming one type meant "99" was written where the
+    #: schema said int, rejected on the next load, and the setting silently
+    #: reverted. Each direction now takes its type from its own side - the
+    #: schema when writing, the variable when reading.
+    _SETTING_VARS = (
+        ("online", "online_var"),
+        ("compute_device", "compute_device"),
+        ("compute_threads", "compute_threads"),
+        ("quantum_tier", "quantum_tier"),
+        ("quantum_shots", "quantum_shots"),
+        ("storage_uri", "storage_uri"),
+        ("library_root", "library_root"),
+        ("forge_root", "forge_root"),
+        ("lmstudio.quarantine", "panel_to_stash"),
+    )
+
+    def _apply_settings(self) -> None:
+        """Push saved settings into the widgets, after every tab exists.
+
+        A value that no longer makes sense — a removed device, a tier this
+        build does not have — is skipped rather than forced, so a settings file
+        from another machine cannot leave the UI showing something that is not
+        really selected.
+        """
+        # Budget is converted explicitly: the field is kilobytes, the setting
+        # is bytes, and mapping them through the generic table would hide the
+        # conversion in a place nobody would look for it.
+        budget = self.settings.get("budget_bytes")
+        if isinstance(budget, int) and budget > 0:
+            self.budget_var.set(str(budget // 1024))
+        for key, attr in self._SETTING_VARS:
+            saved = self.settings.get(key)
+            if saved in (None, ""):
+                continue
+            var = getattr(self, attr, None)
+            if var is None:
+                continue
+            try:
+                var.set(_widget_value(var, saved))
+            except (tk.TclError, ValueError, TypeError):
+                self.settings.problems.append(
+                    f"{key}: {saved!r} is not usable here; keeping the default")
+        forge = self.settings.get("forge") or {}
+        for name, value in forge.items():
+            var = self.forge_vars.get(name) if hasattr(self, "forge_vars") else None
+            if var is not None and value not in (None, ""):
+                try:
+                    var.set(str(value))
+                except tk.TclError:
+                    pass
+        self._settings_ready = True
+        for problem in self.settings.problems:
+            self._append(self.transcript, f"[settings] {problem}\n")
+
+    def _collect_settings(self) -> None:
+        """Read the widgets back into the settings object."""
+        if not getattr(self, "_settings_ready", False):
+            return                      # never save the build-time defaults
+        for key, attr in self._SETTING_VARS:
+            var = getattr(self, attr, None)
+            if var is None:
+                continue
+            try:
+                self.settings.set(key, _stored_value(key, var.get()))
+            except (tk.TclError, ValueError, TypeError):
+                continue                # a half-typed field is not a setting
+        if hasattr(self, "forge_vars"):
+            from ultraquant.config import DEFAULTS
+
+            defaults = DEFAULTS.get("forge", {})
+            for name, var in self.forge_vars.items():
+                try:
+                    raw = var.get()
+                except tk.TclError:
+                    continue
+                # These are all StringVars, so every value arrives as text.
+                # Storing "99" where the schema says int would be rejected on
+                # the next load and silently revert - the config file stays
+                # typed and the widget layer converts, exactly as the budget
+                # does between kilobytes and bytes.
+                want = type(defaults.get(name, raw))
+                try:
+                    self.settings.set(f"forge.{name}",
+                                      want(raw) if want is not str else str(raw))
+                except (ValueError, TypeError):
+                    continue            # a half-typed field is not a setting
+        try:
+            self.settings.set("budget_bytes",
+                              int(float(self.budget_var.get()) * 1024))
+        except (tk.TclError, ValueError):
+            pass
+        self.settings.set("home", str(self.home))
+        models = self._panel_models() if hasattr(self, "panel_tree") else []
+        if models:
+            # Only overwrite a remembered panel when one is actually selected,
+            # or opening the app and not touching the Panel tab would forget it.
+            self.settings.set("lmstudio.panel_models", models)
+
+    def _save_settings(self) -> None:
+        """Collect and write. Failure is reported, never fatal."""
+        self._collect_settings()
+        if not self.settings.save() and self.settings.problems:
+            self._append(self.transcript,
+                         f"[settings] {self.settings.problems[-1]}\n")
+
+    def _show_settings(self) -> None:
+        """Print where settings live and what is in them."""
+        self._collect_settings()
+        self._append(self.transcript, "\n" + self.settings.describe() + "\n")
+        self.notebook.select(0)
+
+    def close(self) -> None:
+        """Save and shut down."""
+        try:
+            self._save_settings()
+        except Exception:  # noqa: BLE001 - never block the window from closing
+            pass
+        self._alive = False
+        self.root.destroy()
+
     def _choose_home(self) -> None:
         """Switch to a different session folder."""
         path = filedialog.askdirectory(title="Choose session folder")
@@ -1999,7 +2176,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     argv = list(sys.argv[1:] if argv is None else argv)
-    home = Path(argv[0]) if argv else Path.cwd() / "uq_home"
+    if argv:
+        home = Path(argv[0])
+    else:
+        from ultraquant.config import Settings
+
+        # An explicit folder on the command line always wins; the saved one
+        # is only a default for when none was given.
+        saved = Settings.load().get("home", "")
+        home = Path(saved) if saved else Path.cwd() / "uq_home"
 
     root = tk.Tk()
     try:
@@ -2008,7 +2193,10 @@ def main(argv: list[str] | None = None) -> int:
             style.theme_use("vista")
     except Exception:  # noqa: BLE001 - theming is cosmetic
         pass
-    UltraQuantGUI(root, home)
+    app = UltraQuantGUI(root, home)
+    # Settings are also saved as they change; this catches the rest
+    # (window geometry of intent, last-used fields) on a clean exit.
+    root.protocol("WM_DELETE_WINDOW", app.close)
     root.mainloop()
     return 0
 
