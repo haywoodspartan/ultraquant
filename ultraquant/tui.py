@@ -44,6 +44,7 @@ SCREENS: tuple[tuple[str, str], ...] = (
     ("library", "the shard catalog and what is resident"),
     ("storage", "where the library lives; library and forge locations"),
     ("stash", "triage web claims: fact, opinion, or drop"),
+    ("panel", "ask local LM Studio models, counted by independent lineage"),
     ("bench", "measure the execution tiers on this machine"),
 )
 
@@ -477,6 +478,48 @@ class UltraQuantTUI:
             session.stash.reject(entry_id)
             return f"entry {entry_id} rejected"
         return "commands: list | promote <id> | reject <id>"
+
+    def _screen_panel(self, line: str) -> str:
+        """The LLMLS teacher panel, at parity with the chat CLI's ':panel'.
+
+        Every surface must reach every capability - the chat CLI gaining
+        learning mode before the TUI did was recorded as a gap, and this
+        avoids repeating it.
+        """
+        from ultraquant.interpreter.llmls import (
+            LMStudioUnavailable, TeacherPanel, catalogue, independent_groups,
+        )
+
+        verb, _, rest = line.partition(" ")
+        verb = verb.lower()
+        try:
+            if verb in ("list", ""):
+                chat = [c for c in catalogue() if c.is_chat]
+                if not chat:
+                    return "LM Studio has no chat models"
+                groups = independent_groups(chat)
+                out = [f"{len(chat)} chat model(s) in {len(groups)} "
+                       f"independent voice(s):"]
+                for index, group in enumerate(groups, 1):
+                    out.append(f"  voice {index} (arch={group[0].arch or '?'}, "
+                               f"publisher={group[0].publisher or '?'}):")
+                    for card in group:
+                        out.append(f"    {'*' if card.loaded else ' '} {card.id}")
+                out.append("  * = loaded. Voice counts are a LOWER BOUND on "
+                           "correlation.")
+                return "\n".join(out)
+            if verb == "ask":
+                models, _, question = rest.partition("?")
+                names = models.split()
+                if not names or not question.strip():
+                    return "usage: ask <model> [<model>...] ? <question>"
+                panel = TeacherPanel(names)
+                consensus = panel.ask(question.strip())
+                return (panel.independence_report() + "\n"
+                        + consensus.as_text())
+        except LMStudioUnavailable as exc:
+            return f"LM Studio unavailable: {exc}"
+        return "commands: list | ask <model>... ? <question>"
 
     def _screen_bench(self, line: str) -> str:
         """Measurements."""

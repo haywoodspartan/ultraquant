@@ -48,6 +48,8 @@ UltraQuant Chat/Interpreter - commands:
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
   :learn research        try the web first (quarantined; needs ':online on')
+  :panel                 local LM Studio models, grouped by independent lineage
+  :panel <m>.. ? <q>     ask each model in isolation; agreement counted by voice
   :teach <cat> <label>   then 5 glyph rows of [#.]{5}
   :recognize             then 5 glyph rows of [#.]{5}
   :consolidate           pack hot shards into a library + snapshot
@@ -322,6 +324,9 @@ class ChatCLI:
                           f"{report['detail']}")
             self._show_learn_question()
             return
+        if verb == "panel":
+            self._learn_from_panel(learning, question, args[1:])
+            return
         if verb in ("answer", "a"):
             if question.expects == "glyph":
                 rows = self._take_rows(more)
@@ -339,7 +344,54 @@ class ChatCLI:
             self.emit(f"{mark}: {answer.detail}")
             self._show_learn_question()
             return
-        self.emit("Usage: :learn [find|answer <text>|skip|research]")
+        self.emit("Usage: :learn [find|answer <text>|skip|research|"
+                  "panel <model>...]")
+
+    def _learn_from_panel(self, learning, question, models: list[str]) -> None:
+        """Answer the model's own open question with a teacher panel.
+
+        This is the LLMLS in its intended role: the system decides what it
+        does not know, and several independently-lineaged local models are
+        asked. It is the same shape as ``:learn research``, with a panel in
+        place of the web — and the same rule, which is that a source does not
+        become a fact by being asked.
+
+        The answer is **not** applied directly. It is quarantined, and only
+        offered for application when independent voices corroborated it; a
+        single voice, or a split, leaves the question open. That is the whole
+        difference between a panel and an oracle, and skipping it here would
+        undo the accounting the panel exists to do.
+        """
+        from ultraquant.interpreter.llmls import LMStudioUnavailable, TeacherPanel
+
+        if question.expects == "glyph":
+            self.emit("  A glyph question needs pixels, which a text panel "
+                      "cannot supply. Use ':learn answer' with 5 rows.")
+            return
+        if not models:
+            self.emit("Usage: :learn panel <model> [<model>...]  "
+                      "(see ':panel' for the catalogue)")
+            return
+        try:
+            panel = TeacherPanel(models)
+            self.emit(panel.independence_report())
+            self.emit(f"  asking: {question.prompt}")
+            result = panel.teach(question.prompt, self.session.stash)
+        except LMStudioUnavailable as exc:
+            self.emit(f"  LM Studio unavailable: {exc}")
+            return
+
+        consensus = result["consensus"]
+        self.emit(consensus.as_text())
+        self.emit(f"  {result['filed']} claim(s) quarantined in the stash.")
+        if consensus.corroborated:
+            self.emit(f"  -> {consensus.voices} independent voices agree. "
+                      "Review with ':stash', then ':learn answer <text>' to "
+                      "apply it, or ':promote <id>' to store it as a fact.")
+        else:
+            self.emit("  -> not corroborated across independent voices; the "
+                      "question stays open. This is the correct outcome, not "
+                      "a failure of the panel.")
 
     def _show_learn_question(self) -> None:
         """Print the question at the head of the queue."""
@@ -397,6 +449,64 @@ class ChatCLI:
         self.emit(f"  reason     : {verdict.reason}")
         for name, score in sorted(verdict.tests.items()):
             self.emit(f"    {name:<28} {score:.3f}")
+
+    def _cmd_panel(self, args: list[str], more) -> None:
+        """Interrogate a panel of local LM Studio models - the LLMLS.
+
+        ``:panel`` lists the catalogue with its independence accounting;
+        ``:panel <model> <model> ... ? <question>`` puts one question to each
+        named model in isolation and reports what they agreed on, weighted by
+        *independent lineage* rather than by headcount.
+
+        Nothing the panel says is believed. Agreement across independent
+        voices is evidence; agreement between a model and its own fine-tune is
+        not evidence at all, and the report distinguishes them. Use ``:stash``
+        and ``:promote`` to decide what, if anything, becomes a fact.
+        """
+        from ultraquant.interpreter.llmls import (
+            LMStudioUnavailable, TeacherPanel, catalogue, independent_groups,
+        )
+
+        try:
+            if not args:
+                cards = catalogue()
+                chat = [card for card in cards if card.is_chat]
+                groups = independent_groups(chat)
+                self.emit(f"  {len(chat)} chat model(s) in {len(groups)} "
+                          f"independent voice(s):")
+                for index, group in enumerate(groups, 1):
+                    self.emit(f"    voice {index} (arch={group[0].arch or '?'}, "
+                              f"publisher={group[0].publisher or '?'}):")
+                    for card in group:
+                        mark = "*" if card.loaded else " "
+                        self.emit(f"      {mark} {card.id}")
+                self.emit("  * = currently loaded. Voice counts are a LOWER "
+                          "BOUND on correlation.")
+                return
+
+            if "?" not in args:
+                self.emit("Usage: :panel  |  :panel <model> [<model>...] "
+                          "? <question>")
+                return
+            cut = args.index("?")
+            models, question = args[:cut], " ".join(args[cut + 1:]).strip()
+            if not models or not question:
+                self.emit("Need at least one model and a question.")
+                return
+
+            panel = TeacherPanel(models)
+            self.emit(panel.independence_report())
+            self.emit("  asking (local models are slow; this may take a while)...")
+            consensus = panel.ask(question, max_tokens=120)
+            self.emit(consensus.as_text())
+            if consensus.corroborated:
+                self.emit("  -> corroborated across independent voices; "
+                          "still quarantined until promoted.")
+            else:
+                self.emit("  -> NOT corroborated. One voice is one source, "
+                          "however many models back it.")
+        except LMStudioUnavailable as exc:
+            self.emit(f"  LM Studio unavailable: {exc}")
 
     def _cmd_recognize(self, args: list[str], more) -> None:
         """Recognize a glyph."""

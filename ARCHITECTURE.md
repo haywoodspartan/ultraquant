@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.4 · 778 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.5 · 883 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         42 modules, 833 tests
+tests/         43 modules, 883 tests
 ```
 
 ---
@@ -2640,6 +2640,35 @@ because a list-of-lists must genuinely be copied into a flat buffer once.
 Callers that can hold their batches in an `array('d')` from the start would
 skip it entirely; that is the next measurement, not a claim.
 
+#### The measurement was taken: `FlatBatch`, and a confound caught in it
+
+`hetero.FlatBatch` is that path — an `array('d')` and a row width, accepted
+directly by `extract_batch`, which splits it across GPU and CPU threads writing
+into one shared output buffer and returns an `accel.Rows` view. Input and output
+marshalling are then both gone.
+
+The first end-to-end number was 90.5 → 27.0 ms, a 70% saving with output parity.
+**It was not a valid comparison.** The list path had run 100% CPU while the flat
+path took a GPU/CPU split, so the two arms differed in more than the input
+format. Controlling for it:
+
+| tier | list input | flat input | saved |
+|---|---:|---:|---:|
+| forced cpu | 121.1 ms | 36.7 ms | **70%** |
+| forced gpu | 119.6 ms | 24.0 ms | **80%** |
+| auto, `gpu_fraction` pinned 0.54 | 63.0 ms | 21.3 ms | **66%** |
+
+With the split held constant the saving survives at 66–80%, so it is genuinely
+the eliminated marshalling rather than a luckier device split.
+
+**The honest limit, which is most of the story.** Flattening a list-of-lists
+costs 39.8 ms; building an `array('d')` *from* those same lists costs 29.7 ms.
+So a caller that already materialised Python lists saves only ~25% by converting.
+Generating flat directly costs 11.2 ms, and that is where the 66–80% actually
+comes from. `FlatBatch` pays off for producers that never build the lists at all
+— it is not a free speedup for existing callers, and `FlatBatch.from_rows` exists
+for convenience rather than for speed.
+
 #### The entropy black box
 
 The chaos *injection* was reverted for a wrong measurement. The chaos
@@ -2676,6 +2705,146 @@ the very source that started the thread. Reachable as `:entropy` and
 
 #### The staged path, closed out
 
+### 11.11 An external encoder was tried, and the gate failed on its own control
+
+[§11.5](#115-stage-1-was-run-and-it-failed) failed and named the reason: for
+stroke patterns **raw pixels were already close to an ideal representation**, so
+compressing them could only lose. It also named the condition under which a
+learned representation *should* pay — "a perceptual domain where the raw features
+are a poor representation". Text routing by lexical overlap is exactly that
+domain: "a box outline" and "a square" share no token, so a signature built from
+tokens cannot connect them in principle, not merely in practice.
+
+LM Studio makes a real embedding model available locally over HTTP
+(`ultraquant/interpreter/lmstudio.py`), so the mechanism §11.5 said was needed
+could be tested rather than argued about. `ultraquant/experiments/embed_gate.py`
+holds the gate, written before the run: on paraphrased queries the embedding
+route must beat the lexical route by **more than the seed-to-seed standard
+deviation** — the §11.5 criterion verbatim — and it must not win the control.
+
+**The first control was at ceiling, and that is the finding.** The control used
+*verbatim* queries, where the query is the stored text. Lexical scores 1.000
+there, embeddings tied at 1.000, and the control was recorded as held. It was
+not held: **at ceiling a control cannot fail in the direction it exists to
+detect**, because nothing scores above 1.0. That is precisely the defect that
+invalidated §11.5's first run, arriving from the opposite side. Under it, this
+reported a clean PASS at 5.66× seed sd.
+
+The control was rebuilt as a **partial-overlap** condition — queries sharing some
+vocabulary with their category, so lexical lands mid-range with room above it and
+a merely-better classifier has somewhere to show that.
+
+| condition | lexical | embedding | delta |
+|---|---:|---:|---:|
+| paraphrased (disjoint vocabulary) | 0.300 | 0.833 | **+0.533** |
+| partial overlap (**control**) | 0.912 | 1.000 | **+0.087** |
+| verbatim (sanity, at ceiling) | 1.000 | 1.000 | +0.000 |
+
+*8 seeds; paraphrase seed sd 0.094, margin ratio 5.66×; control sd 0.033.*
+
+**FAIL.** The paraphrase margin is large and clears the §11.5 criterion
+comfortably. But embeddings also win the control by +0.087, which is 2.6× the
+control's own noise — so part of the advantage is capacity, not meaning, and
+under the criterion written before the run the paraphrase margin cannot be
+attributed to semantics.
+
+**The rescue that was declined.** A pure-capacity account predicts a roughly
+*equal* edge in both conditions, and the paraphrase edge is 6× the control edge.
+A difference-in-differences would read **+0.446** and pass easily — and is
+probably the better-specified test, since subtracting the control is what a
+control is for. But it was formulated after seeing the numbers, and adopting a
+criterion because it converts a fail into a pass is the same goalpost move §11.5
+refused when a +0.014 effect's interval cleared zero. So the gate failed. The
+difference-in-differences criterion is now written down for a future run **on
+categories not used here**, where it will be pre-registered rather than
+retrofitted, and only that run can pass it.
+
+The cost is also on the record: 2.9 ms per embedded string against 0.015 ms for a
+token-set intersection, a **197× ratio** that any future pass would still have to
+justify.
+
+### 11.12 LLMLS: a panel of local models, and what their agreement is worth
+
+`ultraquant/interpreter/llmls.py` lets the user choose which open-source models
+sit on a panel; LM Studio loads them on demand, each is asked the same question
+in isolation, and what they say enters the contemporary stash — quarantined,
+like any scraped page. The models are **sources being interrogated**, never the
+system's voice: routing answers through a chat model would make every claim in
+§11 unfalsifiable while making the demo look better, which is the worst available
+trade.
+
+**The mechanism that makes a panel worth more than a model is independence, and
+independence cannot be proved from metadata.** The catalogue on this machine
+shows why neither available field works alone:
+
+| model | `arch` | `publisher` |
+|---|---|---|
+| `qwen/qwen3-coder-30b` | qwen3moe | qwen |
+| `qwen/qwen3-coder-next` | qwen3**next** | qwen |
+| `openai/gpt-oss-20b` | gpt-oss | openai |
+| `openai-gpt-oss-20b-abliterated-…` | gpt-oss | **DavidAU** |
+| `deepseek-coder-33b-instruct` | llama | TheBloke |
+| `codellama-34b` | llama | TheBloke |
+
+The two Qwens report *different* architectures and are obviously one lineage —
+publisher catches them. The gpt-oss pair has different publishers and is one
+lineage, a fine-tune of the other — architecture catches that. Meanwhile
+`arch=llama` and `publisher=TheBloke` both lump DeepSeek-Coder with CodeLlama,
+which are separate trainings sharing an architecture and a quantizer.
+
+So `lineage_key` deliberately **over-groups**: any shared architecture,
+publisher, or name stem collapses models into one voice. It will sometimes cost
+the panel corroboration it had genuinely earned. That direction is chosen because
+the opposite error *manufactures evidence*, and every count is reported as a
+**lower bound on correlation** rather than a proof of independence.
+
+On the real catalogue this resolves **9 chat models to 4 independent voices** —
+the number that actually governs how much a unanimous panel is worth, and one
+that is invisible without the accounting.
+
+**A measurement error caught by running it.** The first live run over three
+independent voices asked for the time complexity of binary search. All three
+answered O(log n) — unanimous — but two wrapped it in different prose, positions
+were compared by exact string match, and the panel reported **2 of 3 voices**. On
+"best language for beginners" all three said Python and it reported **1 of 3**.
+An agreement measure that misses unanimity is not conservative, it is broken.
+
+The fix was not a semantic-similarity heuristic. Deciding that two
+differently-worded sentences mean the same thing is the hard problem, and a
+heuristic guessing at it would manufacture consensus — the one error this system
+must not make. Instead the panel **constrains the reply format** (`TERSE`: the
+bare fact, at most eight words), which makes exact matching a meaningful
+comparison, and warns explicitly when replies come back as prose that the
+reported agreement is a floor.
+
+A second live run over the same three voices, same questions:
+
+| question | before | after |
+|---|---:|---:|
+| time complexity of binary search | 2 of 3 | **3 of 3** (`o log n`) |
+| capital of Australia | — | **3 of 3** (`canberra`, not Sydney) |
+| best language for beginners | 1 of 3 | 2 of 3 |
+| how many moons does Mars have | — | 1 of 3 → **3 of 3** |
+
+The moons row needed one further change. Three models answered `two moons`,
+`two` and `2` — unanimous, reported as a three-way split. That is not the hard
+semantic problem, it is spelling, so normalisation was extended to **orthography
+only**: number words, filler, and words the question itself supplied (every
+model echoes the prompt, and an echo is not a position). The line is drawn
+explicitly and tested — rewriting `two` to `2` is the same class of operation as
+lowercasing, while deciding `fast` and `efficient` are one position would be a
+claim about meaning and is refused. `tests/test_lmstudio.py` asserts both halves,
+so the refused capability cannot creep in later.
+
+**The control that matters ran live.** Two Qwen models — one lineage — were asked
+the capital of Australia. Both answered `canberra`, verbatim agreement, and the
+panel reported **not corroborated, 1 of 1 voices**. That is the central claim
+demonstrated rather than argued: two models agreeing is not two sources, and no
+amount of asking converts one voice into evidence.
+
+This is not a capability gate and is not claimed as one. It is an integration
+with an accounting attached, and the accounting is the part worth having.
+
 | stage | verdict |
 |---|---|
 | 0 — modality-agnostic library | **PASSED** |
@@ -2685,6 +2854,8 @@ the very source that started the thread. Reachable as `:entropy` and
 | 4 — goal-directed action | **PASSED** (§11.9) |
 | 5 — grounded language | **PASSED** (§11.10) |
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
+| external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
+| LLMLS teacher panel | built, not a capability gate (§11.12) |
 
 Every gate was stated before its experiment ran; two experiments had their own
 flaws caught and recorded (§11.5's ceiling, §11.7's oracle-baseline); one

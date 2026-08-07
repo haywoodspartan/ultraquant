@@ -93,6 +93,34 @@ native/build.sh --target all                                            # Linux/
 Without them everything runs on the pure-Python tier — slower, identical
 results.
 
+## LM Studio and the LLMLS panel (optional)
+
+If [LM Studio](https://lmstudio.ai) is running locally, `:panel` puts a question
+to several open-source models you choose and reports what they agreed on —
+weighted by **independent lineage**, not headcount.
+
+```bash
+python -m ultraquant.interpreter.chat
+```
+
+```
+:panel                                    # catalogue, grouped into voices
+:panel qwen/qwen3-coder-30b openai/gpt-oss-20b ? what is the capital of Australia
+```
+
+The point is the accounting. A model and its own fine-tune agreeing is one
+source, not two, and on a real catalogue nine chat models resolve to **four
+independent voices**. Models are loaded on demand with a TTL so a large panel
+does not need to be resident. Nothing a model says is believed: answers enter
+the same quarantine as scraped web pages and must still earn promotion.
+
+What this deliberately does **not** do is answer for the system. The
+interpreter's replies come from the grammar it induced itself (ARCHITECTURE.md
+§11.10); routing them through a chat model would make every measured claim in
+§11 unfalsifiable while making the output look better. The related experiment —
+whether a real embedding model routes better than lexical signatures — is
+§11.11, and it **failed** its own control.
+
 ## The rules this codebase is built under
 
 1. **The simulator is the reference** — accelerators are never semantics.

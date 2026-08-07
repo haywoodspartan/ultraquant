@@ -25,6 +25,7 @@ placement is exposed as ``last_split`` (``{"gpu": n, "cpu": n, "python": n}``).
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 import time
 from array import array
 from typing import Sequence
@@ -53,6 +54,52 @@ _MAX_FRACTION = 1.0
 #: Below this batch size the split is skipped entirely -- the fixed cost of
 #: starting a worker thread outweighs any parallel gain.
 _MIN_SPLIT_SAMPLES = 256
+
+
+@dataclass
+class FlatBatch:
+    """A batch already marshalled: a flat ``array('d')`` plus its row width.
+
+    The zero-copy *input* counterpart of :class:`~ultraquant.native.accel.Rows`.
+    Callers that generate their samples numerically can fill one of these
+    directly and never build a list-of-lists at all, which is the only way to
+    avoid the flattening pass - measured at 39.8 ms per 131k x 8 batch, more
+    than either kernel costs.
+
+    Honest limit, stated because it decides whether this is worth using:
+    building a ``FlatBatch`` *from* an existing list-of-lists costs 29.7 ms,
+    so it saves a quarter of the flatten and is not the win. The win is
+    generating flat in the first place (11.2 ms), or reusing one buffer
+    across many calls.
+    """
+
+    values: "array"
+    width: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.values, array) or self.values.typecode != "d":
+            raise TypeError("FlatBatch.values must be an array('d')")
+        if self.width <= 0:
+            raise ValueError("FlatBatch.width must be positive")
+        if len(self.values) % self.width:
+            raise ValueError(
+                f"{len(self.values)} values is not a whole number of "
+                f"{self.width}-wide rows"
+            )
+
+    def __len__(self) -> int:
+        return len(self.values) // self.width
+
+    @classmethod
+    def from_rows(cls, rows: "Sequence[Sequence[float]]") -> "FlatBatch":
+        """Marshal a list-of-rows once, for callers that already have lists."""
+        flat, _n, width = accel.flatten_features(rows)
+        return cls(flat, width)
+
+    def to_rows(self) -> list[list[float]]:
+        """The list-of-lists form, at the price this class exists to avoid."""
+        return [list(self.values[i * self.width:(i + 1) * self.width])
+                for i in range(len(self))]
 
 
 class HeterogeneousFeatureExtractor:
@@ -297,6 +344,66 @@ class HeterogeneousFeatureExtractor:
 
     # -- public API ----------------------------------------------------------
 
+    def _run_flat(self, batch: "FlatBatch") -> object:
+        """Split a pre-marshalled batch - the path with no flattening at all."""
+        n = len(batch)
+        if n == 0:
+            return accel.Rows(array("d"), self.num_qubits)
+
+        gpu_ok, cpu_ok = self._gpu_usable(), self._cpu_usable()
+        if not (gpu_ok or cpu_ok) or self.force == "python":
+            rows = self._run_python(batch.to_rows())
+            self.last_split["python"] += n
+            return rows
+
+        fraction = self._gpu_fraction
+        if fraction is None:
+            fraction = self._warmup(batch.to_rows()[:min(n, 256)])
+        if not gpu_ok:
+            fraction = 0.0
+        elif not cpu_ok:
+            fraction = 1.0
+
+        n_gpu = min(max(int(round(fraction * n)), 0), n)
+        n_cpu = n - n_gpu
+        out = array("d", bytes(8 * n * self.num_qubits))
+        errors: list[BaseException] = []
+
+        def _gpu_worker() -> None:
+            try:
+                accel.feature_map_slice_gpu(
+                    batch.values, batch.width, self.num_qubits, 0, n_gpu, out
+                )
+            except BaseException as exc:  # noqa: BLE001 - degrade, never lose work
+                errors.append(exc)
+
+        thread = None
+        if n_gpu:
+            thread = threading.Thread(target=_gpu_worker, name="uq-flat-gpu",
+                                      daemon=True)
+            thread.start()
+        if n_cpu:
+            try:
+                accel.feature_map_slice_cpu(
+                    batch.values, batch.width, self.num_qubits,
+                    n_gpu, n_cpu, out, self.cpu_threads,
+                )
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+        if thread is not None:
+            thread.join()
+
+        if errors:
+            # Any native failure falls back to the fully-checked list path,
+            # which knows how to degrade tier by tier.
+            return self.extract_batch(batch.to_rows())
+
+        if n_gpu:
+            self.last_split["gpu"] += n_gpu
+        if n_cpu:
+            self.last_split["cpu"] += n_cpu
+        return accel.Rows(out, self.num_qubits)
+
     def extract_batch(
         self, features_batch: Sequence[Sequence[float]]
     ) -> list[list[float]]:
@@ -316,8 +423,19 @@ class HeterogeneousFeatureExtractor:
         # into an array('d') and the pure-Python fallback accepts any numeric
         # sequence, so converting first would cost a full extra pass over the
         # batch (measured: ~44 ms per 131k samples) for nothing.
-        batch = features_batch if isinstance(features_batch, list) else list(features_batch)
         self.last_split = {"gpu": 0, "cpu": 0, "python": 0}
+
+        # A caller that already holds its batch flat skips marshalling
+        # entirely. Measured at 131k x 8: flattening a list-of-lists costs
+        # 39.8 ms, more than either kernel (34.7 / 37.4 ms), and it cannot be
+        # viewed away because a list-of-lists must genuinely be copied once.
+        # Handing in a FlatBatch is the only way to not pay it - and it is
+        # only a real saving for callers that never materialise the lists
+        # (building an array *from* lists still costs 29.7 ms).
+        if isinstance(features_batch, FlatBatch):
+            return self._run_flat(features_batch)
+
+        batch = features_batch if isinstance(features_batch, list) else list(features_batch)
         n = len(batch)
         if n == 0:
             return []

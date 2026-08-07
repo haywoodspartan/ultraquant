@@ -424,5 +424,103 @@ class TestSplitReturnsAView(_Close):
                 self.assertAlmostEqual(a, b, places=9)
 
 
+class TestFlatBatchInput(_Close):
+    """The zero-flatten input path - the counterpart of the Rows output view.
+
+    Measured at 131k x 8 with the tier held constant so split luck cannot
+    flatter the result: 70% saved forcing cpu, 80% forcing gpu, 66% on a
+    pinned split. The saving is the flattening pass, which costs more than
+    either kernel and cannot be viewed away because a list-of-lists must
+    genuinely be copied once.
+
+    The honest limit is in the class docstring and repeated here: building a
+    FlatBatch *from* lists still costs ~29.7 ms of the ~39.8 ms flatten, so
+    this only truly pays for callers that generate flat and never materialise
+    the lists at all.
+    """
+
+    def _flat(self, n=64, width=4):
+        import random
+        from array import array
+        from ultraquant.native.hetero import FlatBatch
+
+        rng = random.Random(0)
+        return FlatBatch(array("d", [rng.random() for _ in range(n * width)]),
+                         width)
+
+    def _extractor(self, force=None, qubits=4):
+        from ultraquant.native.hetero import HeterogeneousFeatureExtractor
+
+        return HeterogeneousFeatureExtractor(num_qubits=qubits, force=force)
+
+    def test_flat_input_matches_the_list_path_exactly(self):
+        """The two input paths must be indistinguishable in their output."""
+        from ultraquant.native.hetero import FlatBatch
+
+        batch = self._flat()
+        rows = batch.to_rows()
+        from_flat = self._extractor().extract_batch(batch)
+        from_lists = self._extractor().extract_batch(rows)
+        self.assertEqual(len(from_flat), len(from_lists))
+        for a_row, b_row in zip(from_flat, from_lists):
+            for a, b in zip(list(a_row), list(b_row)):
+                self.assertAlmostEqual(a, b, places=12)
+
+    def test_flat_input_matches_the_python_tier(self):
+        batch = self._flat()
+        got = self._extractor().extract_batch(batch)
+        want = self._extractor("python").extract_batch(batch.to_rows())
+        for a_row, b_row in zip(got, want):
+            for a, b in zip(list(a_row), b_row):
+                self.assertAlmostEqual(a, b, places=9)
+
+    def test_flat_input_returns_a_zero_copy_view(self):
+        from ultraquant.native.accel import Rows
+
+        self.assertIsInstance(self._extractor().extract_batch(self._flat()),
+                              Rows)
+
+    def test_the_split_is_recorded_for_flat_input_too(self):
+        extractor = self._extractor()
+        extractor.extract_batch(self._flat(n=256))
+        total = sum(extractor.last_split.values())
+        self.assertEqual(total, 256)
+
+    def test_round_trip_through_rows_and_back(self):
+        from ultraquant.native.hetero import FlatBatch
+
+        original = self._flat()
+        rebuilt = FlatBatch.from_rows(original.to_rows())
+        self.assertEqual(len(rebuilt), len(original))
+        for a, b in zip(rebuilt.values, original.values):
+            self.assertAlmostEqual(a, b, places=12)
+
+    def test_malformed_flat_batches_are_refused(self):
+        from array import array
+        from ultraquant.native.hetero import FlatBatch
+
+        with self.assertRaises(TypeError):
+            FlatBatch([1.0, 2.0], 2)                      # not an array
+        with self.assertRaises(TypeError):
+            FlatBatch(array("i", [1, 2]), 2)              # wrong typecode
+        with self.assertRaises(ValueError):
+            FlatBatch(array("d", [1.0, 2.0, 3.0]), 2)     # ragged
+        with self.assertRaises(ValueError):
+            FlatBatch(array("d", [1.0]), 0)               # zero width
+
+    def test_an_empty_flat_batch_is_survivable(self):
+        from array import array
+        from ultraquant.native.hetero import FlatBatch
+
+        empty = FlatBatch(array("d"), 4)
+        self.assertEqual(len(self._extractor().extract_batch(empty)), 0)
+
+    def test_forced_python_tier_accepts_flat_input(self):
+        """Every tier must handle the flat path, including the fallback."""
+        batch = self._flat()
+        got = self._extractor("python").extract_batch(batch)
+        self.assertEqual(len(got), len(batch))
+
+
 if __name__ == "__main__":
     unittest.main()
