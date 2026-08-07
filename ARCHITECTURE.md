@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.6 · 895 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.7 · 900 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         43 modules, 895 tests
+tests/         43 modules, 900 tests
 ```
 
 ---
@@ -2862,6 +2862,26 @@ The fix stores the question alongside the answer (`_as_claim`), both verbatim.
 What was deliberately *not* done is asking a model to phrase the agreed fact as
 a sentence — that would put wording nothing corroborated into an entry carrying
 a corroborated claim's provenance.
+
+**Wired into self-learning, offered rather than applied.** The panel answers the
+system's *own* questions — the same shape as researching the web, and the same
+rule. In the GUI, 'Ask the panel' on the Learn tab uses the models selected on
+the Panel tab; a corroborated answer is written into the answer box for the user
+to read, edit and submit, and an uncorroborated one is reported with the box left
+**empty**. The chat CLI prints the exact `:learn answer <text>` that would apply
+it; the TUI does the same. Nothing is ever applied automatically: a panel that
+submitted its own answers would be an oracle, which is the arrangement this whole
+module refuses, and that difference has to be visible in the UI rather than only
+in a docstring.
+
+Both branches were run against three independent voices. `What is the chemical
+symbol for gold?` → 3 of 3 on `au`, box filled, stash entry `staged | What is
+the chemical symbol for gold: au`. The system's own untrained-category question
+`Tell me something about arithmetic` → two different answers and one model with
+nothing usable, **not corroborated**, box left empty, question still open. The
+second is the more informative result: an open-ended prompt has many right
+answers, so consensus is the wrong instrument for it, and the panel reporting no
+agreement is the honest reading rather than a failure.
 
 This is not a capability gate and is not claimed as one. It is an integration
 with an accounting attached, and the accounting is the part worth having.

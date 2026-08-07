@@ -288,11 +288,23 @@ class UltraQuantGUI:
 
         answer_row = ttk.Frame(ask)
         answer_row.pack(fill="x", padx=8, pady=(0, 8))
-        ttk.Button(answer_row, text="Answer", command=self._answer_question, width=12
-                   ).pack(side="right", padx=(6, 0))
+        buttons = ttk.Frame(answer_row)
+        buttons.pack(side="right", padx=(6, 0))
+        ttk.Button(buttons, text="Answer", command=self._answer_question, width=14
+                   ).pack(fill="x")
+        ttk.Button(buttons, text="Ask the panel", width=14,
+                   command=self._learn_ask_panel).pack(fill="x", pady=(4, 0))
         self.answer_input = tk.Text(answer_row, height=5, font=_FONT_MONO, wrap="word")
         self.answer_input.pack(side="left", fill="both", expand=True)
         self.answer_input.bind("<Control-Return>", lambda _e: self._answer_question())
+
+        ttk.Label(
+            ask,
+            text="   'Ask the panel' puts this question to the models selected on "
+                 "the Panel tab. A corroborated answer is filled in above for you "
+                 "to review - it is never applied on its own.",
+            wraplength=980, justify="left",
+        ).pack(anchor="w", padx=8, pady=(0, 8))
 
         self.learn_log = self._text(frame, height=16)
         self.learn_log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
@@ -852,6 +864,12 @@ class UltraQuantGUI:
                     self._append(self.learn_log, payload)
                 elif tag == "panel":
                     self._append(self.panel_log, payload)
+                elif tag == "learn_suggest":
+                    # Filled in for review, never submitted: the user still
+                    # presses Answer. A panel that applied its own answers
+                    # would be an oracle.
+                    self.answer_input.delete("1.0", "end")
+                    self.answer_input.insert("1.0", payload)
                 elif tag == "panel_status":
                     self.panel_status.set(payload)
                 elif tag == "panel_tree":
@@ -1311,6 +1329,77 @@ class UltraQuantGUI:
             self.events.put(("refresh", None))
 
         self._run_async("Learning", work)
+
+    def _learn_ask_panel(self) -> None:
+        """Put the model's own open question to the LLMLS teacher panel.
+
+        This is the panel in its intended role: the system decides what it does
+        not know, and several independently-lineaged local models are asked.
+        Same shape as researching the web, and the same rule — a source does not
+        become a fact by being asked.
+
+        The answer is **never applied here**. A corroborated one is written into
+        the answer box for the user to read, edit and submit; an uncorroborated
+        one is reported and left out of the box entirely. Auto-applying would
+        make the panel an oracle, which is the arrangement this whole module
+        exists to refuse — and the difference has to be visible in the UI, not
+        just in a docstring.
+        """
+        learner = getattr(self, "learner", None)
+        if learner is None:
+            self._notify("Press 'Find gaps' first.")
+            return
+        question = learner.next_question()
+        if question is None:
+            self._notify("No question is waiting.")
+            return
+        if question.expects == "glyph":
+            self._notify("This question wants a glyph. A text panel cannot "
+                         "supply pixels - draw five rows instead.")
+            return
+        models = self._panel_models()
+        if not models:
+            self._notify("Select the models to ask on the Panel tab first.")
+            return
+        session = self.session
+
+        def work() -> None:
+            from ultraquant.interpreter.llmls import (
+                LMStudioUnavailable, TeacherPanel,
+            )
+            try:
+                panel = TeacherPanel(models)
+                self.events.put(("learn", f"\n  asking the panel: "
+                                          f"{question.prompt[:110]}\n"))
+                self.events.put(("learn", panel.independence_report() + "\n"))
+                result = panel.teach(question.prompt, session.stash)
+            except LMStudioUnavailable as exc:
+                self.events.put(("learn", f"  LM Studio unavailable: {exc}\n"))
+                return
+            consensus = result["consensus"]
+            self.events.put(("learn", consensus.as_text() + "\n"))
+            self.events.put(("learn",
+                             f"  {result['filed']} claim(s) quarantined.\n"))
+            if consensus.corroborated:
+                # The agreed position, not a model's prose: what goes in the
+                # box is exactly what the voices converged on.
+                agreed = max(consensus.split.items(),
+                             key=lambda kv: len(kv[1]))[0]
+                self.events.put(("learn_suggest", agreed))
+                self.events.put((
+                    "learn",
+                    f"  -> {consensus.voices} independent voices agree. Filled "
+                    "in above for review - press Answer to apply it, or edit "
+                    "it first.\n"))
+            else:
+                self.events.put((
+                    "learn",
+                    "  -> not corroborated across independent voices; nothing "
+                    "filled in. The question stays open, which is the correct "
+                    "outcome rather than a failure of the panel.\n"))
+            self.events.put(("refresh", None))
+
+        self._run_async("Asking the panel", work)
 
     def _skip_question(self) -> None:
         """Set the current question aside."""

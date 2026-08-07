@@ -519,6 +519,67 @@ class PanelTabTests(unittest.TestCase):
         self.root.update()
         self.assertFalse(self.app.busy)
 
+    def test_a_corroborated_answer_is_filled_in_but_never_applied(self):
+        """The whole point of the wiring: review, then apply. Not apply.
+
+        A panel that submitted its own answers would be an oracle, which is
+        the arrangement this module refuses. The answer box gets the agreed
+        position and the user still has to press Answer.
+        """
+        self.app.answer_input.delete("1.0", "end")
+        applied = []
+        self.app._answer_question = lambda *a, **k: applied.append(1)
+        self.app.events.put(("learn_suggest", "canberra"))
+        self.app._pump_once()
+        self.root.update()
+        self.assertEqual(self.app.answer_input.get("1.0", "end").strip(),
+                         "canberra")
+        self.assertEqual(applied, [], "nothing may be submitted automatically")
+
+    def test_a_suggestion_replaces_rather_than_appends(self):
+        self.app.answer_input.delete("1.0", "end")
+        self.app.answer_input.insert("1.0", "stale text")
+        self.app.events.put(("learn_suggest", "au"))
+        self.app._pump_once()
+        self.root.update()
+        self.assertEqual(self.app.answer_input.get("1.0", "end").strip(), "au")
+
+    def test_asking_the_panel_before_surveying_is_refused(self):
+        self.app.learner = None
+        self.app._learn_ask_panel()
+        self.root.update()
+        self.assertFalse(self.app.busy)
+
+    def test_asking_the_panel_with_no_models_selected_is_refused(self):
+        class _Question:
+            expects = "text"
+            prompt = "what is the capital of Australia?"
+
+        class _Learner:
+            def next_question(self):
+                return _Question()
+
+        self.app.learner = _Learner()
+        self.app.panel_tree.selection_set([])
+        self.app._learn_ask_panel()
+        self.root.update()
+        self.assertFalse(self.app.busy, "no worker without a panel selection")
+
+    def test_a_glyph_question_is_refused_by_the_text_panel(self):
+        class _Question:
+            expects = "glyph"
+            prompt = "show me a square"
+
+        class _Learner:
+            def next_question(self):
+                return _Question()
+
+        self.app.learner = _Learner()
+        self._select("qwen/qwen3-coder-30b", "openai/gpt-oss-20b")
+        self.app._learn_ask_panel()
+        self.root.update()
+        self.assertFalse(self.app.busy, "pixels cannot come from a text panel")
+
     def test_the_post_load_refresh_is_not_swallowed_by_the_busy_flag(self):
         """A worker's own follow-up event fires before its 'done' event.
 

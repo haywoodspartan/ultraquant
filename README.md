@@ -113,6 +113,13 @@ python -m ultraquant.interpreter.chat
 :panel qwen/qwen3-coder-30b openai/gpt-oss-20b ? what is the capital of Australia
 ```
 
+It also answers the system's **own** questions. In the GUI, 'Ask the panel' on
+the Learn tab uses whichever models are selected on the Panel tab; a corroborated
+answer is filled into the answer box for you to review and submit, and an
+uncorroborated one leaves the box empty and the question open. The CLI and TUI
+print the exact command that would apply it. Nothing is ever applied
+automatically - a panel that submitted its own answers would be an oracle.
+
 The point is the accounting. A model and its own fine-tune agreeing is one
 source, not two, and on a real catalogue nine chat models resolve to **four
 independent voices**. Models are loaded on demand with a TTL so a large panel

@@ -38,7 +38,7 @@ __all__ = ["UltraQuantTUI", "main"]
 #: The eight surfaces, mirroring the desktop app's tabs.
 SCREENS: tuple[tuple[str, str], ...] = (
     ("chat", "talk to the model, see the thought trace"),
-    ("learn", "let the model find its gaps and ask you"),
+    ("learn", "let the model find its gaps and ask you, or a model panel"),
     ("compute", "CPU / GPU tiers, threads, RAM budget"),
     ("forge", "build a model library from scratch"),
     ("library", "the shard catalog and what is resident"),
@@ -320,6 +320,8 @@ class UltraQuantTUI:
             lines = [f"  {r['subject']:<24} {r['outcome']:<9} {r['detail']}"
                      for r in reports]
             return "\n".join(lines) + "\n\n" + self._question_text()
+        if verb == "panel":
+            return self._learn_panel(session, rest.split())
         if verb == "skip":
             question = self.learner.next_question()
             if question is None:
@@ -332,6 +334,42 @@ class UltraQuantTUI:
         answer = self.learner.answer(question, line)
         mark = "learned" if answer.accepted else "not applied"
         return f"{mark}: {answer.detail}\n\n" + self._question_text()
+
+    def _learn_panel(self, session, models: list[str]) -> str:
+        """Answer the queued question with the LLMLS panel.
+
+        Parity with the chat CLI's ``:learn panel`` and the GUI's 'Ask the
+        panel' button. A corroborated answer is *offered* - printed as the
+        exact command that would apply it - never applied here. The panel is a
+        source under interrogation, not an oracle.
+        """
+        from ultraquant.interpreter.llmls import LMStudioUnavailable, TeacherPanel
+
+        question = self.learner.next_question()
+        if question is None:
+            return "nothing queued - run 'find' again"
+        if question.expects == "glyph":
+            return ("this question wants a glyph; a text panel cannot supply "
+                    "pixels - answer with five rows instead")
+        if not models:
+            return ("usage: panel <model> [<model>...]  "
+                    "(see the panel screen for the catalogue)")
+        try:
+            panel = TeacherPanel(models)
+            result = panel.teach(question.prompt, session.stash)
+        except LMStudioUnavailable as exc:
+            return f"LM Studio unavailable: {exc}"
+        consensus = result["consensus"]
+        out = [panel.independence_report(), consensus.as_text(),
+               f"{result['filed']} claim(s) quarantined"]
+        if consensus.corroborated:
+            agreed = max(consensus.split.items(), key=lambda kv: len(kv[1]))[0]
+            out.append(f"-> {consensus.voices} independent voices agree. To "
+                       f"apply it, type:  {agreed}")
+        else:
+            out.append("-> not corroborated across independent voices; the "
+                       "question stays open, which is the correct outcome")
+        return "\n".join(out)
 
     def _question_text(self) -> str:
         """Render the queued question, glyph and all."""

@@ -48,6 +48,7 @@ UltraQuant Chat/Interpreter - commands:
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
   :learn research        try the web first (quarantined; needs ':online on')
+  :learn panel <m>...    ask local models; corroborated answers are offered
   :panel                 local LM Studio models, grouped by independent lineage
   :panel <m>.. ? <q>     ask each model in isolation; agreement counted by voice
   :teach <cat> <label>   then 5 glyph rows of [#.]{5}
@@ -385,9 +386,14 @@ class ChatCLI:
         self.emit(consensus.as_text())
         self.emit(f"  {result['filed']} claim(s) quarantined in the stash.")
         if consensus.corroborated:
+            # Offered as the exact command, which is this surface's version of
+            # the GUI pre-filling its answer box: one keystroke from applying,
+            # and still requiring that keystroke.
+            agreed = max(consensus.split.items(), key=lambda kv: len(kv[1]))[0]
             self.emit(f"  -> {consensus.voices} independent voices agree. "
-                      "Review with ':stash', then ':learn answer <text>' to "
-                      "apply it, or ':promote <id>' to store it as a fact.")
+                      "To apply it:")
+            self.emit(f"       :learn answer {agreed}")
+            self.emit("     or review it first with ':stash'.")
         else:
             self.emit("  -> not corroborated across independent voices; the "
                       "question stays open. This is the correct outcome, not "
