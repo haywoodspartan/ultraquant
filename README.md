@@ -41,11 +41,11 @@ escalation heuristic were deleted for measuring nothing.
 without).
 
 ```
-python -m ultraquant.gui                   # desktop app: 8 tabs
+python -m ultraquant.gui                   # desktop app: 9 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 778 tests, ~2.5 min
+python -m unittest discover -s tests      # 900 tests, ~2.7 min
 ```
 
 In the chat, try:
@@ -54,6 +54,7 @@ In the chat, try:
 #####            <- paste a 5x5 glyph; it says what it sees, in its languages
 :learn           <- the model surveys its own gaps and asks you questions
 :learn research  <- it tries the web first (':online on'), quarantined
+:learn panel ... <- or asks local models, counted by independent lineage
 goal: the tower height and the bridge length    <- multi-step planning
 :trace           <- the thought pipeline behind the last answer
 ```
@@ -73,7 +74,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         778 tests across 40 modules
+tests/         900 tests across 43 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
