@@ -45,7 +45,7 @@ python -m ultraquant.gui                   # desktop app: 9 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 917 tests, ~3 min
+python -m unittest discover -s tests      # 951 tests, ~3 min
 ```
 
 In the chat, try:
@@ -74,13 +74,33 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         917 tests across 43 modules
+tests/         951 tests across 44 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
 principles, measured performance of every execution tier, the honest QPU
 analysis (§7 — including why the data-loading wall is real), and the staged
 path toward generality with every gate's verdict, pass or fail (§11).
+
+## Settings persist
+
+The GUI and TUI read a settings file on load and write it as things change, so
+a RAM budget, storage location, device choice, forge defaults or chosen model
+panel survive a restart. `:settings` in the TUI or chat CLI, and
+**Session -> Where are my settings?** in the GUI, print the path and contents.
+
+It is looked for in this order:
+
+1. `$ULTRAQUANT_CONFIG` - an explicit path.
+2. `./ultraquant.json` **if it already exists** - portable mode, so a copy on a
+   USB stick keeps its settings with it. Never created implicitly.
+3. `%APPDATA%\UltraQuant\settings.json` on Windows, or
+   `$XDG_CONFIG_HOME/ultraquant/settings.json` elsewhere.
+
+Credentials are deliberately **not** stored - the file is plaintext and may sit
+in a checkout, so the BlueQubit token and array password stay in the
+environment. A corrupt or unreadable file never stops the program starting: it
+falls back to defaults and says what it could not use.
 
 ## Rebuilding the native accelerators (optional)
 

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.8 · 917 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.9 · 951 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         43 modules, 917 tests
+tests/         44 modules, 951 tests
 ```
 
 ---
