@@ -8,6 +8,10 @@ whole system without a terminal:
 * **Forge** — build a model from scratch and watch it happen.
 * **Library** — the shard catalog, what is resident, and the RAM budget.
 * **Stash** — triage web claims: promote what is corroborated, reject the rest.
+* **Panel** — the LLMLS: ask local LM Studio models, grouped by *independent
+  lineage* rather than by headcount, with the voice count shown before the
+  question is asked. Answers land in the Stash like anything else found rather
+  than derived.
 * **Benchmark** — measure the execution tiers on this machine.
 
 Everything slow runs on a worker thread and reports back through a queue, because
@@ -165,6 +169,8 @@ class UltraQuantGUI:
         self._alive = True
         self._pump_id: str | None = None
         self.last_error: str | None = None
+        #: model id -> ModelCard for the Panel tab's current catalogue.
+        self._panel_cards: dict = {}
 
         root.title("UltraQuant")
         root.geometry("1080x720")
@@ -181,6 +187,7 @@ class UltraQuantGUI:
         self._build_library_tab()
         self._build_storage_tab()
         self._build_stash_tab()
+        self._build_panel_tab()
         self._build_bench_tab()
         self._build_status_bar()
 
@@ -648,6 +655,71 @@ class UltraQuantGUI:
             text="   Nothing fetched becomes a fact until it is corroborated or promoted here.",
         ).pack(side="left")
 
+    def _build_panel_tab(self) -> None:
+        """The LLMLS teacher panel: local models, grouped by independent voice.
+
+        The tree is the argument. Models are shown *under the voice they
+        belong to*, so a panel of four Llama derivatives is visibly one source
+        rather than four, and the running selection label says so as you pick.
+        That accounting is the reason this tab exists; a flat list of model
+        names would hide exactly the thing worth seeing.
+        """
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Panel")
+
+        top = ttk.Frame(frame)
+        top.pack(fill="x", padx=6, pady=6)
+        ttk.Button(top, text="Refresh catalogue",
+                   command=self._panel_refresh).pack(side="left")
+        ttk.Button(top, text="Load selected",
+                   command=lambda: self._panel_load(True)).pack(side="left", padx=6)
+        ttk.Button(top, text="Unload selected",
+                   command=lambda: self._panel_load(False)).pack(side="left")
+        self.panel_status = tk.StringVar(value="LM Studio: not checked")
+        ttk.Label(top, textvariable=self.panel_status).pack(side="left", padx=12)
+
+        tree_frame = ttk.Frame(frame)
+        tree_frame.pack(fill="both", expand=True, padx=6)
+        self.panel_tree = ttk.Treeview(tree_frame, columns=("state", "arch",
+                                                            "publisher"),
+                                       selectmode="extended", height=11)
+        self.panel_tree.heading("#0", text="voice / model")
+        for column, width in (("state", 90), ("arch", 130), ("publisher", 130)):
+            self.panel_tree.heading(column, text=column)
+            self.panel_tree.column(column, width=width, anchor="w")
+        self.panel_tree.column("#0", width=440)
+        scroll = ttk.Scrollbar(tree_frame, command=self.panel_tree.yview)
+        self.panel_tree.configure(yscrollcommand=scroll.set)
+        self.panel_tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.panel_tree.bind("<<TreeviewSelect>>", self._panel_selection_changed)
+
+        selection = ttk.Frame(frame)
+        selection.pack(fill="x", padx=6, pady=(4, 0))
+        self.panel_selection = tk.StringVar(
+            value="Select models above. Agreement counts by voice, not headcount.")
+        ttk.Label(selection, textvariable=self.panel_selection,
+                  wraplength=980, justify="left").pack(anchor="w")
+
+        ask = ttk.LabelFrame(frame, text="Question")
+        ask.pack(fill="x", padx=6, pady=6)
+        row = ttk.Frame(ask)
+        row.pack(fill="x", padx=8, pady=8)
+        self.panel_question = tk.StringVar()
+        entry = ttk.Entry(row, textvariable=self.panel_question)
+        entry.pack(side="left", fill="x", expand=True)
+        entry.bind("<Return>", lambda _e: self._panel_ask())
+        ttk.Button(row, text="Ask panel", command=self._panel_ask, width=12
+                   ).pack(side="left", padx=(6, 0))
+        self.panel_to_stash = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ask, text="Quarantine answers in the stash "
+                        "(nothing becomes a fact here)",
+                        variable=self.panel_to_stash).pack(anchor="w", padx=8,
+                                                           pady=(0, 8))
+
+        self.panel_log = self._text(frame, height=14)
+        self.panel_log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+
     def _build_bench_tab(self) -> None:
         """Benchmark tab."""
         frame = ttk.Frame(self.notebook)
@@ -778,6 +850,18 @@ class UltraQuantGUI:
                     self._append(self.bench_log, payload)
                 elif tag == "learn":
                     self._append(self.learn_log, payload)
+                elif tag == "panel":
+                    self._append(self.panel_log, payload)
+                elif tag == "panel_status":
+                    self.panel_status.set(payload)
+                elif tag == "panel_tree":
+                    self._fill_panel_tree(payload)
+                elif tag == "panel_reload":
+                    # Deferred: this event is queued *before* the worker's
+                    # "done", so busy is still set and _run_async would
+                    # refuse with a spurious "Busy" popup. One tick later
+                    # the done event has been drained.
+                    self.root.after(_POLL_MS + 1, self._panel_refresh)
                 elif tag == "storage":
                     self._append(self.storage_log, payload)
                 elif tag == "devices":
@@ -1571,6 +1655,167 @@ class UltraQuantGUI:
         if not url:
             return
         self._submit(url)
+
+    # ------------------------------------------------------------ LLMLS panel
+
+    def _panel_models(self) -> list[str]:
+        """Model ids currently selected, ignoring the voice header rows."""
+        chosen = []
+        for item in self.panel_tree.selection():
+            # Having a parent is what makes a row a model; the state
+            # column is empty for anything not currently loaded and is
+            # not a membership test.
+            if not self.panel_tree.parent(item):
+                continue
+            name = self.panel_tree.item(item, "text")
+            if name:
+                chosen.append(name)
+        return chosen
+
+    def _panel_selection_changed(self, _event=None) -> None:
+        """Report how many *voices* the current selection amounts to.
+
+        Live, because that is the number the panel actually runs on. Selecting
+        four Llama derivatives must visibly say "1 voice" before the question
+        is asked, not after the result comes back looking uncorroborated.
+        """
+        from ultraquant.interpreter.llmls import independent_groups
+
+        chosen = self._panel_models()
+        if not chosen:
+            self.panel_selection.set("Select models above. Agreement counts "
+                                     "by voice, not headcount.")
+            return
+        cards = [self._panel_cards[name] for name in chosen
+                 if name in self._panel_cards]
+        voices = len(independent_groups(cards)) if cards else 0
+        note = ("" if voices >= 2 else
+                "  -  one voice cannot corroborate itself; nothing selected "
+                "here can produce evidence")
+        self.panel_selection.set(
+            f"{len(chosen)} model(s) selected = {voices} independent "
+            f"voice(s){note}")
+
+    def _panel_refresh(self) -> None:
+        """Reload the LM Studio catalogue, grouped into independent voices."""
+        def work() -> None:
+            from ultraquant.interpreter.llmls import (
+                LMStudioUnavailable, catalogue, independent_groups,
+            )
+            try:
+                cards = [c for c in catalogue() if c.is_chat]
+            except LMStudioUnavailable as exc:
+                self.events.put(("panel_status", "LM Studio: unavailable"))
+                self.events.put(("panel", f"{exc}\n"))
+                self.events.put(("panel_tree", []))
+                return
+            groups = independent_groups(cards)
+            self.events.put(("panel_status",
+                             f"LM Studio: {len(cards)} chat model(s), "
+                             f"{len(groups)} independent voice(s)"))
+            self.events.put(("panel_tree", groups))
+
+        self._run_async("Reading the LM Studio catalogue", work)
+
+    def _fill_panel_tree(self, groups) -> None:
+        """Render voice groups into the tree. UI thread only."""
+        for row in self.panel_tree.get_children():
+            self.panel_tree.delete(row)
+        self._panel_cards = {}
+        for index, group in enumerate(groups, 1):
+            head = group[0]
+            label = (f"voice {index}"
+                     + (f"  ({len(group)} models = ONE source)"
+                        if len(group) > 1 else ""))
+            parent = self.panel_tree.insert(
+                "", "end", text=label, open=True,
+                values=("", head.arch or "?", head.publisher or "?"))
+            for card in group:
+                self._panel_cards[card.id] = card
+                self.panel_tree.insert(
+                    parent, "end", text=card.id,
+                    values=("loaded" if card.loaded else "",
+                            card.arch or "?", card.publisher or "?"))
+        self._panel_selection_changed()
+
+    def _panel_load(self, load: bool) -> None:
+        """Load or unload the selected models via the ``lms`` CLI."""
+        chosen = self._panel_models()
+        if not chosen:
+            self._notify("Select one or more models first.")
+            return
+
+        def work() -> None:
+            from ultraquant.interpreter.llmls import (
+                LMStudioUnavailable, TeacherPanel,
+            )
+            verb = "load" if load else "unload"
+            try:
+                panel = TeacherPanel(chosen)
+            except LMStudioUnavailable as exc:
+                self.events.put(("panel", f"{exc}\n"))
+                return
+            if not panel.cli:
+                self.events.put(("panel",
+                                 "The 'lms' CLI was not found, so models "
+                                 "cannot be pinned or unloaded here. Asking "
+                                 "still works - LM Studio loads on demand.\n"))
+                return
+            for name in chosen:
+                ok = panel.load(name) if load else panel.unload(name)
+                self.events.put(("panel",
+                                 f"{verb} {name}: {'ok' if ok else 'failed'}\n"))
+            self.events.put(("panel_reload", None))
+
+        self._run_async(f"{'Loading' if load else 'Unloading'} models",
+                        work)
+
+    def _panel_ask(self) -> None:
+        """Put the question to every selected model, in isolation."""
+        question = self.panel_question.get().strip()
+        chosen = self._panel_models()
+        if not question:
+            self._notify("Type a question first.")
+            return
+        if not chosen:
+            self._notify("Select one or more models first.")
+            return
+        to_stash = bool(self.panel_to_stash.get())
+        session = self.session
+
+        def work() -> None:
+            from ultraquant.interpreter.llmls import (
+                LMStudioUnavailable, TeacherPanel,
+            )
+            try:
+                panel = TeacherPanel(chosen)
+            except LMStudioUnavailable as exc:
+                self.events.put(("panel", f"{exc}\n"))
+                return
+            self.events.put(("panel", f"\n$ {question}\n"))
+            self.events.put(("panel", panel.independence_report() + "\n"))
+            try:
+                if to_stash and session is not None:
+                    result = panel.teach(question, session.stash)
+                    consensus = result["consensus"]
+                else:
+                    consensus, result = panel.ask(question), None
+            except LMStudioUnavailable as exc:
+                self.events.put(("panel", f"{exc}\n"))
+                return
+            self.events.put(("panel", consensus.as_text() + "\n"))
+            if result is not None:
+                self.events.put(("panel",
+                                 f"{result['filed']} claim(s) quarantined - "
+                                 "review them on the Stash tab.\n"))
+                self.events.put(("refresh", None))
+            self.events.put(("panel", (
+                "-> corroborated across independent voices; still quarantined "
+                "until promoted.\n" if consensus.corroborated else
+                "-> NOT corroborated. One voice is one source, however many "
+                "models back it.\n")))
+
+        self._run_async("Asking the panel", work)
 
     def _refresh_stash(self) -> None:
         """Reload the stash table."""

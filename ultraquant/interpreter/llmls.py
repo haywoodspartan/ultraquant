@@ -592,10 +592,31 @@ class TeacherPanel:
                 continue
             url = f"lmstudio://panel/{len(groups)}-voice/{head.arch or head.id}"
             title = f"LLMLS panel ({len(groups)} voice): {question[:50]}"
-            entry_ids.extend(stash.add_page(url, title, position,
+            entry_ids.extend(stash.add_page(url, title,
+                                            _as_claim(question, position),
                                             max_claims=max_claims))
         return {"consensus": consensus, "entry_ids": entry_ids,
                 "filed": len(entry_ids)}
+
+
+def _as_claim(question: str, position: str) -> str:
+    """Pair a question with its answer so the stash can hold it.
+
+    :data:`TERSE` and the stash pull in opposite directions, and the conflict
+    was found by running them together rather than reasoned about: the panel
+    agreed 3-of-3 that gold is ``au``, and **nothing reached the stash**.
+    ``add_page`` requires 20-420 characters, on the sound grounds that a
+    two-character fragment of a web page is not a claim — and a terse answer is
+    exactly that fragment. Constraining replies to make them comparable had
+    silently disabled the quarantine path.
+
+    The answer alone cannot be stored, so the question is stored with it. What
+    is deliberately *not* done is asking a model to phrase the fact as a
+    sentence: that would put wording nothing corroborated into a stash entry
+    carrying a corroborated claim's provenance. Both halves here are verbatim.
+    """
+    stem = question.strip().rstrip("?").strip()
+    return f"{stem}: {position}".strip()
 
 
 #: Number words, so "two", "Two" and "2" are one token rather than three

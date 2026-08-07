@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.5 · 883 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.6 · 895 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         43 modules, 883 tests
+tests/         43 modules, 895 tests
 ```
 
 ---
@@ -2841,6 +2841,27 @@ the capital of Australia. Both answered `canberra`, verbatim agreement, and the
 panel reported **not corroborated, 1 of 1 voices**. That is the central claim
 demonstrated rather than argued: two models agreeing is not two sources, and no
 amount of asking converts one voice into evidence.
+
+**Every surface reaches it.** `:panel` in the chat CLI, a `panel` screen in the
+TUI, and a **Panel tab** in the GUI. The GUI is where the accounting is most
+visible: models are listed *under the voice they belong to*, and the selection
+line updates as you pick — choose four Llama derivatives and it reads
+`4 model(s) selected = 1 independent voice(s)` before a question is asked, rather
+than returning a mysteriously uncorroborated result afterwards. Everything slow
+runs on the worker thread, since a panel question costs 8–25 s.
+
+**An interaction bug, found by running the pieces together.** `TERSE` and the
+stash pull in opposite directions, and neither measurement alone showed it. The
+GUI panel agreed 3-of-3 that gold is `au`, reported it corroborated — and
+quarantined **nothing**. `add_page` requires 20–420 characters, on the sound
+grounds that a two-character fragment of a web page is not a claim; a terse
+answer is exactly that fragment. Constraining replies to make them comparable
+had silently disabled the quarantine path, with the checkbox still ticked.
+
+The fix stores the question alongside the answer (`_as_claim`), both verbatim.
+What was deliberately *not* done is asking a model to phrase the agreed fact as
+a sentence — that would put wording nothing corroborated into an entry carrying
+a corroborated claim's provenance.
 
 This is not a capability gate and is not claimed as one. It is an integration
 with an accounting attached, and the accounting is the part worth having.

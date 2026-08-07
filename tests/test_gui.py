@@ -81,7 +81,7 @@ class GUITests(unittest.TestCase):
         self.assertEqual(
             tabs,
             ["Chat", "Learn", "Compute", "Forge", "Library", "Storage",
-             "Stash", "Benchmark"],
+             "Stash", "Panel", "Benchmark"],
         )
         self.assertEqual(self.app.status.get(), "ready")
 
@@ -419,6 +419,146 @@ class GUITests(unittest.TestCase):
         self.assertFalse(self.app.busy, "the app must recover from a worker error")
         self.assertIn("forced failure for the test",
                       self.app.transcript.get("1.0", "end"))
+
+
+class PanelTabTests(unittest.TestCase):
+    """The LLMLS tab, driven with a stub catalogue.
+
+    No LM Studio is contacted. The tab's job is to make the independence
+    accounting *visible before a question is asked* - selecting four Llama
+    derivatives must read "1 voice" up front, not come back looking
+    mysteriously uncorroborated afterwards - and that is what these check.
+    """
+
+    def setUp(self) -> None:
+        from ultraquant.interpreter.llmls import ModelCard, independent_groups
+
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_panel_"))
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.app = gui_module.UltraQuantGUI(self.root, self.dir / "home")
+        deadline = time.time() + 60
+        while time.time() < deadline and self.app.busy:
+            self.root.update()
+            time.sleep(0.02)
+
+        self.cards = [
+            ModelCard("qwen/qwen3-coder-30b", "qwen3moe", "qwen", loaded=True),
+            ModelCard("qwen/qwen3-coder-next", "qwen3next", "qwen"),
+            ModelCard("openai/gpt-oss-20b", "gpt-oss", "openai"),
+            ModelCard("google/gemma-4-31b", "gemma4", "google", kind="vlm"),
+        ]
+        self.app._fill_panel_tree(independent_groups(self.cards))
+        self.root.update()
+
+    def tearDown(self) -> None:
+        try:
+            self.root.destroy()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _select(self, *model_ids: str) -> None:
+        wanted = []
+        for parent in self.app.panel_tree.get_children():
+            for child in self.app.panel_tree.get_children(parent):
+                if self.app.panel_tree.item(child, "text") in model_ids:
+                    wanted.append(child)
+        self.app.panel_tree.selection_set(wanted)
+        self.app._panel_selection_changed()
+        self.root.update()
+
+    def test_the_tree_groups_models_under_their_voice(self):
+        voices = self.app.panel_tree.get_children()
+        self.assertEqual(len(voices), 3, "four models, three lineages")
+
+    def test_a_shared_lineage_is_labelled_as_one_source(self):
+        labels = [self.app.panel_tree.item(v, "text")
+                  for v in self.app.panel_tree.get_children()]
+        self.assertTrue(any("ONE source" in label for label in labels),
+                        f"the Qwen pair should be marked: {labels}")
+
+    def test_selecting_two_siblings_reports_one_voice(self):
+        """The number that matters, shown before the question is asked."""
+        self._select("qwen/qwen3-coder-30b", "qwen/qwen3-coder-next")
+        text = self.app.panel_selection.get()
+        self.assertIn("2 model(s) selected = 1 independent voice", text)
+        self.assertIn("cannot corroborate itself", text)
+
+    def test_selecting_across_lineages_reports_several_voices(self):
+        self._select("qwen/qwen3-coder-30b", "openai/gpt-oss-20b",
+                     "google/gemma-4-31b")
+        self.assertIn("3 model(s) selected = 3 independent voice(s)",
+                      self.app.panel_selection.get())
+
+    def test_voice_header_rows_are_never_treated_as_models(self):
+        """Selecting a header must not send a fake model id to LM Studio."""
+        self.app.panel_tree.selection_set(
+            list(self.app.panel_tree.get_children()))
+        self.assertEqual(self.app._panel_models(), [])
+
+    def test_loaded_state_is_shown(self):
+        states = []
+        for parent in self.app.panel_tree.get_children():
+            for child in self.app.panel_tree.get_children(parent):
+                states.append((self.app.panel_tree.item(child, "text"),
+                               self.app.panel_tree.set(child, "state")))
+        self.assertIn(("qwen/qwen3-coder-30b", "loaded"), states)
+
+    def test_asking_with_nothing_selected_is_refused(self):
+        self.app.panel_question.set("what is the capital of Australia?")
+        self.app.panel_tree.selection_set([])
+        self.app._panel_ask()
+        self.root.update()
+        self.assertFalse(self.app.busy, "no worker should have started")
+
+    def test_asking_with_no_question_is_refused(self):
+        self._select("qwen/qwen3-coder-30b")
+        self.app.panel_question.set("   ")
+        self.app._panel_ask()
+        self.root.update()
+        self.assertFalse(self.app.busy)
+
+    def test_the_post_load_refresh_is_not_swallowed_by_the_busy_flag(self):
+        """A worker's own follow-up event fires before its 'done' event.
+
+        The reload was queued directly, so it ran while busy was still set and
+        _run_async refused it with a spurious "Busy" popup - leaving the tree
+        stale after a load. It is deferred one tick instead.
+        """
+        calls = []
+        self.app._panel_refresh = lambda: calls.append(1)
+        self.app.busy = True
+        self.app.events.put(("panel_reload", None))
+        self.app._pump_once()
+        self.assertEqual(calls, [], "must not run while the worker is busy")
+        self.app.busy = False
+        deadline = time.time() + 5
+        while time.time() < deadline and not calls:
+            self.root.update()
+            time.sleep(0.02)
+        self.assertEqual(calls, [1], "refresh should land on a later tick")
+
+    def test_an_unreachable_server_reports_rather_than_crashes(self):
+        import os
+
+        from ultraquant.interpreter import lmstudio
+
+        previous = os.environ.get("LMSTUDIO_BASE_URL")
+        os.environ["LMSTUDIO_BASE_URL"] = "http://127.0.0.1:9/v1"
+        try:
+            self.app._panel_refresh()
+            deadline = time.time() + 30
+            while time.time() < deadline and self.app.busy:
+                self.root.update()
+                time.sleep(0.02)
+            self.root.update()
+            self.assertIn("unavailable", self.app.panel_status.get())
+        finally:
+            if previous is None:
+                os.environ.pop("LMSTUDIO_BASE_URL", None)
+            else:
+                os.environ["LMSTUDIO_BASE_URL"] = previous
 
 
 if __name__ == "__main__":

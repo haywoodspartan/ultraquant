@@ -487,6 +487,38 @@ class QuarantineTests(unittest.TestCase):
         ids = quarantine_answer(answer, self.stash)
         self.assertTrue(self.stash.get(ids[0])["url"].startswith("lmstudio://"))
 
+    def test_a_terse_answer_still_reaches_the_stash(self):
+        """The interaction bug: TERSE made answers too short to store.
+
+        Found by running the two together - the panel agreed 3-of-3 that gold
+        is 'au' and nothing was quarantined, because add_page needs 20-420
+        characters. Constraining replies for comparability had silently
+        disabled the quarantine path.
+        """
+        from ultraquant.interpreter.llmls import _as_claim
+
+        claim = _as_claim("What is the chemical symbol for gold?", "au")
+        self.assertGreaterEqual(len(claim), 20)
+        self.assertIn("au", claim)
+        self.assertIn("gold", claim)
+        self.assertNotIn("?", claim)
+
+    def test_a_terse_panel_answer_is_filed_end_to_end(self):
+        ids = ["qwen/qwen3-coder-30b", "openai/gpt-oss-20b"]
+        replies = {"/api/v0/models": _CATALOGUE,
+                   "/v1/models": _openai_models([r["id"] for r in
+                                                 _CATALOGUE["data"]]),
+                   "/chat/completions": lambda b: _chat("au", model=b["model"])}
+        stub = StubServer(replies)
+        with mock.patch("urllib.request.urlopen", stub):
+            panel = TeacherPanel(ids)
+            panel.cli = None
+            result = panel.teach("What is the chemical symbol for gold?",
+                                 self.stash)
+        self.assertTrue(result["consensus"].corroborated)
+        self.assertGreater(result["filed"], 0,
+                           "a corroborated terse answer must be quarantined")
+
     def test_one_model_answering_twice_is_still_one_source(self):
         """The single-source limit, which no amount of asking can escape."""
         first = Answer(text="The claim is that X holds.", model="m1", prompt="q")

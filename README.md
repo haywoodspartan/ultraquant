@@ -95,9 +95,14 @@ results.
 
 ## LM Studio and the LLMLS panel (optional)
 
-If [LM Studio](https://lmstudio.ai) is running locally, `:panel` puts a question
-to several open-source models you choose and reports what they agreed on —
-weighted by **independent lineage**, not headcount.
+If [LM Studio](https://lmstudio.ai) is running locally, the **Panel** tab in the
+GUI — and `:panel` in the chat CLI, and the `panel` screen in the TUI — puts a
+question to several open-source models you choose and reports what they agreed
+on, weighted by **independent lineage** rather than headcount.
+
+In the GUI the models are listed *under the voice they belong to*, and the
+selection line updates as you pick: choose four Llama derivatives and it reads
+`4 model(s) selected = 1 independent voice(s)` before you ask anything.
 
 ```bash
 python -m ultraquant.interpreter.chat
