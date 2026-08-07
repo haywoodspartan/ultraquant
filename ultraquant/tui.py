@@ -356,7 +356,9 @@ class UltraQuantTUI:
                     "(see the panel screen for the catalogue)")
         try:
             panel = TeacherPanel(models)
-            result = panel.teach(question.prompt, session.stash)
+            result = panel.teach(
+                question.prompt, session.stash,
+                usages=question.context.get("usages"))
         except LMStudioUnavailable as exc:
             return f"LM Studio unavailable: {exc}"
         consensus = result["consensus"]

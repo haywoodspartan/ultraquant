@@ -377,7 +377,9 @@ class ChatCLI:
             panel = TeacherPanel(models)
             self.emit(panel.independence_report())
             self.emit(f"  asking: {question.prompt}")
-            result = panel.teach(question.prompt, self.session.stash)
+            result = panel.teach(
+                question.prompt, self.session.stash,
+                usages=question.context.get("usages"))
         except LMStudioUnavailable as exc:
             self.emit(f"  LM Studio unavailable: {exc}")
             return

@@ -43,6 +43,32 @@ class LearningTests(unittest.TestCase):
         questions = [q for q in self.learner.survey() if q.kind == "unknown-term"]
         self.assertIn("photonics", [q.subject for q in questions])
 
+    def test_an_unknown_term_carries_the_sentences_it_appeared_in(self) -> None:
+        """The count alone cannot disambiguate a polysemous word.
+
+        Asked "what is code?" with no context, one model answers about
+        programming and another about ciphers - both correctly. The sentences
+        the term was actually used in are what settle which sense is meant,
+        and they were being counted and discarded.
+        """
+        for _ in range(4):
+            run_pipeline("run this code and show the output", self.session)
+        questions = [q for q in self.learner.survey()
+                     if q.kind == "unknown-term" and q.subject == "code"]
+        self.assertTrue(questions, "'code' should be asked about")
+        usages = questions[0].context.get("usages")
+        self.assertTrue(usages, "the question must carry its contexts")
+        self.assertTrue(any("show the output" in u for u in usages))
+
+    def test_usages_are_bounded(self) -> None:
+        """Context, not a transcript - the models would summarise a transcript."""
+        for index in range(12):
+            run_pipeline(f"the widget number {index} needs a widget", self.session)
+        questions = [q for q in self.learner.survey()
+                     if q.kind == "unknown-term" and q.subject == "widget"]
+        if questions:
+            self.assertLessEqual(len(questions[0].context.get("usages", [])), 4)
+
     def test_term_seen_once_is_not_questioned(self) -> None:
         run_pipeline("something about tachyons", self.session)
         questions = [q for q in self.learner.survey() if q.kind == "unknown-term"]

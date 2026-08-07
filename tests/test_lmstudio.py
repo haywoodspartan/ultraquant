@@ -382,6 +382,36 @@ class PanelTests(unittest.TestCase):
                 self.assertNotIn("answer", text,
                                  "a prompt contained another model's reply")
 
+    def test_an_already_loaded_model_is_not_loaded_again(self):
+        """`lms load` on a resident model loads a SECOND copy, not a no-op.
+
+        Caught by reading `lms ps` after a few panel runs: 61.5 GB resident
+        across gpt-oss-20b, gpt-oss-20b:2, qwen3-coder-30b and
+        qwen3-coder-30b:2 - half of it duplicates this code had created.
+        """
+        panel, _ = self._panel(["qwen/qwen3-coder-30b"])
+        shelled = []
+        panel.cli = "lms"
+        panel.is_loaded = lambda _id: True
+        with mock.patch("subprocess.run",
+                        lambda *a, **k: shelled.append(a) or None):
+            self.assertTrue(panel.load("qwen/qwen3-coder-30b"))
+        self.assertEqual(shelled, [], "no second instance may be spawned")
+
+    def test_a_model_that_is_not_loaded_is_loaded(self):
+        panel, _ = self._panel(["qwen/qwen3-coder-30b"])
+        panel.cli = "lms"
+        panel.is_loaded = lambda _id: False
+        calls = []
+
+        class _Done:
+            returncode = 0
+
+        with mock.patch("subprocess.run",
+                        lambda *a, **k: calls.append(a[0]) or _Done()):
+            self.assertTrue(panel.load("qwen/qwen3-coder-30b"))
+        self.assertTrue(calls and "load" in calls[0])
+
     def test_the_independence_report_names_merged_models(self):
         panel, _ = self._panel(["qwen/qwen3-coder-30b", "qwen/qwen3-coder-next"])
         report = panel.independence_report()
@@ -456,6 +486,149 @@ class PositionNormalisationTests(unittest.TestCase):
             panel.cli = None
             consensus = panel.ask("complexity of binary search?")
         self.assertIn("FLOOR", consensus.prose_warning)
+
+
+class GroundedQuestionTests(unittest.TestCase):
+    """Under-specified questions look exactly like hard ones to a panel.
+
+    Reported live: asked "what is code?" cold, gpt-oss answered "set of
+    instructions for a computer" and Qwen answered "secret communication
+    system". Both correct, about different senses of a polysemous word, and
+    the panel recorded a split that read as unreliability. The system already
+    held the sentences that settle which sense it meant.
+    """
+
+    def test_usages_are_attached_to_the_prompt(self):
+        from ultraquant.interpreter.llmls import grounded_prompt
+
+        prompt = grounded_prompt("What is code?",
+                                 ["the code function runs one line of python"])
+        self.assertIn("What is code?", prompt)
+        self.assertIn("runs one line of python", prompt)
+
+    def test_no_usages_leaves_the_question_untouched(self):
+        """Nothing may depend on context existing."""
+        from ultraquant.interpreter.llmls import grounded_prompt
+
+        self.assertEqual(grounded_prompt("What is code?"), "What is code?")
+        self.assertEqual(grounded_prompt("What is code?", []), "What is code?")
+        self.assertEqual(grounded_prompt("What is code?", ["", "  "]),
+                         "What is code?")
+
+    def test_only_a_few_usages_are_sent(self):
+        from ultraquant.interpreter.llmls import grounded_prompt
+
+        prompt = grounded_prompt("q?", [f"usage {i}" for i in range(9)], limit=3)
+        self.assertEqual(prompt.count("- usage"), 3)
+
+    def test_the_panel_sends_context_but_records_the_plain_question(self):
+        """A stored claim is about the question, not about the prompt."""
+        ids = ["qwen/qwen3-coder-30b", "openai/gpt-oss-20b"]
+        replies = {"/api/v0/models": _CATALOGUE,
+                   "/v1/models": _openai_models([r["id"] for r in
+                                                 _CATALOGUE["data"]]),
+                   "/chat/completions": lambda b: _chat("instructions",
+                                                        model=b["model"])}
+        stub = StubServer(replies)
+        with mock.patch("urllib.request.urlopen", stub):
+            panel = TeacherPanel(ids)
+            panel.cli = None
+            consensus = panel.ask("What is code?",
+                                  usages=["run this code and show the output"])
+        sent = [b for url, b in stub.requests if "chat" in url]
+        self.assertTrue(sent)
+        for body in sent:
+            self.assertIn("show the output",
+                          body["messages"][-1]["content"],
+                          "context should reach the model")
+        self.assertEqual(consensus.question, "What is code?",
+                         "the recorded question must stay clean")
+
+
+class OverlapNoteTests(unittest.TestCase):
+    """Reported, never credited - the entropy assessor's monobit rule, here.
+
+    Grounding a question fixes which *sense* is asked about; it cannot make two
+    models word a definition identically. The note says so; it must never move
+    a verdict.
+    """
+
+    def _note(self, *positions):
+        from ultraquant.interpreter.llmls import _overlap_note
+
+        return _overlap_note(list(positions))
+
+    def test_the_same_claim_worded_differently_is_flagged(self):
+        note = self._note("sequence instructions executed computer",
+                          "computer instructions written programming language")
+        self.assertIn("worded differently", note)
+        self.assertIn("NOT counted as agreement", note)
+
+    def test_genuinely_different_answers_are_not_flagged(self):
+        self.assertEqual(self._note("canberra", "sydney"), "")
+        self.assertEqual(self._note("set instructions computer",
+                                    "secret communication system"), "")
+
+    def test_a_contested_question_is_not_flagged(self):
+        """Two answers both naming vim are still two positions."""
+        self.assertEqual(self._note("vim widely regarded as powerful",
+                                    "vim emacs vs code configuration editing"),
+                         "")
+
+    def test_one_position_has_nothing_to_overlap_with(self):
+        self.assertEqual(self._note("au"), "")
+        self.assertEqual(self._note(), "")
+
+    def test_the_note_never_changes_corroboration(self):
+        """The whole point: an observation, not evidence."""
+        ids = ["qwen/qwen3-coder-30b", "openai/gpt-oss-20b"]
+        replies = {"/api/v0/models": _CATALOGUE,
+                   "/v1/models": _openai_models([r["id"] for r in
+                                                 _CATALOGUE["data"]])}
+        answers = {ids[0]: "computer instructions written programming language",
+                   ids[1]: "sequence instructions executed computer"}
+        replies["/chat/completions"] = lambda b: _chat(answers[b["model"]],
+                                                       model=b["model"])
+        stub = StubServer(replies)
+        with mock.patch("urllib.request.urlopen", stub):
+            panel = TeacherPanel(ids)
+            panel.cli = None
+            consensus = panel.ask("What is code?")
+        self.assertTrue(consensus.overlap_note, "the overlap should be noted")
+        self.assertFalse(consensus.corroborated,
+                         "a note must not buy corroboration")
+        self.assertEqual(len(consensus.split), 2, "still two positions")
+
+
+class StarvedReplyTests(unittest.TestCase):
+    """Truncation and abstention need different fixes, so they read differently."""
+
+    def _reason(self, text, completion=0, reasoning=0):
+        from ultraquant.interpreter.llmls import _no_answer_reason
+
+        usage = {"completion_tokens": completion,
+                 "completion_tokens_details": {"reasoning_tokens": reasoning}}
+        return _no_answer_reason(Answer(text=text, model="m", prompt="q",
+                                        usage=usage))
+
+    def test_a_reasoning_model_cut_off_says_so(self):
+        """Measured: gpt-oss-20b, max_tokens=60, reasoning_tokens=51, empty."""
+        reason = self._reason("", completion=60, reasoning=51)
+        self.assertIn("reasoning", reason)
+        self.assertIn("max_tokens", reason)
+
+    def test_an_empty_reply_without_reasoning_is_just_empty(self):
+        self.assertEqual(self._reason("", completion=60, reasoning=0),
+                         "empty reply")
+
+    def test_a_refusal_is_reported_as_a_refusal(self):
+        self.assertEqual(self._reason("I don't know."), "declined to answer")
+
+    def test_the_default_budget_clears_the_measured_starvation(self):
+        from ultraquant.interpreter.llmls import DEFAULT_MAX_TOKENS
+
+        self.assertGreater(DEFAULT_MAX_TOKENS, 60,
+                           "60 starved a reasoning model in a live run")
 
 
 class QuarantineTests(unittest.TestCase):

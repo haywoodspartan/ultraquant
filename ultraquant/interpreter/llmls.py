@@ -50,13 +50,34 @@ quarantined, and a single-model integration cannot produce that signal at all.
 :meth:`TeacherPanel.ask` reports splits as first-class results.
 
 **Where a panel is the wrong instrument.** Consensus only measures anything when
-the question has a determinate answer. Asked "tell me something about
-arithmetic", two independent models answered "branch of mathematics dealing with
-numbers" and "addition" — both correct, and the panel reported no corroboration,
-which is the honest reading of a question with many right answers rather than a
-defect. Open-ended prompts should be routed to :func:`quarantine_answer` as
-single-source material and left to the stash; the panel is for questions where
-disagreement would actually mean something.
+the question has a determinate answer *and a canonical form to state it in*.
+Three failure modes were found by running it, and they are different problems:
+
+1. **Open-ended prompts.** "Tell me something about arithmetic" drew "branch of
+   mathematics dealing with numbers" and "commutative under addition" — both
+   correct, no corroboration. A question with many right answers cannot be
+   settled by agreement, and reporting none is the honest reading.
+2. **Under-specified prompts.** "What is code?" drew "set of instructions for a
+   computer" and "secret communication system" — both correct, about different
+   senses of a polysemous word. This one is *fixable*, and
+   :func:`grounded_prompt` fixes it: the system asked because it had seen the
+   term repeatedly, and those sentences say which sense it meant. Passing them
+   moved both models onto the programming sense.
+3. **Definitional answers, which remain unsolved.** Grounded, the same two
+   models returned "sequence instructions executed computer" and "computer
+   instructions written programming language". Same claim, different words,
+   scored as a split — because positions are compared exactly, and deciding
+   that two phrasings mean the same thing is the semantic-equivalence problem
+   this module refuses to guess at.
+
+So the panel corroborates cleanly where an answer has a canonical form —
+``au``, ``canberra``, ``2``, ``frank herbert``, ``o log n`` — and poorly on
+definitions, which legitimately admit many wordings. That is a real limit, not a
+tuning problem, and :attr:`Consensus.overlap_note` states it in the output so a
+reader does not mistake "not corroborated" for "the models disagree". The note
+is **reported and never credited**, exactly as monobit is in
+:mod:`ultraquant.quantum.entropy_blackbox`: crediting the test that a
+coincidence would pass is how manufactured consensus gets in.
 
 **What the panel is never allowed to do** is speak for the system. The models
 here are *sources being interrogated*, in the same position as a scraped web
@@ -83,6 +104,7 @@ from ultraquant.interpreter.lmstudio import (
 )
 
 __all__ = [
+    "grounded_prompt",
     "ModelCard",
     "TeacherPanel",
     "Consensus",
@@ -130,6 +152,49 @@ TERSE = (
 #: Above this many words, a reply is prose and exact matching will under-report
 #: agreement. Reported, never silently corrected.
 _PROSE_WORDS = 12
+
+#: Completion ceiling per model. Generous on purpose: answer *length* is bounded
+#: by :data:`TERSE` in the system prompt, and this is only a safety stop.
+#:
+#: It has to be generous because a reasoning model's thinking tokens are billed
+#: against the same budget. Measured on gpt-oss-20b with a grounded prompt: at
+#: max_tokens=60 the reply came back **empty** with
+#: ``reasoning_tokens=51`` — 51 of the 60 spent thinking, 9 left, nothing
+#: emitted. At 200 the identical request answered "A sequence of instructions
+#: executed by a computer." The panel had been recording that truncation as the
+#: model having nothing to say, which is a measurement error, not a quiet model.
+DEFAULT_MAX_TOKENS = 400
+
+#: An empty reply with at least this fraction of the budget spent on reasoning
+#: is starvation, not abstention, and is reported as such.
+_STARVED_FRACTION = 0.7
+
+#: Content-token overlap above which two positions are *reported* as probably
+#: the same claim differently worded — and, deliberately, still not credited.
+#:
+#: This is the entropy assessor's monobit rule applied here: a signal worth
+#: showing the reader, never worth buying agreement with. Measured on the
+#: grounded "what is code?" run, where the two independent voices returned
+#: "sequence instructions executed computer" and "computer instructions written
+#: programming language". Those are the same claim. Deciding so automatically
+#: is the semantic-equivalence problem, and a threshold that credited it would
+#: manufacture consensus on the day two genuinely different answers happened to
+#: share vocabulary. So it is surfaced as an observation and the verdict stands.
+#:
+#: Calibrated on the six splits observed so far, which separate cleanly::
+#:
+#:     0.286  same claim   "sequence instructions executed computer"
+#:                     vs  "computer instructions written programming language"
+#:     0.200  same claim   "python" vs "python simplest syntax beginner friendly"
+#:     0.100  contested    "vim widely regarded..." vs "vim emacs vs code..."
+#:     0.000  other sense  "set instructions computer" vs "secret communication system"
+#:     0.000  other aspect "branch of mathematics..." vs "commutative under addition"
+#:     0.000  other answer "canberra" vs "sydney"
+#:
+#: Six observations is a small calibration and this will misfire in both
+#: directions. It is tolerable *only* because the note decides nothing: no
+#: verdict, no credit, no stored belief moves on it.
+_OVERLAP_NOTE = 0.15
 
 
 @dataclass(frozen=True)
@@ -258,6 +323,11 @@ class Consensus:
         prose_warning: Set when replies were long enough that exact
             matching will under-report agreement. Never silently applied
             as a correction - the reader is told the number is a floor.
+        overlap_note: Set when distinct positions share enough content to
+            look like one claim worded differently. Reported so a reader does
+            not misread "not corroborated" as "the models disagree"; never
+            credited, because crediting it is the manufactured-consensus
+            error this module exists to avoid.
     """
 
     question: str
@@ -270,6 +340,7 @@ class Consensus:
     caveat: str = ""
     errors: dict = field(default_factory=dict)
     prose_warning: str = ""
+    overlap_note: str = ""
 
     def as_text(self) -> str:
         """A printable summary, disagreement included."""
@@ -421,14 +492,31 @@ class TeacherPanel:
 
     # ---- model management -----------------------------------------------
 
+    def is_loaded(self, model_id: str) -> bool:
+        """Whether the model is resident right now, per a fresh catalogue read."""
+        try:
+            return any(card.id == model_id and card.loaded
+                       for card in catalogue(self.client.base_url))
+        except LMStudioUnavailable:
+            return False
+
     def load(self, model_id: str) -> bool:
         """Load one model into memory, with a TTL so it unloads when idle.
 
+        Already-resident models are skipped. ``lms load`` on a loaded model
+        does not no-op — it loads a *second instance* under a ``:2`` identifier,
+        and a panel re-run across a few 30B models will quietly fill the card
+        with duplicates. Found by checking the catalogue after a couple of runs
+        and seeing ``gpt-oss-20b:2`` and ``qwen3-coder-30b:2`` resident
+        alongside the originals.
+
         Returns:
-            True if the CLI reported success. False when the CLI is absent —
-            not an error: the HTTP API JIT-loads on first request, so the panel
-            still works, just without TTL control.
+            True if the model is resident afterwards. False when the CLI is
+            absent — not an error: the HTTP API JIT-loads on first request, so
+            the panel still works, just without TTL control.
         """
+        if self.is_loaded(model_id):
+            return True
         if not self.cli:
             return False
         command = [self.cli, "load", model_id, "--ttl", str(self.ttl), "--yes"]
@@ -469,8 +557,9 @@ class TeacherPanel:
         self,
         question: str,
         system: str | None = None,
-        max_tokens: int = 60,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         sequential: bool = True,
+        usages: Sequence[str] | None = None,
     ) -> Consensus:
         """Put one question to every panel member, in isolation.
 
@@ -485,8 +574,10 @@ class TeacherPanel:
                 disagreement-about-the-answer with
                 disagreement-about-the-instruction. Pass ``system=""`` to send
                 none, accepting that prose replies will under-report agreement.
-            max_tokens: Reply ceiling per model. Short answers compare far
-                more meaningfully than essays.
+            max_tokens: Completion ceiling per model, defaulting to
+                :data:`DEFAULT_MAX_TOKENS`. Not the length control - that is
+                :data:`TERSE`. Setting this low starves reasoning models,
+                whose thinking is billed against it.
             sequential: Ask one at a time. The default, because concurrent
                 requests to several large local models contend for the same
                 GPU and will usually be slower, not faster.
@@ -495,12 +586,15 @@ class TeacherPanel:
             The :class:`Consensus`, including any split.
         """
         instruction = TERSE if system is None else (system or None)
+        # Asked with context; recorded without it. The Consensus carries
+        # the plain question because that is what a stored claim is about.
+        asked = grounded_prompt(question, usages)
         answers: dict[str, Answer] = {}
         errors: dict[str, str] = {}
         for card in self.cards:
             try:
                 answers[card.id] = self.client.complete(
-                    question, model=card.id, system=instruction,
+                    asked, model=card.id, system=instruction,
                     max_tokens=max_tokens, temperature=0.0)
             except LMStudioUnavailable as exc:
                 errors[card.id] = str(exc)
@@ -517,12 +611,20 @@ class TeacherPanel:
             if not text or text.lower().startswith(_REFUSALS):
                 # A refusal is not a position. Counting it as one would let
                 # several models "agree" on knowing nothing.
-                errors.setdefault(model_id, "no usable answer")
+                #
+                # An *empty* reply is not a refusal at all, though, and saying
+                # "no usable answer" for it hides a bug in the caller: a
+                # reasoning model whose thinking consumed the token budget was
+                # cut off, not quiet. The two need different fixes, so they get
+                # different messages.
+                errors.setdefault(model_id, _no_answer_reason(answer))
                 continue
             split.setdefault(_position(text, question), []).append(model_id)
 
         prose = [m for m, a in answers.items()
                  if len((a.text or "").split()) > _PROSE_WORDS]
+
+        overlap = _overlap_note(list(split))
 
         best_voices, best_position = 0, ""
         for position, backers in split.items():
@@ -555,12 +657,14 @@ class TeacherPanel:
                 "reported here is a FLOOR - models saying the same thing in "
                 "different words are counted as disagreeing"
                 if prose else ""),
+            overlap_note=overlap,
         )
 
     # ---- quarantine -----------------------------------------------------
 
     def teach(self, question: str, stash: Any, max_claims: int = 4,
-              system: str | None = None) -> dict:
+              system: str | None = None,
+              usages: Sequence[str] | None = None) -> dict:
         """Ask the panel and file the result in the contemporary stash.
 
         Only positions backed by **at least two independent voices** are
@@ -579,7 +683,7 @@ class TeacherPanel:
         Returns:
             ``{"consensus": Consensus, "entry_ids": [...], "filed": n}``.
         """
-        consensus = self.ask(question, system=system)
+        consensus = self.ask(question, system=system, usages=usages)
         entry_ids: list[int] = []
         by_card = {card.id: card for card in self.cards}
         for position, backers in consensus.split.items():
@@ -597,6 +701,97 @@ class TeacherPanel:
                                             max_claims=max_claims))
         return {"consensus": consensus, "entry_ids": entry_ids,
                 "filed": len(entry_ids)}
+
+
+def grounded_prompt(question: str, usages: Sequence[str] | None = None,
+                    limit: int = 3) -> str:
+    """Attach the contexts a term was seen in, so the sense is not guessed.
+
+    A bare question can be *under-specified* rather than hard, and the panel
+    cannot tell the difference — it reports disagreement either way. Measured:
+    asked "what is code?" cold, gpt-oss answered "set of instructions for a
+    computer" and Qwen answered "secret communication system". **Both are
+    correct**; they answered about different senses of a polysemous word, and
+    the panel recorded a split that looked like unreliability.
+
+    The system already held what settles it. It asked because it had seen the
+    term repeatedly, and those sentences say which sense is meant. Passing them
+    turns an ambiguous question into a determinate one, which is the only kind
+    a consensus panel can measure.
+
+    Args:
+        question: The question as the system phrased it.
+        usages: Sentences the term appeared in. Empty or None returns the
+            question unchanged, so nothing depends on context existing.
+        limit: How many usages to include; more is context the models will
+            summarise rather than use.
+
+    Returns:
+        The prompt to send. The plain ``question`` is still what gets recorded
+        against any resulting claim.
+    """
+    examples = [u for u in (usages or []) if u.strip()][:limit]
+    if not examples:
+        return question
+    lines = "\n".join(f"- {u}" for u in examples)
+    return (f"{question}\n\nThe term was used in these contexts, so answer "
+            f"about this sense of it:\n{lines}")
+
+
+def _overlap_note(positions: Sequence[str]) -> str:
+    """Flag positions that look like one claim worded two ways. Never credit it.
+
+    Grounding a question fixes which *sense* is being asked about; it cannot
+    make two models phrase the same definition identically. Measured on the
+    grounded "what is code?" run: two independent voices returned "sequence
+    instructions executed computer" and "computer instructions written
+    programming language", which are the same claim and are counted as a split.
+
+    That is the correct verdict under exact matching and the verdict stands.
+    What was wrong was leaving a reader to read "not corroborated" as "the
+    models disagree", when the cause is that **definitions have no canonical
+    form** — unlike ``au``, ``canberra`` or ``2``, where the panel corroborates
+    cleanly. So the overlap is stated and nothing is bought with it.
+
+    Returns:
+        A note, or an empty string when no pair overlaps enough.
+    """
+    if len(positions) < 2:
+        return ""
+    best = 0.0
+    for i in range(len(positions)):
+        for j in range(i + 1, len(positions)):
+            a = {w for w in positions[i].split() if w not in _FILLER}
+            b = {w for w in positions[j].split() if w not in _FILLER}
+            union = a | b
+            if union:
+                best = max(best, len(a & b) / len(union))
+    if best < _OVERLAP_NOTE:
+        return ""
+    return (f"distinct positions share {best:.0%} of their content words - "
+            "this may be one claim worded differently rather than a "
+            "disagreement. NOT counted as agreement: judging that is the "
+            "semantic-equivalence problem, and definitional questions have no "
+            "canonical answer for exact matching to find")
+
+
+def _no_answer_reason(answer: Answer) -> str:
+    """Why a reply was unusable - truncation and abstention are not the same.
+
+    A reasoning model that spent its whole budget thinking emitted nothing
+    because it was cut off. Reporting that as "no usable answer" points the
+    reader at the model when the fix is in the request.
+    """
+    text = (answer.text or "").strip()
+    if text:
+        return "declined to answer"
+    details = (answer.usage or {}).get("completion_tokens_details") or {}
+    reasoning = int(details.get("reasoning_tokens") or 0)
+    completion = int((answer.usage or {}).get("completion_tokens") or 0)
+    if completion and reasoning >= completion * _STARVED_FRACTION:
+        return (f"empty reply - {reasoning} of {completion} completion tokens "
+                "went to reasoning; raise max_tokens")
+    return "empty reply"
 
 
 def _as_claim(question: str, position: str) -> str:

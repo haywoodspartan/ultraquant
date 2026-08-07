@@ -1372,7 +1372,9 @@ class UltraQuantGUI:
                 self.events.put(("learn", f"\n  asking the panel: "
                                           f"{question.prompt[:110]}\n"))
                 self.events.put(("learn", panel.independence_report() + "\n"))
-                result = panel.teach(question.prompt, session.stash)
+                result = panel.teach(
+                    question.prompt, session.stash,
+                    usages=question.context.get("usages"))
             except LMStudioUnavailable as exc:
                 self.events.put(("learn", f"  LM Studio unavailable: {exc}\n"))
                 return

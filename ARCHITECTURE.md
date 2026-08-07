@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 2.7 · 900 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 2.8 · 917 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         43 modules, 900 tests
+tests/         43 modules, 917 tests
 ```
 
 ---
@@ -2882,6 +2882,49 @@ nothing usable, **not corroborated**, box left empty, question still open. The
 second is the more informative result: an open-ended prompt has many right
 answers, so consensus is the wrong instrument for it, and the panel reporting no
 agreement is the honest reading rather than a failure.
+
+**Three ways a question can defeat a panel, found by using it.** A user ran
+`what is code?` and got a split; unpicking it turned up three different problems
+wearing the same result.
+
+*Under-specification, which was fixed.* gpt-oss answered "set of instructions for
+a computer" and Qwen "secret communication system" — **both correct**, about
+different senses of a polysemous word. The system already held what settles it:
+it asked because it had seen `code` six times, and those sentences say which
+sense it meant. `_unknown_terms` was counting the occurrences and discarding the
+utterances. It now keeps up to four, `grounded_prompt` attaches them, and both
+models moved onto the programming sense.
+
+*Token starvation, which was a bug in the request.* Grounded, gpt-oss returned an
+**empty string**, which the panel recorded as "no usable answer" — i.e. as the
+model having nothing to say. The `usage` field said otherwise: at
+`max_tokens=60`, **51 of 60 completion tokens went to reasoning**, leaving nine.
+At 200 the identical request answered. A reasoning model's thinking is billed
+against the same budget, so `max_tokens` was never the length control — `TERSE`
+is — and the default is now 400. Truncation and abstention are reported
+separately, because they need different fixes.
+
+*Definitional answers, which remain unsolved.* With both fixed, the two voices
+returned "sequence instructions executed computer" and "computer instructions
+written programming language". Same claim, different words, still scored a split.
+Positions are compared exactly, and deciding two phrasings mean the same thing is
+the semantic-equivalence problem this module refuses to guess at.
+
+So the panel corroborates cleanly where an answer has a canonical form — `au`,
+`canberra`, `2`, `frank herbert`, `o log n` — and poorly on definitions, which
+legitimately admit many wordings. That is a limit, not a tuning problem.
+`Consensus.overlap_note` states it in the output so "not corroborated" is not
+misread as "the models disagree", and it is **reported and never credited** —
+[§the entropy black box](#the-entropy-black-box)'s monobit rule, applied here for
+the same reason. Its threshold is calibrated on six observed splits that separate
+at 0.29/0.20 against 0.10/0.00/0.00/0.00; six is a small calibration and it will
+misfire, which is tolerable *only* because the note moves no verdict.
+
+**A resource bug found in `lms ps`.** `lms load` on an already-resident model
+does not no-op — it loads a **second instance** under a `:2` identifier. Two
+panel runs had left 61.5 GB resident across `gpt-oss-20b`, `gpt-oss-20b:2`,
+`qwen3-coder-30b` and `qwen3-coder-30b:2`, half of it duplicates this code
+created. `load()` now checks residency first.
 
 This is not a capability gate and is not claimed as one. It is an integration
 with an accounting attached, and the accounting is the part worth having.

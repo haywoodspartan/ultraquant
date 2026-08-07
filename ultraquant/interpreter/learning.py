@@ -203,6 +203,12 @@ class LearningSession:
         """Words that keep coming up with nothing stored against them."""
         memory = self.session.memory
         counts: dict[str, int] = {}
+        # The utterances themselves, not just how many. A bare "what is code?"
+        # is ambiguous - asked cold, one model answers about programming and
+        # another about ciphers, and both are right. The sentences the term
+        # actually appeared in are what settle which sense is being asked
+        # about, and they were being counted and thrown away.
+        usages: dict[str, list[str]] = {}
         for episode in memory.recall_episodes(limit=200):
             content = episode.get("content") or {}
             text = str(content.get("text", ""))
@@ -210,6 +216,10 @@ class LearningSession:
                 if token in _STOPWORDS:
                     continue
                 counts[token] = counts.get(token, 0) + 1
+                seen_in = usages.setdefault(token, [])
+                trimmed = " ".join(text.split())[:160]
+                if trimmed and trimmed not in seen_in and len(seen_in) < 4:
+                    seen_in.append(trimmed)
 
         out = []
         for token, seen in sorted(counts.items(), key=lambda kv: -kv[1]):
@@ -223,7 +233,8 @@ class LearningSession:
                 f"about it. What is {token}?",
                 subject=token,
                 score=0.4 * seen,
-                context={"occurrences": seen},
+                context={"occurrences": seen,
+                         "usages": list(usages.get(token, []))},
                 expects="text",
             ))
             if len(out) >= 4:
