@@ -383,9 +383,14 @@ class TestCategoryRouter(unittest.TestCase):
         # learned weight on words like "is" and "the", and four of five queries
         # belonging to no category were claimed anyway. Uninformative tokens
         # are now filtered before both the router table and the vault.
-        for token in ("integration", "parts"):
+        # "parts" is stored folded to "part": registered vocabulary and query
+        # text disagree about number, and folding both onto the singular is
+        # what lets 'arithmetic' (which registers "number") match a query
+        # saying "numbers".
+        for token in ("integration", "part"):
             self.assertAlmostEqual(assoc[token], 0.1)
         self.assertNotIn("by", assoc, "a stopword must not become evidence")
+        self.assertNotIn("parts", assoc, "plurals are folded, not duplicated")
 
     def test_state_save_load_round_trip(self) -> None:
         self.router.register("math", ["calculus", "integral"])

@@ -41,8 +41,54 @@ _SCREEN_WIDTH = 128
 
 
 def _tokenize(text: str) -> list[str]:
-    """Split ``text`` into lowercase alphanumeric tokens."""
-    return _TOKEN_RE.findall(text.lower())
+    """Split ``text`` into lowercase alphanumeric tokens, plurals folded."""
+    return [normalize_token(t) for t in _TOKEN_RE.findall(text.lower())]
+
+
+#: Endings that look plural but are not, so stripping them would corrupt the
+#: word. ``-ss`` (class, cross), ``-us`` (status, focus), ``-is`` (analysis),
+#: ``-os`` (chaos). Without these, "class" becomes "clas" and stops matching
+#: itself.
+_NOT_PLURAL = ("ss", "us", "is", "os")
+
+
+def normalize_token(token: str) -> str:
+    """Fold a regular English plural onto its singular.
+
+    Registered vocabulary and query text are written by different people at
+    different times, and they disagree about number. Measured on the deployed
+    library: ``arithmetic`` registers ``number`` while "add these two numbers"
+    says ``numbers``, so the category scored **zero** on a query that is
+    obviously its own, and the query went to ``crosses`` instead.
+
+    Deliberately conservative — a *plural folder*, not a stemmer. Porter-style
+    stemming also strips ``-ing``, ``-ed`` and ``-ation``, which merges words
+    that mean different things and, in a router that had just been taught not
+    to over-claim, would widen matching in exactly the direction that
+    regressed. The rules here are:
+
+    * ``-ies`` -> ``-y``      (bodies -> body)
+    * ``-ches``/``-shes``/``-xes``/``-zes``/``-sses`` -> drop ``-es``
+    * ``-s`` -> drop, unless the word ends ``-ss``, ``-us``, ``-is`` or ``-os``
+
+    and nothing is folded below three characters, so ``is``, ``as`` and ``us``
+    survive untouched.
+
+    Applied consistently at registration, learning and routing, so the fold is
+    invisible to callers: whichever spelling goes in, both match.
+    """
+    if len(token) < 4:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    for ending in ("ches", "shes", "xes", "zes", "sses"):
+        if token.endswith(ending) and len(token) - 2 >= 3:
+            return token[:-2]
+    if token.endswith("s") and not token.endswith(_NOT_PLURAL):
+        stripped = token[:-1]
+        if len(stripped) >= 3:
+            return stripped
+    return token
 
 
 def _informative(token: str) -> bool:
@@ -129,7 +175,7 @@ class CategoryRouter:
         """
         base = self._base.setdefault(category, set())
         for keyword in keywords:
-            lowered = keyword.lower()
+            lowered = normalize_token(keyword.lower())
             if not _informative(lowered):
                 # Registering a question word is how a category comes to claim
                 # every question. Measured: 'world' shipped with 'what', 'who'
@@ -356,7 +402,7 @@ class CategoryRouter:
         with open(self.path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         self._base = {
-            cat: {kw for kw in kws if _informative(kw)}
+            cat: {normalize_token(kw) for kw in kws if _informative(kw)}
             for cat, kws in data.get("base", {}).items()
         }
         loaded = {

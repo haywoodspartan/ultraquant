@@ -16,6 +16,7 @@ import unittest
 from ultraquant.shards.router import (
     CategoryRouter,
     _informative,
+    normalize_token,
     prune_uninformative,
 )
 from ultraquant.shards.vault import ShardVault
@@ -43,6 +44,62 @@ class InformativeTests(unittest.TestCase):
         for token in ("diamond", "arrow", "arithmetic", "outline"):
             with self.subTest(token):
                 self.assertTrue(_informative(token))
+
+
+class PluralFoldingTests(unittest.TestCase):
+    """Registered vocabulary and query text disagree about number.
+
+    Measured on the deployed library: `arithmetic` registers `number`, the
+    query says `numbers`, and the category scored zero on a query obviously its
+    own.
+    """
+
+    def test_regular_plurals_fold(self):
+        for plural, singular in (("numbers", "number"), ("crosses", "cross"),
+                                 ("lines", "line"), ("stripes", "stripe"),
+                                 ("bodies", "body"), ("boxes", "box")):
+            with self.subTest(plural):
+                self.assertEqual(normalize_token(plural), singular)
+
+    def test_words_that_merely_end_in_s_are_not_corrupted(self):
+        """A stemmer would turn 'class' into 'clas' and it stops matching."""
+        for word in ("class", "cross", "status", "analysis", "chaos", "bus",
+                     "less", "gas", "is", "as", "us"):
+            with self.subTest(word):
+                self.assertEqual(normalize_token(word), word)
+
+    def test_folding_is_not_stemming(self):
+        """Porter-style stemming merges words that mean different things.
+
+        In a router just taught not to over-claim, that widens matching in
+        exactly the direction that regressed, so only number is folded.
+        """
+        for word in ("running", "pointed", "creation", "arrows"):
+            folded = normalize_token(word)
+            if word == "arrows":
+                self.assertEqual(folded, "arrow")
+            else:
+                self.assertEqual(folded, word, "only plurals fold")
+
+    def test_a_mismatched_query_now_reaches_its_category(self):
+        router = _router(arithmetic=["number", "sum"], frames=["frame"])
+        ranked = router.route("add these two numbers", top_k=1)
+        self.assertTrue(ranked and ranked[0][0] == "arithmetic")
+
+    def test_folding_applies_at_registration_too(self):
+        """Otherwise a plural keyword and a singular query still miss."""
+        router = _router(arithmetic=["numbers"])
+        self.assertIn("number", router._base["arithmetic"])
+        ranked = router.route("what is that number", top_k=1)
+        self.assertTrue(ranked and ranked[0][0] == "arithmetic")
+
+    def test_folding_does_not_reopen_abstention(self):
+        """It widens matching, and over-claiming is what was just fixed."""
+        router = _router(frames=["frame", "box", "diamond"],
+                         lines=["line", "stripe"])
+        router.learn("what is the shape of a box", "frames")
+        claimed = [q for q in _DECOYS if router.route(q, top_k=1)]
+        self.assertEqual(claimed, [], f"still claimed: {claimed}")
 
 
 class LearningTests(unittest.TestCase):
@@ -192,6 +249,16 @@ class GateTests(unittest.TestCase):
         self.assertTrue(report.passes, report.reason)
         self.assertGreater(report.margin_ratio, 1.0)
         self.assertGreaterEqual(report.route_after, report.route_before)
+
+    def test_plural_folding_is_measured_by_the_gate(self):
+        """0.500 without folding, 1.000 with - not 0.000 without.
+
+        Several categories register both spellings, which masks the gap
+        wherever someone thought to. The failures are where nobody did.
+        """
+        from ultraquant.experiments.abstention_gate import run_gate
+
+        self.assertEqual(run_gate(seeds=4).number_mismatched, 1.0)
 
 
 if __name__ == "__main__":

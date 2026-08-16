@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.5 · 1049 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.6 · 1056 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         49 modules, 1049 tests
+tests/         49 modules, 1056 tests
 ```
 
 ---
@@ -3139,6 +3139,38 @@ goes to `crosses` because `arithmetic` registers `number` and the query says
 change. A singular/plural vocabulary gap is a separate problem and is not fixed
 here.
 
+**The singular/plural gap, fixed separately.** §11.15 left one genuine query
+misrouted: `arithmetic` registers `number`, the query said `numbers`, and the
+category scored **zero** on a query obviously its own. `normalize_token` folds
+regular plurals at registration, learning and routing, so whichever spelling
+goes in, both match.
+
+It is a *plural folder*, not a stemmer, and that restraint is the design.
+Porter-style stemming also strips `-ing`, `-ed` and `-ation`, merging words that
+mean different things — which, in a router that had just been taught not to
+over-claim, would widen matching in precisely the direction that had regressed.
+Words that merely end in `s` are protected: `class`, `status`, `analysis`,
+`chaos` and `bus` survive untouched, where a stemmer turns `class` into `clas`
+and it stops matching itself.
+
+Measured: **0.500 without folding, 1.000 with it** — not 0.000 without, because
+several categories happen to register both spellings (`frame` *and* `frames`),
+which masks the gap wherever someone thought to do it. The failures are where
+nobody did. Abstention was unchanged at 0.975, which is the control that matters
+for a widening change.
+
+**And it did not fix the deployed library's miss, for a different reason worth
+recording.** "add these two numbers" still goes to `crosses`. Folding worked —
+`arithmetic` now scores 1.10 where it scored 0 on base overlap — but `crosses`
+scores **1.75**, on learned `two` at 0.30, learned **`number` at 0.15**, and 1.3
+of vault association.
+
+`crosses` learned `number`. It won that query wrongly once, and `learn()`
+reinforces whatever category the pipeline routed to, so the error taught itself
+and became more likely to win next time. That is a **feedback loop in the
+learning rule**, not a vocabulary gap, and it is not fixed here — a router that
+learns from its own routing has no way to notice it was wrong.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3217,6 +3249,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
 | router abstention | **PASSED** (§11.15) — 0.025 -> 0.975 at 12.57x sd, control held |
+| plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged; exposed a learning feedback loop it does not fix |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 

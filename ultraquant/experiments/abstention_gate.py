@@ -118,6 +118,23 @@ _USAGE = [
 #: How many usage turns each seed learns from.
 _USAGE_PER_RUN = 12
 
+#: Queries whose number disagrees with the registered vocabulary. Measured at
+#: **0.500 without plural folding and 1.000 with it** - not 0.000 without,
+#: because several categories happen to register both spellings (``frame`` and
+#: ``frames``), which masks the gap wherever someone thought to do it. The ones
+#: that fail are the ones where nobody did: ``arithmetic`` registers ``number``
+#: and the query says ``numbers``.
+NUMBER_MISMATCHED = [
+    ("add these two numbers", "arithmetic"),
+    ("draw some diamonds", "frames"),
+    ("show me the horizontal lines", "lines"),
+    ("two arrows pointing up", "arrows"),
+    ("a page full of crosses", "crosses"),
+    ("what do these words mean", "language"),
+    ("which countries border it", "world"),
+    ("the shapes on this page", "geometry"),
+]
+
 
 @dataclass
 class AbstentionReport:
@@ -134,6 +151,8 @@ class AbstentionReport:
         route_after: Genuine-query accuracy after. The control.
         weight_kept: Fraction of learned weight surviving the fix. Reported,
             not gated.
+        number_mismatched: Accuracy on queries whose number disagrees with the
+            registered vocabulary — what plural folding is for.
         reason: Plain-language verdict.
     """
 
@@ -146,6 +165,7 @@ class AbstentionReport:
     route_before: float = 0.0
     route_after: float = 0.0
     weight_kept: float = 0.0
+    number_mismatched: float = 0.0
     reason: str = ""
 
     def as_text(self) -> str:
@@ -158,6 +178,8 @@ class AbstentionReport:
             "   <- refusing everything scores 1.000 above and 0.000 here",
             f"seed sd {self.seed_sd:.3f}   margin ratio "
             f"{self.margin_ratio:.2f}x  (gate needs > 1.0)",
+            f"number-mismatched     {self.number_mismatched:.3f}"
+            "   <- plural folding; measured 0.500 without it",
             f"learned weight kept   {self.weight_kept:.3f}   "
             "(reported, not gated)",
             ("PASS - " if self.passes else "FAIL - ") + self.reason,
@@ -182,6 +204,16 @@ def _abstains(router) -> float:
     """Fraction of decoys the router declines to claim."""
     declined = sum(1 for query in DECOYS if not router.route(query, top_k=1))
     return declined / len(DECOYS)
+
+
+def _mismatched(router) -> float:
+    """Fraction of number-mismatched queries routed correctly."""
+    hit = 0
+    for query, truth in NUMBER_MISMATCHED:
+        ranked = router.route(query, top_k=1)
+        if ranked and ranked[0][0] == truth:
+            hit += 1
+    return hit / len(NUMBER_MISMATCHED)
 
 
 def _routes(router) -> float:
@@ -211,6 +243,7 @@ def run_gate(seeds: int = 8) -> AbstentionReport:
     """
     abstain_before, abstain_after, deltas = [], [], []
     route_before, route_after, kept = [], [], []
+    mismatch: list[float] = []
     for seed in range(seeds):
         rng = random.Random(seed)
         plain = _build(rng, filter_stopwords=False)
@@ -222,6 +255,7 @@ def run_gate(seeds: int = 8) -> AbstentionReport:
         deltas.append(abstain_after[-1] - abstain_before[-1])
         route_before.append(_routes(plain))
         route_after.append(_routes(fixed))
+        mismatch.append(_mismatched(fixed))
         plain_weight = _weight(plain)
         kept.append(_weight(fixed) / plain_weight if plain_weight else 1.0)
 
@@ -238,6 +272,7 @@ def run_gate(seeds: int = 8) -> AbstentionReport:
         route_before=statistics.fmean(route_before),
         route_after=statistics.fmean(route_after),
         weight_kept=statistics.fmean(kept),
+        number_mismatched=statistics.fmean(mismatch),
     )
 
     # The control decides first: silence bought with accuracy is not a fix.
