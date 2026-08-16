@@ -35,11 +35,30 @@ and ``arch`` catches that. Meanwhile ``arch=llama`` and ``publisher=TheBloke``
 both lump DeepSeek-Coder with CodeLlama, which are genuinely separate trainings
 that merely share an architecture and a quantizer.
 
-So :func:`lineage_key` deliberately **over-groups**: any shared architecture,
-publisher, or name stem collapses models into one voice. It will sometimes call
-two independent models correlated and cost the panel some corroboration it had
-earned. That direction is chosen on purpose — the opposite error *manufactures
-evidence*, which is the failure this system exists to avoid. The returned
+**A second catalogue showed the failure in the other, worse direction.** After
+the user swapped their models, three Qwen derivatives defeated all three signals
+at once:
+
+===================================================  ===========  ==============
+model                                                ``arch``     ``publisher``
+===================================================  ===========  ==============
+``qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive``   qwen35moe    HauhauCS
+``qwen3-48b-a4b-savant-commander-distill-12x-...``   qwen3moe     DavidAU
+``katarau-9b-ru-rp-nsfw``                            qwen35       mradermacher
+===================================================  ===========  ==============
+
+Different arch strings, different publishers, name stems mangled past
+recognition — and the panel reported **three independent voices** for what is
+one base family. That is the direction that matters, because under-grouping
+*manufactures evidence*. :func:`_arch_family` now reduces an architecture to its
+leading alphabetic run, so all three collapse to ``qwen``, and that catalogue
+went from six voices to four.
+
+So :func:`lineage_key` deliberately **over-groups**: any shared architecture
+family, publisher, or name stem collapses models into one voice. It will
+sometimes call two independent models correlated and cost the panel some
+corroboration it had earned. That direction is chosen on purpose — the opposite
+error *manufactures evidence*, which is the failure this system exists to avoid. The returned
 :class:`Consensus` therefore reports independent-lineage counts as a **lower
 bound on correlation**, never as a proof of independence, and
 :attr:`Consensus.caveat` says so in the output rather than in a comment.
@@ -248,6 +267,37 @@ def _name_stem(model_id: str) -> str:
     return "-".join(parts[:2]) if parts else name
 
 
+def _arch_family(arch: str) -> str:
+    """The base family of an architecture string, ignoring version and variant.
+
+    ``qwen3moe``, ``qwen35moe`` and ``qwen35`` are all Qwen and all report
+    *different* ``arch`` strings, so comparing them literally counted one base
+    family as three independent voices. That is the failure direction that
+    matters: over-grouping costs corroboration the panel had earned, but
+    under-grouping **manufactures evidence**, which is the error this module
+    exists to prevent.
+
+    Found on a real catalogue where the community had renamed everything:
+    ``qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive`` (arch ``qwen35moe``,
+    publisher HauhauCS), ``qwen3-48b-a4b-savant-commander-distill-...`` (arch
+    ``qwen3moe``, publisher DavidAU) and ``katarau-9b-ru-rp-nsfw`` (arch
+    ``qwen35``, publisher mradermacher) defeated all three signals at once —
+    different arch strings, different publishers, unrecognisable name stems —
+    and were reported as three voices.
+
+    Taking the leading alphabetic run collapses them to ``qwen``. It is blunt
+    and deliberately so: ``gemma4`` -> ``gemma``, ``command-r`` -> ``command``,
+    ``gpt-oss`` -> ``gpt``. Anything it merges wrongly costs only credit.
+    """
+    letters = []
+    for char in arch.lower().strip():
+        if char.isalpha():
+            letters.append(char)
+        else:
+            break
+    return "".join(letters) or arch.lower().strip()
+
+
 def lineage_key(card: ModelCard) -> tuple[str, str, str]:
     """A conservative identity for "probably the same model family".
 
@@ -258,9 +308,11 @@ def lineage_key(card: ModelCard) -> tuple[str, str, str]:
     corroborate each other, inventing evidence out of nothing.
 
     Returns:
-        ``(arch, publisher, name_stem)``, lowercased.
+        ``(arch_family, publisher, name_stem)``, lowercased. The architecture
+        is reduced to its family by :func:`_arch_family` first - comparing raw
+        arch strings let three Qwen derivatives pass as three voices.
     """
-    return (card.arch.lower().strip(),
+    return (_arch_family(card.arch),
             card.publisher.lower().strip(),
             _name_stem(card.id))
 

@@ -253,10 +253,44 @@ class LineageTests(unittest.TestCase):
     def test_an_empty_panel_has_no_voices(self):
         self.assertEqual(independent_groups([]), [])
 
-    def test_lineage_key_is_lowercased(self):
+    def test_lineage_key_is_lowercased_and_reduced_to_a_family(self):
         key = lineage_key(_card("Qwen/Qwen3-30B", "Qwen3MoE", "Qwen"))
-        self.assertEqual(key[0], "qwen3moe")
+        self.assertEqual(key[0], "qwen", "arch is reduced to its family")
         self.assertEqual(key[1], "qwen")
+
+    def test_renamed_qwen_derivatives_are_one_voice(self):
+        """The dangerous direction, found on a real catalogue.
+
+        Three Qwen derivatives defeated all three signals at once - different
+        arch strings (qwen35moe / qwen3moe / qwen35), different publishers, and
+        name stems mangled beyond recognition - and were counted as three
+        independent voices. Under-grouping manufactures evidence, which is the
+        one error this module exists to prevent.
+        """
+        cards = [
+            _card("qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
+                  "qwen35moe", "HauhauCS"),
+            _card("qwen3-48b-a4b-savant-commander-distill-12x", "qwen3moe",
+                  "DavidAU"),
+            _card("katarau-9b-ru-rp-nsfw", "qwen35", "mradermacher"),
+        ]
+        for card in cards:
+            self.assertNotEqual(card.publisher, cards[0].publisher
+                                if card is not cards[0] else "x")
+        self.assertEqual(len(independent_groups(cards)), 1,
+                         "one base family must not pass as three voices")
+
+    def test_the_arch_family_reduction_keeps_real_families_apart(self):
+        """Blunter grouping must not collapse everything into one voice."""
+        from ultraquant.interpreter.llmls import _arch_family
+
+        self.assertEqual(_arch_family("qwen35moe"), "qwen")
+        self.assertEqual(_arch_family("qwen3moe"), "qwen")
+        self.assertEqual(_arch_family("gemma4"), "gemma")
+        self.assertEqual(_arch_family("command-r"), "command")
+        self.assertEqual(_arch_family("gpt-oss"), "gpt")
+        self.assertNotEqual(_arch_family("qwen3moe"), _arch_family("gemma4"))
+        self.assertNotEqual(_arch_family("llama"), _arch_family("command-r"))
 
 
 class PanelTests(unittest.TestCase):

@@ -256,7 +256,10 @@ def run_gate(panel: TeacherPanel | None = None, seeds: int = 6,
     Returns:
         The :class:`GateReport`. Unreachable teachers yield ``skipped``.
     """
+    import tempfile
+
     from ultraquant.shards.router import CategoryRouter
+    from ultraquant.shards.vault import ShardVault
 
     topics = {
         "geometry": "shapes and geometric figures",
@@ -298,8 +301,12 @@ def run_gate(panel: TeacherPanel | None = None, seeds: int = 6,
                                      f"phrasing(s) for {category}")
         generated[category] = report.phrasings
 
+    # An empty vault: routing here is measured on keywords and learned token
+    # weights alone, with no stored prototypes to confound the comparison.
+    scratch = tempfile.mkdtemp(prefix="uq_distil_")
+
     def fresh_router():
-        router = CategoryRouter()
+        router = CategoryRouter(ShardVault(scratch))
         for category in topics:
             # The keywords the category would have had anyway; distillation is
             # measured as what it adds *on top* of an ordinary registration,
