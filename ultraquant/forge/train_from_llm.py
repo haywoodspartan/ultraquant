@@ -43,6 +43,7 @@ from ultraquant.forge.distill import (
     generate_phrasings,
 )
 from ultraquant.interpreter.llmls import LMStudioUnavailable, TeacherPanel
+from ultraquant.interpreter.lmstudio import LMStudioClient
 
 __all__ = ["TrainingReport", "train_router", "main"]
 
@@ -193,8 +194,18 @@ def train_router(session, panel: TeacherPanel, holdout: float = 0.5,
             continue
         usable = [p for p in produced.phrasings if content_tokens(p)]
         if len(usable) < 2:
+            # generate_phrasings catches a per-teacher failure internally and
+            # records it, so an empty result can mean the teacher never
+            # answered. Reporting that as "produced nothing usable" points at
+            # the prompt when the fix is the timeout - which is exactly what
+            # happened: 65 s per category against a 120 s client default, and
+            # every category came back "0 usable".
+            why = next((reason for _who, reason in produced.rejected
+                        if "unavailable" in reason or "timed out" in reason),
+                       None)
             report.skipped[category] = (
-                f"only {len(usable)} usable phrasing(s) came back")
+                f"teacher did not answer: {why}" if why
+                else f"only {len(usable)} usable phrasing(s) came back")
             continue
         generated[category] = usable
 
@@ -258,7 +269,10 @@ def main(argv: list[str] | None = None) -> int:
                 print("No chat model is loaded in LM Studio. Load one, or "
                       "pass --model.", file=sys.stderr)
                 return 1
-        panel = TeacherPanel(models)
+        # Generous: a 35B model took 65 s to list twelve phrasings for one
+        # category on this machine, and the client's 120 s default left almost
+        # no headroom once several categories ran in sequence.
+        panel = TeacherPanel(models, client=LMStudioClient(timeout=600.0))
     except LMStudioUnavailable as exc:
         print(f"LM Studio unavailable: {exc}", file=sys.stderr)
         return 1

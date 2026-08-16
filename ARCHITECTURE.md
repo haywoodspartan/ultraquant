@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.6 · 1056 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.7 · 1063 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         49 modules, 1056 tests
+tests/         50 modules, 1063 tests
 ```
 
 ---
@@ -3171,6 +3171,62 @@ and became more likely to win next time. That is a **feedback loop in the
 learning rule**, not a vocabulary gap, and it is not fixed here — a router that
 learns from its own routing has no way to notice it was wrong.
 
+### 11.16 Self-reinforcement entrenches errors, and a second training run proved it
+
+§11.15's plural fix worked and did not rescue the deployed library, which was the
+clue. `ultraquant/experiments/reinforcement_drift.py` measures why.
+
+`thoughts.py:801` reinforces whichever category the pipeline routed to, at
+`delta=0.05`, with nothing checking the route was right. The obvious guess is
+that accuracy decays. **It does not** — measured over 60 rounds, accuracy is
+0.400 before and 0.400 after, with or without reinforcement. Reinforcement
+cannot make a wrong answer wronger.
+
+**What it does is make errors resistant to correction.** The margin by which the
+wrong category beats the right one grows **0.60 → 2.33** when the router
+reinforces itself, and stays flat at 0.60 when it does not: **3.9x harder to
+overturn**, from nothing but routing normally.
+
+That explains §11.15's leftover exactly. Plural folding gave `arithmetic` a full
+point of base overlap — but `crosses` had entrenched to 1.75 while `arithmetic`
+reached 1.10. The fix was real and arrived after the error had been reinforced
+past it.
+
+**A second training run then demonstrated it live.** Retraining the deployed
+library from the same teacher:
+
+| | first run | second run |
+|---|---:|---:|
+| categories trained | 8 (46 phrasings) | 8 (46 phrasings) |
+| decoys left alone | 0.200 → 1.000 | 1.000 → **1.000** |
+| genuine routed | 0.875 | **0.750** |
+| held-out routing | +0.065 | **−0.022** |
+
+Both new misses go to `crosses` — the same sink. Continued distillation into a
+router that reinforces its own choices **degraded** it, while abstention held
+perfectly, which is the §11.15 fix proving robust in the same run that showed
+this one is not.
+
+So the honest position on repeat training: it is not idempotent and it is not
+safe to run repeatedly against the same library. §11.13 already found the
+mechanism does not scale with *volume*; this is the same limit showing up in
+*repetition*.
+
+**Why the loop is not fixed here.** Correcting it needs a signal for whether a
+route was right, and the pipeline has none — the router's own choice is the only
+thing available at that point, which is the circularity itself. The supervised
+calls are untouched and legitimate: `learning.py` and `selflearn.py` reinforce
+from a *user's* answer, which is independent evidence. Replacing the
+unsupervised call is a design question deserving its own gate, not a patch
+applied while its consequences are still being measured.
+
+**A reporting defect found on the way.** The second training run first came back
+with "only 0 usable phrasing(s)" for every category, which points at the prompt.
+The teacher was fine: it needed **65 s per category** against the client's 120 s
+default, and `generate_phrasings` catches a per-teacher failure internally, so a
+timeout surfaced as an empty result. The timeout is now 600 s and the real
+reason is reported instead of the symptom.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3249,7 +3305,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
 | router abstention | **PASSED** (§11.15) — 0.025 -> 0.975 at 12.57x sd, control held |
-| plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged; exposed a learning feedback loop it does not fix |
+| plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
+| self-reinforcement | **measured, not fixed** (§11.16) — entrenches errors 3.9x; repeat training degraded genuine routing 0.875 -> 0.750 |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 
