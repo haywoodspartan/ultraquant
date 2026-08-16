@@ -177,6 +177,38 @@ def _stored_value(key: str, value):
     return type(default)(value)
 
 
+def _editor_text(value) -> str:
+    """Render a setting for a one-line editor.
+
+    Lists become comma-separated because the settings that are lists here are
+    short lists of model ids; a JSON array in a text box would make the common
+    case (adding one model) fiddly for no gain.
+    """
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value)
+    return "" if value is None else str(value)
+
+
+def _editor_parse(text: str, default):
+    """Read an editor value back into the type the schema declares.
+
+    Raises:
+        ValueError: If the text cannot be read as that type. The caller reports
+            the field by name and saves nothing, rather than writing a partial
+            update that leaves the file disagreeing with the screen.
+    """
+    if isinstance(default, bool):
+        return bool(text)
+    if isinstance(default, (list, tuple)):
+        return [part.strip() for part in str(text).split(",") if part.strip()]
+    text = str(text).strip()
+    if isinstance(default, int):
+        return int(text) if text else 0
+    if isinstance(default, float):
+        return float(text) if text else 0.0
+    return text
+
+
 def _widget_value(var, saved):
     """Coerce a stored value to what this particular Tk variable accepts."""
     if isinstance(var, tk.BooleanVar):
@@ -232,9 +264,11 @@ class UltraQuantGUI:
         self._build_storage_tab()
         self._build_stash_tab()
         self._build_panel_tab()
+        self._build_settings_tab()
         self._build_bench_tab()
         self._build_status_bar()
         self._apply_settings()
+        self._settings_load_into_editors()
 
         self.root.bind("<Destroy>", self._on_destroy)
         self.root.after(_POLL_MS, self._pump)
@@ -779,6 +813,182 @@ class UltraQuantGUI:
 
         self.panel_log = self._text(frame, height=14)
         self.panel_log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+
+    def _build_settings_tab(self) -> None:
+        """Edit the persisted settings directly.
+
+        Built from ``config.DEFAULTS`` rather than from a hand-written list of
+        widgets. The other tabs already own the *functional* controls — the RAM
+        budget lives on Library, the network gate on Stash — and a second
+        hand-maintained copy of each would drift out of step with them the first
+        time one was added and the other forgotten. Driving this from the schema
+        means a new key in ``config.py`` appears here with no code change, and
+        cannot be editable in one place and invisible in the other.
+
+        Secrets are not shown, because they are not stored; the note at the
+        bottom says so rather than leaving their absence to look like a bug.
+        """
+        from ultraquant.config import DEFAULTS, NEVER_PERSISTED
+
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Settings")
+
+        top = ttk.Frame(frame)
+        top.pack(fill="x", padx=6, pady=6)
+        ttk.Button(top, text="Apply and save",
+                   command=self._settings_apply).pack(side="left")
+        ttk.Button(top, text="Reload from file",
+                   command=self._settings_reload).pack(side="left", padx=6)
+        ttk.Button(top, text="Reset to defaults",
+                   command=self._settings_reset).pack(side="left")
+        self.settings_path_label = tk.StringVar(value=str(self.settings.path))
+        ttk.Label(top, textvariable=self.settings_path_label
+                  ).pack(side="left", padx=12)
+
+        canvas = tk.Canvas(frame, highlightthickness=0, height=380)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas)
+        body.bind("<Configure>",
+                  lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True, padx=6)
+        scroll.pack(side="right", fill="y")
+
+        #: dotted key -> (Tk variable, the schema default it came from)
+        self.settings_editors: dict = {}
+        for key in sorted(DEFAULTS):
+            if key == "version" or key in NEVER_PERSISTED:
+                continue
+            default = DEFAULTS[key]
+            if isinstance(default, dict):
+                group = ttk.LabelFrame(body, text=key)
+                group.pack(fill="x", padx=4, pady=4)
+                for sub in sorted(default):
+                    if sub in NEVER_PERSISTED:
+                        continue
+                    self._settings_row(group, f"{key}.{sub}", default[sub])
+            else:
+                self._settings_row(body, key, default)
+
+        ttk.Label(
+            frame,
+            text="Credentials (API tokens, array passwords) are never stored "
+                 "here - the file is plaintext and may sit in a checkout. Keep "
+                 "them in the environment.",
+            wraplength=980, justify="left",
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+        self.settings_note = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self.settings_note, wraplength=980,
+                  justify="left").pack(anchor="w", padx=8, pady=(0, 6))
+
+    def _settings_row(self, parent, key: str, default) -> None:
+        """One editable row, with a widget chosen by the schema's type."""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=6, pady=2)
+        ttk.Label(row, text=key, width=26, anchor="w").pack(side="left")
+        if isinstance(default, bool):
+            var: Any = tk.BooleanVar(value=bool(default))
+            ttk.Checkbutton(row, variable=var).pack(side="left")
+        else:
+            var = tk.StringVar(value=_editor_text(default))
+            ttk.Entry(row, textvariable=var, width=58).pack(side="left",
+                                                            fill="x", expand=True)
+            if isinstance(default, list):
+                ttk.Label(row, text=" comma-separated").pack(side="left")
+        self.settings_editors[key] = (var, default)
+
+    def _settings_load_into_editors(self) -> None:
+        """Fill the editors from the current settings object."""
+        for key, (var, default) in self.settings_editors.items():
+            value = self.settings.get(key, default)
+            try:
+                if isinstance(default, bool):
+                    var.set(bool(value))
+                else:
+                    var.set(_editor_text(value))
+            except tk.TclError:
+                continue
+        self.settings_path_label.set(str(self.settings.path))
+        self.settings_note.set(
+            "  ".join(self.settings.problems) if self.settings.problems
+            else ("loaded" if self.settings.existed
+                  else "no file yet - saving will create one"))
+
+    def _settings_apply(self) -> None:
+        """Parse the editors, save, and push the result into the live UI.
+
+        Parsed strictly: a field that will not convert is reported by name and
+        *nothing* is saved. A partial save would leave the file disagreeing
+        with what is on screen, which is worse than refusing.
+        """
+        parsed: dict = {}
+        bad: list[str] = []
+        for key, (var, default) in self.settings_editors.items():
+            try:
+                raw = var.get()
+            except tk.TclError:
+                continue
+            try:
+                parsed[key] = _editor_parse(raw, default)
+            except (ValueError, TypeError):
+                bad.append(f"{key}={raw!r}")
+        if bad:
+            self.settings_note.set("not saved - could not read: "
+                                   + ", ".join(bad))
+            return
+        try:
+            self.settings.update(parsed)
+        except ValueError as exc:       # a credential key, refused by config
+            self.settings_note.set(str(exc))
+            return
+        saved = self.settings.save()
+        # The editors are the source of truth for this action, so the other
+        # tabs are refreshed from the settings rather than collected into them
+        # - collecting first would overwrite what was just typed here.
+        self._apply_settings(announce=False)
+        self.settings_note.set(
+            f"saved to {self.settings.path}" if saved
+            else (self.settings.problems[-1] if self.settings.problems
+                  else "could not save"))
+        self._apply_live_settings()
+
+    def _apply_live_settings(self) -> None:
+        """Push settings that affect a running session, not just a widget."""
+        if self.session is None:
+            return
+        budget = self.settings.get("budget_bytes")
+        if isinstance(budget, int) and budget > 0:
+            self.session.cache.set_budget(budget)
+        self.session.web.set_online(bool(self.settings.get("online")))
+        self._refresh_library()
+
+    def _settings_reload(self) -> None:
+        """Discard edits and re-read the file."""
+        from ultraquant.config import Settings
+
+        self.settings = Settings.load()
+        self._settings_load_into_editors()
+        self._apply_settings(announce=False)
+        self._apply_live_settings()
+
+    def _settings_reset(self) -> None:
+        """Restore every setting to its default, without writing yet.
+
+        Deliberately not saved: reset is easy to hit by accident, and leaving
+        it unwritten means 'Reload from file' still undoes it.
+        """
+        from ultraquant.config import DEFAULTS
+
+        for key, (var, default) in self.settings_editors.items():
+            try:
+                var.set(bool(default) if isinstance(default, bool)
+                        else _editor_text(default))
+            except tk.TclError:
+                continue
+        self.settings_note.set(
+            "defaults restored in the form - press 'Apply and save' to keep "
+            "them, or 'Reload from file' to undo")
 
     def _build_bench_tab(self) -> None:
         """Benchmark tab."""
@@ -2034,7 +2244,7 @@ class UltraQuantGUI:
         ("lmstudio.quarantine", "panel_to_stash"),
     )
 
-    def _apply_settings(self) -> None:
+    def _apply_settings(self, announce: bool = True) -> None:
         """Push saved settings into the widgets, after every tab exists.
 
         A value that no longer makes sense — a removed device, a tier this

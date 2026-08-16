@@ -81,7 +81,7 @@ class GUITests(unittest.TestCase):
         self.assertEqual(
             tabs,
             ["Chat", "Learn", "Compute", "Forge", "Library", "Storage",
-             "Stash", "Panel", "Benchmark"],
+             "Stash", "Panel", "Settings", "Benchmark"],
         )
         self.assertEqual(self.app.status.get(), "ready")
 
@@ -518,6 +518,118 @@ class PanelTabTests(unittest.TestCase):
         self.app._panel_ask()
         self.root.update()
         self.assertFalse(self.app.busy)
+
+    def test_settings_tab_edits_persist_and_reach_the_session(self):
+        """Type into the tab, apply, and the change is on disk and live."""
+        import os
+
+        from ultraquant.config import Settings
+
+        previous = os.environ.get("ULTRAQUANT_CONFIG")
+        os.environ["ULTRAQUANT_CONFIG"] = str(self.dir / "tab.json")
+        try:
+            self.app.settings = Settings.load()
+            self.app.settings_editors["budget_bytes"][0].set("2097152")
+            self.app.settings_editors["online"][0].set(True)
+            self.app.settings_editors["forge.epochs"][0].set("77")
+            self.app._settings_apply()
+            self.root.update()
+            self.assertIn("saved", self.app.settings_note.get())
+            reloaded = Settings.load()
+            self.assertEqual(reloaded.get("budget_bytes"), 2097152)
+            self.assertEqual(reloaded.get("forge.epochs"), 77)
+            self.assertTrue(reloaded.get("online"))
+            self.assertEqual(
+                self.app.session.cache.stats()["budget_bytes"], 2097152,
+                "applying settings must reach the running session")
+        finally:
+            if previous is None:
+                os.environ.pop("ULTRAQUANT_CONFIG", None)
+            else:
+                os.environ["ULTRAQUANT_CONFIG"] = previous
+
+    def test_every_schema_key_is_editable(self):
+        """The tab is schema-driven, so a new setting cannot go missing.
+
+        A hand-written second list of widgets is exactly how one surface ends
+        up able to change a setting the other cannot see.
+        """
+        from ultraquant.config import DEFAULTS, NEVER_PERSISTED
+
+        expected = set()
+        for key, default in DEFAULTS.items():
+            if key == "version" or key in NEVER_PERSISTED:
+                continue
+            if isinstance(default, dict):
+                expected.update(f"{key}.{sub}" for sub in default
+                                if sub not in NEVER_PERSISTED)
+            else:
+                expected.add(key)
+        self.assertEqual(set(self.app.settings_editors), expected)
+
+    def test_an_unreadable_field_blocks_the_whole_save(self):
+        """A partial save would leave the file disagreeing with the screen."""
+        import os
+
+        from ultraquant.config import Settings
+
+        previous = os.environ.get("ULTRAQUANT_CONFIG")
+        os.environ["ULTRAQUANT_CONFIG"] = str(self.dir / "bad.json")
+        try:
+            self.app.settings = Settings.load()
+            self.app.settings_editors["budget_bytes"][0].set("not a number")
+            self.app.settings_editors["forge.epochs"][0].set("55")
+            self.app._settings_apply()
+            self.root.update()
+            self.assertIn("not saved", self.app.settings_note.get())
+            self.assertIn("budget_bytes", self.app.settings_note.get())
+            self.assertFalse((self.dir / "bad.json").exists(),
+                             "nothing may be written when a field is bad")
+        finally:
+            if previous is None:
+                os.environ.pop("ULTRAQUANT_CONFIG", None)
+            else:
+                os.environ["ULTRAQUANT_CONFIG"] = previous
+
+    def test_a_list_setting_is_edited_as_comma_separated_text(self):
+        var, _default = self.app.settings_editors["lmstudio.panel_models"]
+        var.set("qwen/a, openai/b")
+        self.assertEqual(
+            gui_module._editor_parse(var.get(), []), ["qwen/a", "openai/b"])
+
+    def test_no_credential_is_editable_in_the_tab(self):
+        """They are not stored, so offering a field for them would mislead."""
+        from ultraquant.config import NEVER_PERSISTED
+
+        for key in self.app.settings_editors:
+            leaf = key.split(".")[-1]
+            self.assertNotIn(leaf, NEVER_PERSISTED)
+
+    def test_reset_does_not_write_until_applied(self):
+        """Reset is easy to hit by accident; it must be undoable."""
+        import os
+
+        from ultraquant.config import DEFAULTS, Settings
+
+        previous = os.environ.get("ULTRAQUANT_CONFIG")
+        target = self.dir / "reset.json"
+        os.environ["ULTRAQUANT_CONFIG"] = str(target)
+        try:
+            self.app.settings = Settings.load()
+            self.app.settings.set("forge.epochs", 500)
+            self.app.settings.save()
+            self.app._settings_reset()
+            self.root.update()
+            self.assertEqual(Settings.load().get("forge.epochs"), 500,
+                             "reset must not touch the file on its own")
+            self.assertEqual(
+                self.app.settings_editors["forge.epochs"][0].get(),
+                str(DEFAULTS["forge"]["epochs"]))
+        finally:
+            if previous is None:
+                os.environ.pop("ULTRAQUANT_CONFIG", None)
+            else:
+                os.environ["ULTRAQUANT_CONFIG"] = previous
 
     def test_a_corroborated_answer_is_filled_in_but_never_applied(self):
         """The whole point of the wiring: review, then apply. Not apply.
