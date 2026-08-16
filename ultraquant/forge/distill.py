@@ -31,6 +31,31 @@ through :func:`~ultraquant.interpreter.llmls.quarantine_answer` instead.
 The gate is in :func:`run_gate`, written before the run, and it is held to the
 §11.5 standard: the margin must exceed seed variance, and a control that can
 actually fail must not move.
+
+**Two mechanisms were run against it, and the first failed.**
+
+*Raw phrasings.* Teaching the generated sentences whole moved held-out
+paraphrase routing 0.035 -> 0.396, a margin of **6.31x seed variance** — and
+the decoy control **collapsed from 1.000 to 0.133**. Queries like "how do I fix
+a leaking tap" were being pulled into the taught categories, because natural
+phrasings are dense in function words and ``what``/``how``/``do``/``the`` had
+acquired weight for every taught category. The router had not learned meaning;
+it had learned to say yes. A ceilinged control would have reported a clean pass
+at 6.31x.
+
+*Content tokens only.* Filtering to the words that actually name something
+(:func:`content_tokens`) gives **0.028 -> 0.090, +0.062 at 1.96x seed sd, with
+the control held exactly at 1.000**. That passes.
+
+**What passing does and does not mean here, stated plainly.** The improvement
+is real, controlled and reproducible — and it is *small in absolute terms*.
+Routing goes from 2.8% to 9.0% on held-out paraphrases. Both numbers are poor.
+§11.11 measured the embedding route at **0.833** on the same kind of task, so
+distillation recovers a small fraction of what a resident embedding model
+delivers. It is the right trade when VRAM is the binding constraint and query
+latency must stay in microseconds; it is **not** a substitute for embeddings
+where accuracy is what matters. Anyone reading "PASS" as "routing now works"
+would be misreading it.
 """
 
 from __future__ import annotations
@@ -40,7 +65,11 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from ultraquant.interpreter.llmls import LMStudioUnavailable, TeacherPanel
+from ultraquant.interpreter.llmls import (
+    NO_REASONING,
+    LMStudioUnavailable,
+    TeacherPanel,
+)
 
 __all__ = [
     "DistillReport",
@@ -126,7 +155,9 @@ def generate_phrasings(
         topic: What to describe, if the category name is not it.
         count: Phrasings to request per teacher.
         max_tokens: Generous, because reasoning models bill thinking against
-            this budget (see ``llmls.DEFAULT_MAX_TOKENS``).
+            this budget (see ``llmls.DEFAULT_MAX_TOKENS``). Requests are sent
+            with ``reasoning_effort="none"``, without which some models never
+            emit anything at all.
 
     Returns:
         A :class:`DistillReport`. An unreachable teacher is recorded and the
@@ -138,8 +169,14 @@ def generate_phrasings(
     seen: set[str] = set()
     for card in panel.cards:
         try:
+            # Listing phrasings needs no chain of thought, and some local
+            # reasoning models will otherwise spend the entire budget thinking
+            # and emit nothing - measured at 400/400 and 1200/1200 tokens on
+            # qwen3.6-35b-a3b, empty both times. reasoning_effort="none" is the
+            # only remedy that worked.
             answer = panel.client.complete(prompt, model=card.id, system="",
-                                           max_tokens=max_tokens)
+                                           max_tokens=max_tokens,
+                                           reasoning_effort=NO_REASONING)
         except LMStudioUnavailable as exc:
             report.rejected.append((card.id, f"unavailable: {exc}"))
             continue
@@ -160,9 +197,51 @@ def generate_phrasings(
     return report
 
 
+#: Verbs a model reaches for when asked how someone might *ask* about a topic.
+#: They carry no topic and belong with the function words, but a general
+#: stopword list has no reason to contain them.
+_ASKING_VERBS = frozenset({
+    "describe", "name", "point", "discuss", "explain", "list", "identify",
+    "call", "look", "looking", "talk", "mention", "define", "give", "show",
+    "want", "need", "know", "see", "find", "get", "make", "take", "way",
+    "ways", "thing", "things", "stuff", "something", "someone",
+})
+
+
+def content_tokens(text: str) -> list[str]:
+    """The tokens of ``text`` that actually name a topic.
+
+    Distillation supplies *many* synthetic phrasings at once, and natural
+    phrasings are dense in function words — "what are those forms?", "how do
+    you call these outlines?". Feeding them wholesale to
+    :meth:`CategoryRouter.learn` puts weight on ``what``, ``how``, ``do`` and
+    ``the`` for the taught category, and those tokens match **everything**.
+
+    That is not a hypothesis. The first run of :func:`run_gate` taught raw
+    phrasings and reported held-out paraphrase routing up 0.035 -> 0.396, a
+    margin of 6.31x seed variance — and the decoy control collapsed from
+    **1.000 to 0.133**. Unrelated queries like "how do I fix a leaking tap"
+    were being pulled into the taught categories. The router had not learned
+    meaning; it had learned to say yes.
+
+    A single user typing one query at a time contributes far less generic
+    weight, which is why :meth:`CategoryRouter.learn` is left alone and the
+    filtering happens here, where the volume is.
+    """
+    from ultraquant.interpreter.learning import _STOPWORDS
+
+    words = "".join(c.lower() if c.isalnum() else " " for c in text).split()
+    return [w for w in words
+            if len(w) > 2 and w not in _STOPWORDS and w not in _ASKING_VERBS]
+
+
 def distil_into_router(router, category: str, phrasings: Sequence[str],
                        delta: float = 0.1) -> int:
-    """Teach phrasings to the router. Returns how many were applied.
+    """Teach the *content* of phrasings to the router. Returns how many landed.
+
+    Only tokens that name something are learned; see :func:`content_tokens` for
+    the measurement that forced that. A phrasing whose every word is a function
+    word teaches nothing and is not counted.
 
     Nothing here reaches memory or the stash. These are routing hints, and the
     router already learns from real usage the same way — this only supplies
@@ -170,8 +249,9 @@ def distil_into_router(router, category: str, phrasings: Sequence[str],
     """
     applied = 0
     for phrase in phrasings:
-        if phrase.strip():
-            router.learn(phrase, category, delta=delta)
+        content = content_tokens(phrase)
+        if content:
+            router.learn(" ".join(content), category, delta=delta)
             applied += 1
     return applied
 

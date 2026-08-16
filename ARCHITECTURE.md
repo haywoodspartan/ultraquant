@@ -2669,6 +2669,38 @@ comes from. `FlatBatch` pays off for producers that never build the lists at all
 — it is not a free speedup for existing callers, and `FlatBatch.from_rows` exists
 for convenience rather than for speed.
 
+#### What ternary actually saves on disk
+
+A summary of this codebase circulated claiming ternary weights are "64x smaller
+than fp32". Sizing storage on it would under-provision by roughly six times, so
+`ultraquant/experiments/footprint.py` settles it by measurement.
+
+It is wrong twice. Three states need **2 bits packed** (1.58 information-
+theoretically), so 32/2 = **16x is the arithmetic ceiling** and no arrangement of
+{-1, 0, +1} reaches 64x. And this project does not pack bits: shards are JSON
+inside zlib-compressed payloads, because the `.uql` container has to stay
+inspectable and portable. So the ceiling is not what a user gets either.
+
+| 64x64 Gaussian weights | bytes | vs packed fp32 |
+|---|---:|---:|
+| fp32, packed — the fair baseline | 16,384 | 1.0x |
+| ternary, theoretical 2-bit | 1,024 | 16.0x *(ceiling, not stored)* |
+| **ternary, as actually stored** | **1,457** | **11.2x** |
+| fp32 through the same json+zlib path | 38,955 | 26.7x *vs ternary* |
+
+Two caveats matter as much as the number.
+
+**The saving is not mostly the ternary alphabet.** 46% of weights fall below the
+`0.75 * mean|w|` threshold and become exact zeros, and zlib eats long zero runs
+almost for free. Sparsity is doing much of the work, so the ratio **moves with
+the weight distribution** rather than being a constant of the design — a test
+asserts it varies across seeds, so that caveat cannot quietly rot into a fixed
+figure.
+
+**The 26.7x is an artifact.** It compares against fp32 stored the same way, and
+JSON is a poor container for floats. Packed fp32 is the fair baseline, and the
+report prints it first with the flattering row explicitly labelled.
+
 #### The entropy black box
 
 The chaos *injection* was reverted for a wrong measurement. The chaos
@@ -2929,6 +2961,60 @@ created. `load()` now checks residency first.
 This is not a capability gate and is not claimed as one. It is an integration
 with an accounting attached, and the accounting is the part worth having.
 
+### 11.13 Distilling a transformer into the router, offline
+
+[§11.11](#1111-an-external-encoder-was-tried-and-the-gate-failed-on-its-own-control)
+left a real trade open. Embeddings routed paraphrases at **0.833** against
+lexical **0.300**, but cost **2.9 ms per string against 0.015 ms** — a 197x tax
+on every query forever, plus a model resident to serve it. On a machine where
+VRAM is the binding constraint that is the wrong way round.
+
+`ultraquant/forge/distill.py` pays it **once, offline, and never again**: ask a
+local model for query phrasings, teach them into the router's existing
+token-weight table, and query time stays in microseconds with nothing new
+resident. The transformer becomes a *teacher consulted at build time*, not a
+dependency at inference time. It transfers **labelled examples, not weights** —
+the only currency a transformer and a token-weight table share.
+
+**Getting any output at all was the first problem, and it is worth recording.**
+Asked for six short phrasings, `qwen3.6-35b-a3b` spent **400 of 400** completion
+tokens reasoning and emitted nothing; at **1200 of 1200** it did the same. This
+is *not* the starvation §11.12 fixed by raising the budget — raising it only
+buys more thinking. `reasoning_effort="none"` returned the answer in 42 tokens
+with zero reasoning. A `/no_think` suffix, `reasoning_effort="low"` and
+`chat_template_kwargs={"enable_thinking": False}` were each tried and had **no
+effect at all**. Generation went from 99 s and 0 phrasings to **6 s and 12**.
+The two failures now report differently, because they need different fixes.
+
+**Two mechanisms were run against the pre-registered gate. The first failed.**
+
+| mechanism | held-out paraphrases | margin | decoy control |
+|---|---:|---:|---:|
+| raw phrasings | 0.035 → 0.396 | 6.31x sd | **1.000 → 0.133** |
+| content tokens only | 0.028 → 0.090 | 1.96x sd | 1.000 → 1.000 |
+
+The first looks like a triumph and is a fraud. Natural phrasings are dense in
+function words, so `what`, `how`, `do` and `the` acquired weight for every
+taught category, and *everything* started matching: "how do I fix a leaking tap"
+was pulled into the taught set, and 87% of decoys were misrouted. **The router
+had learned to say yes, not to know more.** A ceilinged control would have
+reported a clean pass at 6.31x seed variance — which is precisely the defect
+§11.11 was caught making, arriving here in a form that would have been believed.
+This control starts at 1.000 and can only fall, so it had room to condemn the
+result, and it did.
+
+Filtering to tokens that actually name something passes: **+0.062 at 1.96x seed
+sd with the control held exactly at 1.000**.
+
+**What passing does not mean.** The improvement is real, controlled and
+reproducible, and it is *small*: 2.8% to 9.0%. Both numbers are poor, and
+§11.11 measured the embedding route at 0.833 on the same kind of task. So
+distillation recovers a **small fraction** of what a resident embedding model
+delivers. It is the right trade when VRAM is the binding constraint and query
+latency must stay in microseconds; it is not a substitute for embeddings where
+accuracy is what matters. Reading "PASS" as "routing now works" would be a
+misreading.
+
 | stage | verdict |
 |---|---|
 | 0 — modality-agnostic library | **PASSED** |
@@ -2940,6 +3026,7 @@ with an accounting attached, and the accounting is the part worth having.
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
+| offline distillation | **PASSED** (§11.13) — small margin, control held; first mechanism failed |
 
 Every gate was stated before its experiment ran; two experiments had their own
 flaws caught and recorded (§11.5's ceiling, §11.7's oracle-baseline); one

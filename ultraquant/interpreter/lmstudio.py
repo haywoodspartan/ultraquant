@@ -239,6 +239,7 @@ class LMStudioClient:
         system: str | None = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        reasoning_effort: str | None = None,
     ) -> Answer:
         """Ask a chat model one question.
 
@@ -251,6 +252,14 @@ class LMStudioClient:
                 default for a source whose claims get quarantined and compared
                 — sampling noise would make two runs disagree with themselves
                 and look like a contradiction between sources.
+            reasoning_effort: Passed through when set. ``"none"`` is the only
+                thing measured to stop a runaway reasoning model here: asked
+                for six phrasings, ``qwen3.6-35b-a3b`` spent **400 of 400** and
+                then **1200 of 1200** completion tokens thinking and emitted
+                nothing, at every budget. ``"none"`` returned 42 tokens with
+                zero reasoning and the answer. ``"low"``, a ``/no_think``
+                suffix and ``chat_template_kwargs={"enable_thinking": False}``
+                were each tried and had **no effect at all**.
 
         Returns:
             The :class:`Answer`, carrying provenance.
@@ -260,12 +269,15 @@ class LMStudioClient:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        payload = self._request("/chat/completions", {
+        body = {
             "model": chosen,
             "messages": messages,
             "max_tokens": int(max_tokens),
             "temperature": float(temperature),
-        })
+        }
+        if reasoning_effort:
+            body["reasoning_effort"] = str(reasoning_effort)
+        payload = self._request("/chat/completions", body)
         choices = payload.get("choices") or []
         if not choices:
             raise LMStudioUnavailable("LM Studio returned no choices")

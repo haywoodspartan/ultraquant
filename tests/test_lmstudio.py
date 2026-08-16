@@ -651,6 +651,22 @@ class StarvedReplyTests(unittest.TestCase):
         self.assertIn("reasoning", reason)
         self.assertIn("max_tokens", reason)
 
+    def test_a_runaway_reasoner_is_told_apart_from_a_starved_one(self):
+        """They need different fixes, so they must not read the same.
+
+        Starvation: gpt-oss-20b spent 51 of 60 tokens thinking; raising the
+        budget to 200 fixed it. Runaway: qwen3.6-35b-a3b spent 400 of 400 and
+        then 1200 of 1200, empty both times - raising the budget only buys
+        more thinking, and telling the reader to raise it sends them down a
+        dead end. Only reasoning_effort="none" worked.
+        """
+        starved = self._reason("", completion=60, reasoning=51)
+        runaway = self._reason("", completion=400, reasoning=400)
+        self.assertIn("raise max_tokens", starved)
+        self.assertIn("will not help", runaway)
+        self.assertIn("reasoning_effort", runaway)
+        self.assertNotEqual(starved, runaway)
+
     def test_an_empty_reply_without_reasoning_is_just_empty(self):
         self.assertEqual(self._reason("", completion=60, reasoning=0),
                          "empty reply")

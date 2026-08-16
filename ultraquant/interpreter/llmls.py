@@ -188,6 +188,25 @@ DEFAULT_MAX_TOKENS = 400
 #: is starvation, not abstention, and is reported as such.
 _STARVED_FRACTION = 0.7
 
+#: At or above this fraction, the model consumed the *entire* budget thinking.
+#: That is a different failure from starvation and needs a different fix, so it
+#: gets a different message.
+#:
+#: Measured on ``qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive``, asked for six
+#: short phrasings: 400 of 400 completion tokens spent reasoning, then 1200 of
+#: 1200 at triple the budget — output empty both times. Raising ``max_tokens``
+#: does not help, because the model simply reasons into whatever it is given.
+#: ``reasoning_effort="none"`` returned 42 tokens with zero reasoning and the
+#: answer; ``"low"``, a ``/no_think`` suffix and
+#: ``chat_template_kwargs={"enable_thinking": False}`` each had no effect.
+_RUNAWAY_FRACTION = 0.99
+
+#: Passed to models that will otherwise reason forever. Not a global default:
+#: a model that reasons *usefully* should be allowed to, and this is applied
+#: where the task genuinely needs none (listing phrasings) or where runaway has
+#: actually been observed.
+NO_REASONING = "none"
+
 #: Content-token overlap above which two positions are *reported* as probably
 #: the same claim differently worded — and, deliberately, still not credited.
 #:
@@ -848,6 +867,13 @@ def _no_answer_reason(answer: Answer) -> str:
     details = (answer.usage or {}).get("completion_tokens_details") or {}
     reasoning = int(details.get("reasoning_tokens") or 0)
     completion = int((answer.usage or {}).get("completion_tokens") or 0)
+    if completion and reasoning >= completion * _RUNAWAY_FRACTION:
+        # The whole budget went to thinking. Raising it just buys more
+        # thinking - measured at 400/400 and again at 1200/1200 - so telling
+        # the reader to raise max_tokens would send them down a dead end.
+        return (f"empty reply - the model spent ALL {completion} completion "
+                "tokens reasoning and emitted nothing; raising max_tokens will "
+                "not help, pass reasoning_effort=\"none\"")
     if completion and reasoning >= completion * _STARVED_FRACTION:
         return (f"empty reply - {reasoning} of {completion} completion tokens "
                 "went to reasoning; raise max_tokens")

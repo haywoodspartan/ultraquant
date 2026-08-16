@@ -31,12 +31,14 @@ class _StubClient:
         self.replies = replies
         self.fail = fail or set()
         self.prompts: list[tuple[str, str]] = []
+        self.efforts: list = []
 
     def complete(self, prompt, model=None, system=None, max_tokens=0,
-                 temperature=0.0):
+                 temperature=0.0, reasoning_effort=None):
         if model in self.fail:
             raise LMStudioUnavailable(f"{model} is not loaded")
         self.prompts.append((model, prompt))
+        self.efforts.append(reasoning_effort)
         return Answer(text=self.replies.get(model, ""), model=model,
                       prompt=prompt)
 
@@ -108,6 +110,19 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("shapes and geometric figures", prompt)
         self.assertIn("avoid reusing", prompt)
 
+    def test_reasoning_is_switched_off_for_phrasing_generation(self):
+        """Without this, some models emit nothing at all.
+
+        Measured on qwen3.6-35b-a3b: asked for six phrasings it spent 400 of
+        400 completion tokens reasoning, then 1200 of 1200 at triple the
+        budget, and returned an empty string both times. reasoning_effort
+        "none" returned the answer in 42 tokens with zero reasoning; "low", a
+        /no_think suffix and chat_template_kwargs each had no effect.
+        """
+        panel, client = self._panel({"m1": "a box outline"})
+        generate_phrasings(panel, "geometry")
+        self.assertEqual(client.efforts, ["none"])
+
     def test_a_silent_teacher_yields_nothing_rather_than_junk(self):
         panel, _ = self._panel({"m1": ""})
         self.assertEqual(generate_phrasings(panel, "geometry").phrasings, [])
@@ -142,6 +157,40 @@ class RouterTeachingTests(unittest.TestCase):
         self.assertEqual(
             distil_into_router(router, "geometry", ["a box", "  ", "a frame"]),
             2, "blank phrasings are not applied")
+
+    def test_function_words_are_not_taught(self):
+        """The first mechanism failed exactly here.
+
+        Teaching raw phrasings put weight on what/how/do/the for the taught
+        category, and those match everything: the decoy control fell from
+        1.000 to 0.133 while paraphrase routing "improved" 6.31x seed sd. The
+        router had learned to say yes, not to know more.
+        """
+        from ultraquant.forge.distill import content_tokens
+
+        self.assertEqual(content_tokens("What are those forms?"), ["forms"])
+        self.assertEqual(content_tokens("How do you call these outlines?"),
+                         ["outlines"])
+
+    def test_decoy_content_survives_filtering(self):
+        """Filtering must not blank unrelated text into a match for anything."""
+        from ultraquant.forge.distill import content_tokens
+
+        self.assertIn("tap", content_tokens("how do I fix a leaking tap"))
+        self.assertIn("banana", content_tokens("recipe for banana bread"))
+
+    def test_a_phrasing_with_no_content_is_not_counted(self):
+        router = self._router()
+        self.assertEqual(
+            distil_into_router(router, "geometry", ["what are those"]), 0,
+            "a phrasing of pure function words teaches nothing")
+
+    def test_only_content_reaches_the_router(self):
+        seen = []
+        router = self._router()
+        router.learn = lambda text, category, delta=0.1: seen.append(text)
+        distil_into_router(router, "geometry", ["What are those forms?"])
+        self.assertEqual(seen, ["forms"])
 
     def test_nothing_reaches_memory_or_the_stash(self):
         """These are routing hints, not claims. A wrong fact is unrecoverable."""
