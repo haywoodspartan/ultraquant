@@ -56,6 +56,34 @@ delivers. It is the right trade when VRAM is the binding constraint and query
 latency must stay in microseconds; it is **not** a substitute for embeddings
 where accuracy is what matters. Anyone reading "PASS" as "routing now works"
 would be misreading it.
+
+**And it does not scale — which is the finding that matters most.** The obvious
+next move after a small pass is to generate more data. Measured, that breaks it:
+
+===============================  ==========  =========  ========  ===========
+volume                           before      after      margin    decoy control
+===============================  ==========  =========  ========  ===========
+48 phrasings (12 per category)   0.028       0.090      1.96x     **1.000**
+117 phrasings (30 per category)  0.000       0.492      8.93x     **0.767**
+===============================  ==========  =========  ========  ===========
+
+At the larger volume the margin looks *spectacular* — half the held-out
+paraphrases routed, nearly 9x seed variance — and the control has broken again:
+roughly a quarter of unrelated decoys are back to being misrouted. Content
+filtering delayed the yes-machine effect; it did not remove it. Enough learned
+tokens, however carefully chosen, still make every taught category match
+everything.
+
+So :data:`SAFE_PHRASINGS_PER_CATEGORY` caps what :func:`run_gate` and callers
+request, and the cap is a **measured limit, not a tuning knob**. Raising it will
+make the reported margin go up and the result stop meaning anything, which is
+exactly the trap the control exists to catch. There is no evidence the ceiling
+sits at 48 rather than 60 or 80 — only that 48 holds and 117 does not.
+
+**One further caveat on the numbers.** Generation is not deterministic even at
+temperature 0: three identical runs at 48 phrasings gave 0.090, 0.111 and 0.118.
+The margin therefore carries run-to-run variance *on top of* the seed variance
+the gate measures, and the gate does not currently account for it.
 """
 
 from __future__ import annotations
@@ -92,6 +120,21 @@ _PROMPT = (
 #: A phrasing must be usable as a query: long enough to carry tokens, short
 #: enough not to be an essay the model wandered into.
 _MIN_WORDS, _MAX_WORDS = 2, 14
+
+#: How many phrasings to request per category, per teacher. A **measured
+#: ceiling**, not a preference.
+#:
+#: At 12 (48 phrasings over four categories) the gate passes with the decoy
+#: control held exactly at 1.000. At 30 (117 phrasings) the margin rises to
+#: 8.93x seed variance and the control **falls to 0.767** — a quarter of
+#: unrelated queries misrouted. More data does not make this mechanism better;
+#: past a point it re-creates the yes-machine that content filtering was
+#: introduced to stop.
+#:
+#: Raising this will make the reported margin go up and the result stop meaning
+#: anything. Nothing here establishes that the true ceiling is 12 rather than
+#: 15 or 20 — only that 12 holds and 30 does not.
+SAFE_PHRASINGS_PER_CATEGORY = 12
 
 
 @dataclass
@@ -138,7 +181,7 @@ def generate_phrasings(
     panel: TeacherPanel,
     category: str,
     topic: str | None = None,
-    count: int = 12,
+    count: int = SAFE_PHRASINGS_PER_CATEGORY,
     max_tokens: int = 400,
 ) -> DistillReport:
     """Ask every panel member for query phrasings of one category.
@@ -153,7 +196,9 @@ def generate_phrasings(
         panel: The teachers.
         category: The router category these phrasings should route to.
         topic: What to describe, if the category name is not it.
-        count: Phrasings to request per teacher.
+        count: Phrasings to request per teacher, defaulting to the measured
+            :data:`SAFE_PHRASINGS_PER_CATEGORY`. Raising it inflates the
+            apparent margin while breaking the decoy control.
         max_tokens: Generous, because reasoning models bill thinking against
             this budget (see ``llmls.DEFAULT_MAX_TOKENS``). Requests are sent
             with ``reasoning_effort="none"``, without which some models never

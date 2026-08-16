@@ -3015,6 +3015,33 @@ latency must stay in microseconds; it is not a substitute for embeddings where
 accuracy is what matters. Reading "PASS" as "routing now works" would be a
 misreading.
 
+**It does not scale, and that is the finding that matters most.** The obvious
+next move after a small pass is to generate more data. Measured, that breaks it:
+
+| volume | before | after | margin | decoy control |
+|---|---:|---:|---:|---:|
+| 48 phrasings (12 per category) | 0.028 | 0.090 | 1.96x | **1.000** |
+| 117 phrasings (30 per category) | 0.000 | 0.492 | 8.93x | **0.767** |
+
+At the larger volume the margin looks *spectacular* — half the held-out
+paraphrases routed, nearly 9x seed variance — and a quarter of unrelated decoys
+are back to being misrouted. Content filtering **delayed** the yes-machine
+effect; it did not remove it. Enough learned tokens, however carefully chosen,
+still make every taught category match everything.
+
+`SAFE_PHRASINGS_PER_CATEGORY = 12` therefore caps generation, as a **measured
+limit rather than a tuning knob**. Raising it makes the reported margin go up
+and the result stop meaning anything — which is precisely the trap the control
+exists to catch, now demonstrated twice in the same section. Nothing here
+establishes that the true ceiling is 12 rather than 15 or 20; only that 12 holds
+and 30 does not.
+
+**A caveat the gate does not yet cover.** Generation is not deterministic even
+at temperature 0: three identical runs at 48 phrasings gave 0.090, 0.111 and
+0.118. The margin therefore carries run-to-run variance *on top of* the seed
+variance the gate measures, and the gate does not account for it. At 1.96x that
+is not a comfortable distance from the 1.0 threshold.
+
 | stage | verdict |
 |---|---|
 | 0 — modality-agnostic library | **PASSED** |
@@ -3026,7 +3053,7 @@ misreading.
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
-| offline distillation | **PASSED** (§11.13) — small margin, control held; first mechanism failed |
+| offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.96x sd; first mechanism failed, and it does not scale |
 
 Every gate was stated before its experiment ran; two experiments had their own
 flaws caught and recorded (§11.5's ceiling, §11.7's oracle-baseline); one

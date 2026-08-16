@@ -256,6 +256,27 @@ class GateTests(unittest.TestCase):
                             for r in placed),
                         "decoys must start unplaced, so the control can fall")
 
+    def test_the_volume_cap_is_a_measured_ceiling(self):
+        """More data breaks this mechanism, so the cap is load-bearing.
+
+        48 phrasings: margin 1.96x, decoy control held at 1.000.
+        117 phrasings: margin 8.93x, decoy control fell to 0.767.
+        The larger number looks far better and means nothing.
+        """
+        from ultraquant.forge.distill import SAFE_PHRASINGS_PER_CATEGORY
+
+        self.assertLessEqual(SAFE_PHRASINGS_PER_CATEGORY, 12,
+                             "30 per category broke the control at 0.767")
+
+    def test_generation_defaults_to_the_capped_volume(self):
+        from ultraquant.forge.distill import SAFE_PHRASINGS_PER_CATEGORY
+
+        client = _StubClient({"m1": "a box outline"})
+        panel = _StubPanel(client, ["m1"])
+        generate_phrasings(panel, "geometry")
+        _model, prompt = client.prompts[0]
+        self.assertIn(f"List {SAFE_PHRASINGS_PER_CATEGORY} ", prompt)
+
     def test_the_report_prints_without_a_run(self):
         from ultraquant.forge.distill import GateReport
 
