@@ -27,10 +27,24 @@ them, :func:`Settings.set` refuses them, and they stay where they already were �
 in the environment, re-entered per session.
 
 **A broken config must never stop the program starting.** Corrupt JSON, a
-directory where a file should be, a value of the wrong type: each degrades to
-the default and records a note in :attr:`Settings.problems` for the UI to show.
-Refusing to launch because a preferences file is malformed would be a far worse
-failure than losing the preferences.
+directory where a file should be, a value of the wrong type, bytes that are not
+UTF-8, nesting deep enough to blow the parser's stack, or no resolvable home
+directory at all: each degrades to the default and records a note in
+:attr:`Settings.problems` for the UI to show. Refusing to launch because a
+preferences file is malformed would be a far worse failure than losing the
+preferences — and worse still because the screen that would repair the file sits
+behind the constructor that crashed.
+
+Three of those were **not** handled in the first version and were found by
+review: ``UnicodeDecodeError`` subclasses ``ValueError`` rather than
+``OSError``, ``RecursionError`` is neither, and :func:`config_path` was
+evaluated outside the guard entirely. The UTF-8 one is not exotic — PowerShell
+5.1's ``'{}' > ultraquant.json`` writes UTF-16LE, and portable mode advertises
+exactly that file.
+
+Writing the test for it turned up a fourth: a **UTF-8 BOM** decoded fine and
+then broke ``json.loads``, so a file the user had edited perfectly well was
+reported as corrupt and reset. Reading with ``utf-8-sig`` handles it.
 
 **Unknown keys survive.** A settings file written by a newer build is loaded,
 edited and saved without dropping the keys this build does not recognise. Older
@@ -217,12 +231,42 @@ class Settings:
             first-run case, and a corrupt one is a problem to report, not a
             reason to refuse to start.
         """
-        where = Path(path) if path is not None else config_path()
         problems: list[str] = []
         try:
-            raw = where.read_text(encoding="utf-8")
+            where = Path(path) if path is not None else config_path()
+        except Exception as exc:  # noqa: BLE001 - startup must survive anything
+            # config_path() calls Path.cwd() and Path.home(). The first raises
+            # FileNotFoundError if the working directory was deleted under a
+            # running process; the second raises RuntimeError when neither HOME
+            # nor the platform fallbacks resolve, which happens in a
+            # scrubbed-environment container or a systemd unit. Both were
+            # outside the guard, so a method documented "never raises" took
+            # startup down with it.
+            fallback = Path("ultraquant.json")
+            return cls(copy.deepcopy(DEFAULTS), fallback,
+                       [f"could not locate a settings file ({exc}); "
+                        "using defaults"], existed=False)
+        try:
+            # utf-8-sig, not utf-8: it is identical except that it strips a
+            # leading BOM. Notepad and several Windows editors write one by
+            # default, and a BOM decodes cleanly as U+FEFF and then makes
+            # json.loads fail - so a file the user edited perfectly well would
+            # have been reported as corrupt and silently reset to defaults.
+            raw = where.read_text(encoding="utf-8-sig")
         except FileNotFoundError:
             return cls(copy.deepcopy(DEFAULTS), where, problems, existed=False)
+        except UnicodeDecodeError as exc:
+            # UnicodeDecodeError subclasses ValueError, NOT OSError, so it was
+            # caught by neither guard and escaped a method documented "never
+            # raises" - taking GUI and TUI construction with it, before any
+            # surface existed to show the error or let the user fix the file.
+            #
+            # It is easy to hit: PowerShell 5.1's `'{}' > ultraquant.json`
+            # writes UTF-16LE, and portable mode is an advertised way to create
+            # that very file. One accented character saved from Notepad as ANSI
+            # does it too.
+            problems.append(f"{where} is not valid UTF-8 ({exc}); using defaults")
+            return cls(copy.deepcopy(DEFAULTS), where, problems, existed=True)
         except OSError as exc:
             problems.append(f"could not read {where}: {exc}; using defaults")
             return cls(copy.deepcopy(DEFAULTS), where, problems, existed=False)
@@ -230,6 +274,13 @@ class Settings:
             loaded = json.loads(raw)
         except ValueError as exc:
             problems.append(f"{where} is not valid JSON ({exc}); using defaults")
+            return cls(copy.deepcopy(DEFAULTS), where, problems, existed=True)
+        except RecursionError:
+            # A deeply nested array blows the JSON scanner's stack. Not a
+            # ValueError, so it escaped too. A world-writable portable config
+            # makes this reachable by someone other than the user.
+            problems.append(f"{where} is nested too deeply to parse; "
+                            "using defaults")
             return cls(copy.deepcopy(DEFAULTS), where, problems, existed=True)
         if not isinstance(loaded, dict):
             problems.append(f"{where} does not contain a settings object; "

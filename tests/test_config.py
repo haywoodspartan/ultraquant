@@ -124,6 +124,72 @@ class DegradationTests(_Isolated):
         settings = Settings.load()
         self.assertTrue(any("forge.epochs" in p for p in settings.problems))
 
+    def test_a_non_utf8_file_degrades_instead_of_killing_startup(self):
+        """UnicodeDecodeError subclasses ValueError, not OSError.
+
+        It was caught by neither guard and escaped a method documented "never
+        raises", taking GUI and TUI construction down before any surface
+        existed to report it - or to let the user repair the file. Not exotic:
+        PowerShell 5.1's `'{}' > ultraquant.json` writes UTF-16LE, and
+        portable mode advertises exactly that filename.
+        """
+        cases = {
+            # With its BOM - PowerShell 5.1 writes one. Without a BOM,
+            # ASCII-only UTF-16LE happens to decode as valid UTF-8 (NUL is a
+            # legal UTF-8 byte) and fails at the JSON layer instead.
+            "utf-16 with BOM (PowerShell 5.1 redirection)":
+                "{}".encode("utf-16"),
+            "a cp1252 byte in a hand-edited path":
+                '{"home": "caf\u00e9"}'.encode("cp1252"),
+        }
+        for label, raw_bytes in cases.items():
+            with self.subTest(label):
+                self.file.write_bytes(raw_bytes)
+                settings = Settings.load()
+                self.assertEqual(settings.get("budget_bytes"),
+                                 DEFAULTS["budget_bytes"])
+                self.assertTrue(
+                    any("UTF-8" in problem for problem in settings.problems),
+                    settings.problems)
+
+    def test_a_utf8_bom_is_read_not_rejected(self):
+        """Notepad writes one by default, and it used to look like corruption.
+
+        A BOM decodes cleanly as U+FEFF and then makes json.loads fail, so a
+        file the user had edited perfectly well was reported corrupt and reset
+        to defaults. Reading with utf-8-sig strips it.
+        """
+        import codecs
+
+        self.file.write_bytes(codecs.BOM_UTF8 + b'{"budget_bytes": 4096}')
+        settings = Settings.load()
+        self.assertEqual(settings.get("budget_bytes"), 4096)
+        self.assertEqual(settings.problems, [])
+
+    def test_pathological_nesting_degrades(self):
+        """RecursionError from the JSON scanner is not a ValueError either."""
+        self.file.write_text("[" * 60000 + "]" * 60000, encoding="utf-8")
+        settings = Settings.load()
+        self.assertEqual(settings.get("budget_bytes"),
+                         DEFAULTS["budget_bytes"])
+        self.assertTrue(settings.problems)
+
+    def test_an_unresolvable_config_location_degrades(self):
+        """config_path() was evaluated outside the guard entirely.
+
+        Path.home() raises RuntimeError in a scrubbed-environment container;
+        Path.cwd() raises FileNotFoundError if the working directory was
+        deleted under a running process. Both took startup with them.
+        """
+        from unittest import mock
+
+        with mock.patch("ultraquant.config.config_path",
+                        side_effect=RuntimeError("no home directory")):
+            settings = Settings.load()
+        self.assertEqual(settings.get("budget_bytes"),
+                         DEFAULTS["budget_bytes"])
+        self.assertTrue(any("locate" in p for p in settings.problems))
+
     def test_an_unwritable_location_is_survivable(self):
         settings = Settings.load()
         settings.path = self.dir / "nope" / "\0bad" / "settings.json"

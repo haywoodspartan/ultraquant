@@ -19,11 +19,16 @@ whole reason :func:`lineage_key` uses three signals and over-groups.
 
 from __future__ import annotations
 
-import json
 import io
+import json
+import os
 import unittest
 import urllib.error
 from unittest import mock
+
+#: Saved by ``setUpModule`` so a developer's own LM Studio configuration
+#: cannot reach these tests, and is restored afterwards.
+_SAVED_BASE_URL: str | None = None
 
 from ultraquant.interpreter.lmstudio import (
     Answer,
@@ -60,6 +65,27 @@ _CATALOGUE = {
          "max_context_length": 2048},
     ]
 }
+
+
+def setUpModule():
+    """Isolate $LMSTUDIO_BASE_URL for the whole module.
+
+    Almost every test here builds ``LMStudioClient()`` with no base_url, and
+    the client reads that variable. A developer with a LAN LM Studio box
+    exported turned the suite into 29 errors, every one the loopback refusal
+    firing in ``__init__`` before any stub could intervene; a merely different
+    loopback spelling broke the default-URL assertion. The module docstring
+    claims the suite runs anywhere, so it has to run on a machine that *has*
+    LM Studio configured, not only on one that lacks it.
+    """
+    global _SAVED_BASE_URL
+
+    _SAVED_BASE_URL = os.environ.pop("LMSTUDIO_BASE_URL", None)
+
+
+def tearDownModule():
+    if _SAVED_BASE_URL is not None:
+        os.environ["LMSTUDIO_BASE_URL"] = _SAVED_BASE_URL
 
 
 def _card(model_id, arch="", publisher="", kind="llm"):
@@ -144,6 +170,33 @@ class ClientTests(unittest.TestCase):
         stub = StubServer(fail=urllib.error.URLError("nope"))
         with mock.patch("urllib.request.urlopen", stub):
             self.assertFalse(LMStudioClient().available())
+
+    def test_valid_json_of_the_wrong_shape_is_a_named_failure(self):
+        """available() is documented "never raises" and used to.
+
+        Something other than LM Studio listening on 1234 - a stale dev server,
+        a proxy - answering with an array made available() raise
+        AttributeError instead of returning False. A present-but-null "data"
+        did the same, because .get(k, default) returns None for a null value
+        rather than the default.
+        """
+        for label, payload in (("top-level array", [{"id": "a"}]),
+                               ("null data", {"data": None}),
+                               ("data is a string", {"data": "none"}),
+                               ("bare string", "hello")):
+            with self.subTest(label):
+                stub = StubServer({"/models": payload})
+                with mock.patch("urllib.request.urlopen", stub):
+                    client = LMStudioClient()
+                    self.assertFalse(client.available(),
+                                     "available() must never raise")
+                    with self.assertRaises(LMStudioUnavailable):
+                        client.models()
+
+    def test_a_non_dict_model_entry_is_skipped_not_fatal(self):
+        stub = StubServer({"/models": {"data": ["qwen", {"id": "real"}]}})
+        with mock.patch("urllib.request.urlopen", stub):
+            self.assertEqual(LMStudioClient().models(), ["real"])
 
     def test_a_non_json_reply_is_a_named_failure(self):
         class Garbage(StubServer):
@@ -319,6 +372,59 @@ class PanelTests(unittest.TestCase):
         panel, _ = self._panel(["qwen/qwen3-coder-30b", "openai/gpt-oss-20b",
                                 "google/gemma-4-31b"])
         self.assertEqual(len(panel.voices()), 3)
+
+    def test_a_remote_endpoint_arrives_as_the_documented_failure(self):
+        """The guard firing must degrade, not explode.
+
+        catalogue() and TeacherPanel() document LMStudioUnavailable as their
+        only failure and every caller catches that alone - but the client
+        refuses a non-loopback host with ValueError, so an inherited
+        $LMSTUDIO_BASE_URL propagated out of run_gate() instead of yielding a
+        skipped report. The lmstudio docstring names that inherited variable
+        as the very case the guard exists for.
+        """
+        import os as _os
+
+        from ultraquant.interpreter.llmls import catalogue
+
+        previous = _os.environ.get("LMSTUDIO_BASE_URL")
+        _os.environ["LMSTUDIO_BASE_URL"] = "http://192.168.1.50:1234/v1"
+        try:
+            with self.assertRaises(LMStudioUnavailable):
+                catalogue()
+            with self.assertRaises(LMStudioUnavailable):
+                TeacherPanel(["anything"])
+        finally:
+            if previous is None:
+                _os.environ.pop("LMSTUDIO_BASE_URL", None)
+            else:
+                _os.environ["LMSTUDIO_BASE_URL"] = previous
+
+    def test_a_malformed_catalogue_is_a_named_failure(self):
+        """Parsing sat outside the guard, so a bad shape escaped as AttributeError."""
+        from ultraquant.interpreter.llmls import catalogue
+
+        for label, payload in (("array", []), ("null data", {"data": None}),
+                               ("strings", {"data": ["qwen"]})):
+            with self.subTest(label):
+                stub = StubServer({"/api/v0/models": payload})
+                with mock.patch("urllib.request.urlopen", stub):
+                    if label == "strings":
+                        self.assertEqual(catalogue("http://127.0.0.1:1234/v1"), [])
+                    else:
+                        with self.assertRaises(LMStudioUnavailable):
+                            catalogue("http://127.0.0.1:1234/v1")
+
+    def test_a_bad_context_length_does_not_lose_the_model(self):
+        from ultraquant.interpreter.llmls import catalogue
+
+        stub = StubServer({"/api/v0/models": {"data": [
+            {"id": "m", "arch": "a", "publisher": "p", "type": "llm",
+             "max_context_length": "lots"}]}})
+        with mock.patch("urllib.request.urlopen", stub):
+            cards = catalogue("http://127.0.0.1:1234/v1")
+        self.assertEqual([c.id for c in cards], ["m"])
+        self.assertEqual(cards[0].context, 0)
 
     def test_an_unknown_model_is_refused_with_the_catalogue(self):
         with self.assertRaises(LMStudioUnavailable) as caught:

@@ -462,29 +462,48 @@ def catalogue(base_url: str | None = None, timeout: float = 10.0) -> list[ModelC
     Raises:
         LMStudioUnavailable: If the server is unreachable.
     """
-    root = (base_url or LMStudioClient().base_url).rstrip("/")
+    try:
+        root = (base_url or LMStudioClient().base_url).rstrip("/")
+    except ValueError as exc:
+        # LMStudioClient refuses a non-loopback host with ValueError, which is
+        # right - but $LMSTUDIO_BASE_URL pointing off-machine is precisely the
+        # inherited-environment case the guard exists for, and this function
+        # documents LMStudioUnavailable as its only failure. Callers catch that
+        # and nothing else, so the refusal has to arrive in the expected shape.
+        raise LMStudioUnavailable(str(exc)) from exc
     root = root[:-3] if root.endswith("/v1") else root
     try:
         with urllib.request.urlopen(f"{root}{_NATIVE_MODELS}",
                                     timeout=timeout) as response:
             payload = json.loads(response.read())
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("no model list in the response")
+        cards = []
+        for entry in rows:
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            try:
+                context = int(entry.get("max_context_length") or 0)
+            except (TypeError, ValueError):
+                context = 0        # a bad length is not worth losing the model
+            cards.append(ModelCard(
+                id=str(entry["id"]),
+                arch=str(entry.get("arch") or ""),
+                publisher=str(entry.get("publisher") or ""),
+                kind=str(entry.get("type") or "llm"),
+                loaded=str(entry.get("state") or "") == "loaded",
+                quantization=str(entry.get("quantization") or ""),
+                context=context,
+            ))
+    except (urllib.error.URLError, OSError, ValueError, TypeError,
+            AttributeError) as exc:
+        # Parsing moved inside the guard: it used to sit after it, so a
+        # well-formed HTTP 200 carrying an unexpected shape escaped as
+        # AttributeError past every caller's `except LMStudioUnavailable`.
         raise LMStudioUnavailable(
             f"cannot read the LM Studio catalogue at {root}: {exc}"
         ) from exc
-    cards = []
-    for entry in payload.get("data", []):
-        if not entry.get("id"):
-            continue
-        cards.append(ModelCard(
-            id=str(entry["id"]),
-            arch=str(entry.get("arch") or ""),
-            publisher=str(entry.get("publisher") or ""),
-            kind=str(entry.get("type") or "llm"),
-            loaded=str(entry.get("state") or "") == "loaded",
-            quantization=str(entry.get("quantization") or ""),
-            context=int(entry.get("max_context_length") or 0),
-        ))
     return cards
 
 
@@ -513,7 +532,10 @@ class TeacherPanel:
             LMStudioUnavailable: If the catalogue cannot be read, or a
                 requested model is not in it.
         """
-        self.client = client or LMStudioClient()
+        try:
+            self.client = client or LMStudioClient()
+        except ValueError as exc:
+            raise LMStudioUnavailable(str(exc)) from exc
         self.ttl = int(ttl)
         self.gpu = gpu
         self.cli = find_cli()

@@ -209,8 +209,19 @@ class LMStudioClient:
             a load pause on first use.
         """
         payload = self._request("/models")
-        return [str(entry.get("id", "")) for entry in payload.get("data", [])
-                if entry.get("id")]
+        # Valid JSON of the wrong shape is not the same as an unreachable
+        # server, and it used to be worse: something else listening on 1234 (a
+        # stale dev server, a proxy) answering with an array made available() -
+        # documented "never raises" - raise AttributeError instead of
+        # returning False. A present-but-null "data" did the same via
+        # .get(k, default) returning None rather than the default.
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise LMStudioUnavailable(
+                f"{self.base_url}/models did not return a model list; "
+                "is something other than LM Studio listening on this port?")
+        return [str(entry.get("id", "")) for entry in rows
+                if isinstance(entry, dict) and entry.get("id")]
 
     def embedding_models(self) -> list[str]:
         """Models whose id marks them as embedding models.
