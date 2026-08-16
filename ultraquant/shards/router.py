@@ -45,6 +45,41 @@ def _tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall(text.lower())
 
 
+def _informative(token: str) -> bool:
+    """Whether a token says anything about which category text belongs to.
+
+    Stopwords do not: they appear in every query, so weight on them makes a
+    category match everything. See :meth:`CategoryRouter.learn` for the
+    measurement that forced this.
+    """
+    from ultraquant.interpreter.learning import _STOPWORDS
+
+    return len(token) > 2 and token not in _STOPWORDS
+
+
+def prune_uninformative(learned: dict) -> tuple[dict, float]:
+    """Strip stopword weight from an already-trained router's tables.
+
+    Filtering :meth:`CategoryRouter.learn` fixes routers trained from now on
+    and does nothing for one that has already accumulated the weight — which
+    every deployed library has. Pruning on load repairs those in place.
+
+    Returns:
+        ``(pruned, removed_weight)``.
+    """
+    pruned: dict = {}
+    removed = 0.0
+    for category, weights in learned.items():
+        kept = {}
+        for token, weight in weights.items():
+            if _informative(token):
+                kept[token] = weight
+            else:
+                removed += float(weight)
+        pruned[category] = kept
+    return pruned, removed
+
+
 class CategoryRouter:
     """Rank categories for a piece of text using associative recall.
 
@@ -69,6 +104,13 @@ class CategoryRouter:
         self._base: dict[str, set[str]] = {}
         # category -> {token: learned weight}
         self._learned: dict[str, dict[str, float]] = {}
+        #: Learned weight discarded by :func:`prune_uninformative` on load, so
+        #: a caller can report that a library was repaired rather than guess.
+        self.pruned_weight: float = 0.0
+        #: category -> base keywords refused as uninformative. Recorded rather
+        #: than dropped silently: a deployer who registered 'what' deserves to
+        #: see that it was not accepted.
+        self.rejected_keywords: dict[str, set] = {}
         if self.path is not None and self.path.exists():
             self.load()
 
@@ -87,23 +129,54 @@ class CategoryRouter:
         """
         base = self._base.setdefault(category, set())
         for keyword in keywords:
-            base.add(keyword.lower())
+            lowered = keyword.lower()
+            if not _informative(lowered):
+                # Registering a question word is how a category comes to claim
+                # every question. Measured: 'world' shipped with 'what', 'who'
+                # and 'where' as base keywords, and after both learned-weight
+                # and vault-association stopwords were cleaned, those three
+                # were still enough to claim "what time does the train leave"
+                # and "who won the football match" outright.
+                self.rejected_keywords.setdefault(category, set()).add(lowered)
+                continue
+            base.add(lowered)
         self._learned.setdefault(category, {})
 
-    def learn(self, text: str, category: str, delta: float = 0.1) -> None:
-        """Strengthen the association from ``text``'s tokens to ``category``.
+    def learn(self, text: str, category: str, delta: float = 0.1,
+              filter_tokens: bool = True) -> None:
+        """Strengthen the association from ``text``'s content tokens to ``category``.
 
         Each distinct token's learned weight for the category is raised by
         ``delta``, and every shard belonging to the category has those tokens
         reinforced in the vault (so the durable store learns too).  An unknown
         category is registered on the fly so its learned weights take effect.
 
+        **Stopwords are not learned, and they were.** Learning every token meant
+        ``the``, ``a``, ``is`` and ``what`` accumulated weight for whichever
+        category an input happened to route to. Since :meth:`route` admits any
+        category scoring above zero, one such token was enough to claim a query
+        outright. Measured on the deployed library: **21% of all learned weight
+        sat on stopwords** — ``is`` at 1.05, ``a`` at 0.60, ``the`` at 0.50 —
+        and of five queries belonging to no category, four were claimed anyway,
+        none of them matching a single base keyword.
+
+        The same filter already guarded
+        :func:`~ultraquant.forge.distill.distil_into_router`, on the reasoning
+        that bulk-generated phrasings were the volume case and one user typing
+        one query at a time was not. That reasoning was wrong, and the
+        measurement is what says so: ten ordinary learning turns are enough.
+
         Args:
             text: The text whose tokens should point at the category.
             category: The category to strengthen towards.
             delta: Strength increment per distinct token.
+            filter_tokens: Drop stopwords and very short tokens. On by default;
+                off only so the abstention gate can measure the old behaviour
+                against the new one.
         """
         tokens = _tokenize(text)
+        if filter_tokens:
+            tokens = [t for t in tokens if _informative(t)]
         if not tokens:
             return
         distinct = list(dict.fromkeys(tokens))
@@ -283,9 +356,22 @@ class CategoryRouter:
         with open(self.path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         self._base = {
-            cat: set(kws) for cat, kws in data.get("base", {}).items()
+            cat: {kw for kw in kws if _informative(kw)}
+            for cat, kws in data.get("base", {}).items()
         }
-        self._learned = {
+        loaded = {
             cat: {token: float(weight) for token, weight in weights.items()}
             for cat, weights in data.get("learned", {}).items()
         }
+        # Repair on load. Filtering learn() fixes routers trained from here on
+        # and does nothing for one that already accumulated stopword weight -
+        # which every deployed library has, at 21% of its total on the one
+        # measured. Without this the fix would only reach new installations.
+        self._learned, self.pruned_weight = prune_uninformative(loaded)
+        # The vault carries the same stopwords, because learn() reinforced it
+        # with the same tokens. Cleaning only this table left decoys routing on
+        # vault association alone.
+        try:
+            self.pruned_weight += self.vault.prune_associations()
+        except Exception:  # noqa: BLE001 - a repair must never block loading
+            pass

@@ -377,9 +377,15 @@ class TestCategoryRouter(unittest.TestCase):
         self.vault.add_shard("expert:math", "math", {"net": [1]})
         self.router.learn("integration by parts", "math", delta=0.1)
         assoc = self.vault.entry("expert:math")["associations"]
-        # Every distinct token of the taught text is now an association.
-        for token in ("integration", "by", "parts"):
+        # Every distinct *content* token of the taught text is now an
+        # association. This used to include "by", and every other stopword the
+        # router was ever taught: on the deployed library that left 21% of
+        # learned weight on words like "is" and "the", and four of five queries
+        # belonging to no category were claimed anyway. Uninformative tokens
+        # are now filtered before both the router table and the vault.
+        for token in ("integration", "parts"):
             self.assertAlmostEqual(assoc[token], 0.1)
+        self.assertNotIn("by", assoc, "a stopword must not become evidence")
 
     def test_state_save_load_round_trip(self) -> None:
         self.router.register("math", ["calculus", "integral"])

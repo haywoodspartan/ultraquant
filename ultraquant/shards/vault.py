@@ -742,6 +742,36 @@ class ShardVault:
         entry["last_access"] = _utc_now()
         self._save_catalog()
 
+    def prune_associations(self) -> float:
+        """Drop uninformative keywords from every shard's associations.
+
+        The router reinforces a shard with the same tokens it learns, so the
+        vault accumulated the same stopword weight — and pruning only the
+        router's own table left it. Measured on the deployed library: after the
+        router table was cleaned, decoy queries still routed on **vault**
+        association alone, scoring 0.7 to 1.2 with no base-keyword hit and no
+        learned weight at all.
+
+        Returns:
+            Total association weight removed.
+        """
+        from ultraquant.shards.router import _informative
+
+        removed = 0.0
+        with self.batch():
+            for entry in self._catalog.values():
+                assoc = entry.get("associations") or {}
+                drop = [k for k in assoc if not _informative(k)]
+                if not drop:
+                    continue
+                self._index_entry(entry, -1)
+                for key in drop:
+                    removed += float(assoc.pop(key))
+                self._index_entry(entry, +1)
+        if removed:
+            self._save_catalog()
+        return removed
+
     def reinforce(
         self, shard_id: str, keywords: list[str], delta: float = 0.1
     ) -> None:

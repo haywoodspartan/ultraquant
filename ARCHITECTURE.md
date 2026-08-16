@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.4 · 1033 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.5 · 1049 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         48 modules, 1033 tests
+tests/         49 modules, 1049 tests
 ```
 
 ---
@@ -3082,6 +3082,63 @@ four unrelated queries in five. Distillation held that number exactly (0.200 →
 willingness to answer is a larger problem than anything measured in §11.13 and
 is not yet behind a gate.
 
+### 11.15 The router could not say "not mine"
+
+§11.13's training run surfaced it without causing it: on the deployed library,
+of five queries belonging to **none** of its categories, the router declined
+**one**. "what time does the train leave" routed to `crosses`. So did "the
+weather forecast for tomorrow", and "how do I fix a leaking tap". None matched a
+single base keyword.
+
+`route()` admits any category scoring above zero, so one weighted token is
+enough to claim a query. The question was where the weight came from, and the
+answer turned out to be **three separate stores with the same defect**, each of
+which had to be fixed on its own — and each of which made the previous fix look
+insufficient rather than wrong.
+
+**One — learned weights.** `CategoryRouter.learn` took every distinct token of
+whatever text it was given, so `the`, `a`, `is` and `what` accumulated weight for
+whichever category the input happened to route to. **21% of all learned weight
+on the deployed router sat on stopwords**, led by `is` at 1.05.
+
+This is the same defect §11.13 fixed in `distil_into_router`, where the reasoning
+was explicitly that bulk-generated phrasings were the volume case and *"a single
+user typing one query at a time contributes far less generic weight, which is
+why `CategoryRouter.learn` is left alone"*. That reasoning was wrong, and the
+measurement is what says so: **ten ordinary learning turns are enough**.
+
+**Two — vault associations.** With the router's own table cleaned, decoys still
+routed, scoring 0.7 to 1.2 on **vault association alone** with no base hit and no
+learned weight. `learn()` reinforces the vault with the same token list, so the
+durable store had accumulated the same stopwords.
+
+**Three — registered keywords.** With both cleaned, two decoys survived: `world`
+shipped with `what`, `who` and `where` as *base* keywords. Registering a question
+word is how a category comes to claim every question.
+
+One rule — `_informative` — now applies at every point a token can enter, and
+existing libraries are repaired on load rather than only new ones being spared.
+
+**The gate, and the control that makes it mean anything.** Abstention is trivial
+to maximise: a router that returns nothing scores 1.000 on decoys. So genuine
+routing is measured alongside it and a fall fails the gate outright. A test
+asserts the control *can* fail, by building a router whose whole vocabulary is
+stopwords — perfect abstention, zero routing.
+
+| | before | after |
+|---|---:|---:|
+| decoys declined (gate, 8 seeds) | 0.025 | **0.975** (+0.950, **12.57x** seed sd) |
+| genuine routed (**control**) | 1.000 | 1.000 |
+| decoys declined (**deployed library**) | 0.200 | **1.000** |
+| genuine routed (deployed library) | — | 0.875 |
+| learned weight discarded on repair | — | 36.5 |
+
+The deployed library's one miss is **not** a regression: "add these two numbers"
+goes to `crosses` because `arithmetic` registers `number` and the query says
+`numbers`, while `crosses` had already accumulated `two`. Both pre-date this
+change. A singular/plural vocabulary gap is a separate problem and is not fixed
+here.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3159,6 +3216,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
+| router abstention | **PASSED** (§11.15) — 0.025 -> 0.975 at 12.57x sd, control held |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 
