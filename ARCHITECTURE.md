@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.3 · 1021 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.4 · 1033 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         47 modules, 1021 tests
+tests/         48 modules, 1033 tests
 ```
 
 ---
@@ -3054,6 +3054,33 @@ at temperature 0: three identical runs at 48 phrasings gave 0.090, 0.111 and
 0.118. The margin therefore carries run-to-run variance *on top of* the seed
 variance the gate measures, and the gate does not account for it. At 1.79x that
 is not a comfortable distance from the 1.0 threshold.
+
+**Run against the deployed library.** `ultraquant/forge/train_from_llm.py`
+points this at a real session rather than the gate's synthetic categories, and
+two judgements it has to make are worth recording.
+
+A forged library carries 24 categories named `family_000`…`family_023` whose
+keywords are `sym`, `0`, `1`. Asking a model "different ways to ask about
+family_007" produces confident nonsense, which would then be taught to the
+router as though it meant something — so they are skipped, by name **and** by
+checking the vocabulary is descriptive, and reported as skipped rather than
+quietly dropped. On the deployed home: **8 real categories trained, 46
+phrasings, 24 synthetic families skipped**, held-out routing 0.109 → 0.174.
+
+The `--dry-run` flag was wrong on its first outing and the bug is instructive:
+it skipped `router.save()`, but `CategoryRouter.learn()` also calls
+`vault.reinforce()`, which writes the shard catalog immediately. The "dry" run
+had genuinely trained the library, and the next run started from the moved
+baseline — visible only because the second run's *before* was 0.174 rather than
+0.109. A dry run now works on a copy of the home.
+
+**One thing the run surfaced that distillation did not cause.** On the deployed
+library only **0.200** of unrelated decoy queries are correctly left alone —
+before any training. With 32 categories registered, the router already claims
+four unrelated queries in five. Distillation held that number exactly (0.200 →
+0.200), so it neither caused nor worsened it, but the router's baseline
+willingness to answer is a larger problem than anything measured in §11.13 and
+is not yet behind a gate.
 
 ### 11.14 A context window in memory, with disk as the reference
 
