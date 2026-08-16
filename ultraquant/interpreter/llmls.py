@@ -562,6 +562,14 @@ class TeacherPanel:
         and seeing ``gpt-oss-20b:2`` and ``qwen3-coder-30b:2`` resident
         alongside the originals.
 
+        The guard is **best-effort and not atomic**: two processes calling this
+        at the same time can both see "not loaded" and both load. Observed
+        exactly that way, with a second ``google/gemma-4-31b:2`` appearing when
+        two panel runs overlapped. Locking it properly would mean coordinating
+        across processes for a convenience feature; the TTL clears the
+        duplicate, and ``lms ps`` shows it. Worth knowing before running panels
+        concurrently on a card that is already tight.
+
         Returns:
             True if the model is resident afterwards. False when the CLI is
             absent — not an error: the HTTP API JIT-loads on first request, so
