@@ -30,6 +30,14 @@ condition §11.5 named as the one where a learned representation should pay.
 ``ultraquant/experiments/embed_gate.py`` measures whether it actually helps
 rather than assuming so.
 
+**A model is not independent of the web, and the stash now knows it.** An
+answer used to enter as an ordinary source, so a Wikipedia page and a local
+model agreeing were counted as two sources and the claim promoted to
+*corroborated* — when the model was very likely trained on that page.
+Model-derived sources now collapse to one pseudo-source in
+:func:`~ultraquant.interpreter.stash._independent_sources`: a model may add its
+voice to a claim, but can never be the second source that makes one believed.
+
 *Research* is the guarded one. A model's answer enters through
 :meth:`~ultraquant.interpreter.stash.ContemporaryStash.add_page` with an
 ``lmstudio://model`` URL — the same quarantine as any scraped web page, subject
@@ -66,6 +74,15 @@ __all__ = [
 
 #: Where LM Studio serves its OpenAI-compatible API out of the box.
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
+
+#: The host every model-derived source URL carries, so the stash can recognise
+#: one by netloc alone — which is all it records.
+#:
+#: ``.invalid`` is the reserved TLD for exactly this: it can never resolve, so
+#: the marker cannot be mistaken for a real origin. The model id lives in the
+#: path, keeping provenance readable while every model collapses to a single
+#: source host.
+MODEL_SOURCE_HOST = "lm-studio.invalid"
 
 #: Hosts considered on-machine. Anything else needs ``allow_remote=True``.
 _LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"})
@@ -105,7 +122,7 @@ class Answer:
         a quarantined claim unmistakable in the stash listing, and keeps two
         answers from the same model recognisable as one source.
         """
-        return f"lmstudio://{self.model}"
+        return f"lmstudio://{MODEL_SOURCE_HOST}/{self.model}"
 
 
 class LMStudioClient:

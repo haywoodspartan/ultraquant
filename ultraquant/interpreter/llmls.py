@@ -117,6 +117,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
 from ultraquant.interpreter.lmstudio import (
+    MODEL_SOURCE_HOST,
     Answer,
     LMStudioClient,
     LMStudioUnavailable,
@@ -795,7 +796,8 @@ class TeacherPanel:
             head = groups[0][0] if groups else None
             if head is None:
                 continue
-            url = f"lmstudio://panel/{len(groups)}-voice/{head.arch or head.id}"
+            url = (f"lmstudio://{MODEL_SOURCE_HOST}/panel/{len(groups)}-voice/"
+                   f"{head.arch or head.id}")
             title = f"LLMLS panel ({len(groups)} voice): {question[:50]}"
             entry_ids.extend(stash.add_page(url, title,
                                             _as_claim(question, position),

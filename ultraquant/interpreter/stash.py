@@ -153,6 +153,48 @@ def claim_relation(claim_a: str, claim_b: str) -> str | None:
     return None
 
 
+#: Source prefixes whose content is not independent of the open web.
+#: A language model is trained *on* the web, so it cannot corroborate a page
+#: it may well have memorised.
+_DERIVED_SOURCE_MARKS = ("lm-studio.invalid",)
+
+
+def _independent_sources(sources: list) -> list:
+    """The sources that may count toward corroboration, collapsed by origin.
+
+    A claim is corroborated when two *independent* sources carry it, and the
+    stash counted distinct netlocs. That silently credited a combination that
+    is not independent at all: a Wikipedia page and a local language model
+    agreeing on the Eiffel Tower were recorded as two sources and promoted to
+    ``corroborated`` — when the model was almost certainly trained on that very
+    page. Reproduced exactly that way.
+
+    This cannot be *solved*: nothing can establish what a model was trained on.
+    So model-derived sources are excluded from the count entirely. A model can
+    still put a claim into the stash, where it is recorded with its provenance
+    and visible for review — it simply never counts toward the two that make a
+    claim believed. Two web pages still corroborate; a web page and a model do
+    not; two models do not.
+
+    The panel's own independent-lineage accounting
+    (:mod:`ultraquant.interpreter.llmls`) is a *different* question — how much
+    several models agreeing is worth among themselves — and does not license
+    counting any of them as independent of the web.
+    """
+    seen: list = []
+    for source in sources:
+        text = str(source).lower()
+        # Excluded outright, not merely collapsed. Collapsing all models to one
+        # pseudo-source still let that pseudo-source pair with a web page and
+        # reach two - which is the exact combination that must not corroborate,
+        # since the model may have memorised the page.
+        if any(mark in text for mark in _DERIVED_SOURCE_MARKS):
+            continue
+        if source not in seen:
+            seen.append(source)
+    return seen
+
+
 def _claim_vector(claim: str) -> int:
     """A claim as a hypervector bag of its content words.
 
@@ -389,7 +431,7 @@ class ContemporaryStash:
                                           + note).strip()
             if disputed:
                 entry["status"] = "disputed"
-            elif len(entry["sources"]) >= 2:
+            elif len(_independent_sources(entry["sources"])) >= 2:
                 entry["status"] = "corroborated"
             elif (supporter := self._paraphrase_support(entry)) is not None:
                 entry["status"] = "corroborated"

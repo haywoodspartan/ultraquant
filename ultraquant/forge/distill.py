@@ -44,7 +44,7 @@ it had learned to say yes. A ceilinged control would have reported a clean pass
 at 6.31x.
 
 *Content tokens only.* Filtering to the words that actually name something
-(:func:`content_tokens`) gives **0.028 -> 0.090, +0.062 at 1.96x seed sd, with
+(:func:`content_tokens`) gives **0.028 -> 0.090, +0.062 at 1.79x seed sd, with
 the control held exactly at 1.000**. That passes.
 
 **What passing does and does not mean here, stated plainly.** The improvement
@@ -63,7 +63,7 @@ next move after a small pass is to generate more data. Measured, that breaks it:
 ===============================  ==========  =========  ========  ===========
 volume                           before      after      margin    decoy control
 ===============================  ==========  =========  ========  ===========
-48 phrasings (12 per category)   0.028       0.090      1.96x     **1.000**
+48 phrasings (12 per category)   0.028       0.090      1.79x     **1.000**
 117 phrasings (30 per category)  0.000       0.492      8.93x     **0.767**
 ===============================  ==========  =========  ========  ===========
 
@@ -345,7 +345,7 @@ class GateReport:
             f"decoys (CONTROL)       before {self.control_before:.3f}   "
             f"after {self.control_after:.3f}   "
             f"delta {self.control_after - self.control_before:+.3f}"
-            "   <- must not rise",
+            "   <- must not FALL (it is decoys correctly left alone)",
             f"seed sd {self.seed_sd:.3f}   margin ratio "
             f"{self.margin_ratio:.2f}x  (gate needs > 1.0)",
             f"{self.phrasings} phrasing(s) learned",
@@ -490,15 +490,22 @@ def run_gate(panel: TeacherPanel | None = None, seeds: int = 6,
         return GateReport(skipped=True, reason="no usable splits")
 
     delta = statistics.fmean(deltas)
-    seed_sd = statistics.pstdev(deltas) if len(deltas) > 1 else 0.0
+    # stdev, not pstdev: these six splits are a *sample* of the possible
+    # splits, not the population of them. Population sd divides by n rather
+    # than n-1 and so understates the spread, which inflates every margin ratio
+    # the gate reports against its own threshold.
+    seed_sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     control_before = statistics.fmean(control_befores)
     control_after = statistics.fmean(control_afters)
 
     report = GateReport(
         before=statistics.fmean(befores), after=statistics.fmean(afters),
         delta=delta, seed_sd=seed_sd,
-        margin_ratio=(delta / seed_sd) if seed_sd > 0
-                     else (float("inf") if delta > 0 else 0.0),
+        # Zero spread is not infinite confidence. Identical deltas across every
+        # split means the splits did not vary what they were meant to vary -
+        # too few phrasings, or a degenerate holdout - and reporting inf turned
+        # that into an automatic pass on a measurement that measured nothing.
+        margin_ratio=(delta / seed_sd) if seed_sd > 0 else 0.0,
         control_before=control_before, control_after=control_after,
         phrasings=learned // max(1, seeds),
     )
@@ -513,6 +520,13 @@ def run_gate(panel: TeacherPanel | None = None, seeds: int = 6,
         return report
     if delta <= 0:
         report.reason = f"no improvement on held-out paraphrases ({delta:+.3f})"
+        return report
+    if seed_sd <= 0.0:
+        report.reason = (
+            f"every split gave the same delta ({delta:+.3f}), so there is no "
+            "seed variance to measure the margin against; the splits did not "
+            "vary what they were supposed to vary"
+        )
         return report
     if report.margin_ratio <= 1.0:
         report.reason = (

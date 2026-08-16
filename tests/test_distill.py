@@ -277,6 +277,29 @@ class GateTests(unittest.TestCase):
         _model, prompt = client.prompts[0]
         self.assertIn(f"List {SAFE_PHRASINGS_PER_CATEGORY} ", prompt)
 
+    def test_zero_seed_variance_is_not_an_automatic_pass(self):
+        """It reported inf, which passed any margin threshold.
+
+        Identical deltas across every split mean the splits did not vary what
+        they were meant to vary - too few phrasings, a degenerate holdout - so
+        there is nothing to measure the margin against.
+        """
+        from ultraquant.forge.distill import GateReport
+
+        report = GateReport(delta=0.5, seed_sd=0.0, margin_ratio=0.0)
+        self.assertEqual(report.margin_ratio, 0.0)
+        self.assertFalse(report.passes)
+
+    def test_the_control_legend_states_the_direction_the_code_checks(self):
+        """It said "must not rise" while the code fails on a fall."""
+        from ultraquant.forge.distill import GateReport
+
+        text = GateReport(before=0.0, after=0.1, delta=0.1, seed_sd=0.02,
+                          margin_ratio=5.0, control_before=1.0,
+                          control_after=1.0, reason="x").as_text()
+        self.assertIn("must not FALL", text)
+        self.assertNotIn("must not rise", text)
+
     def test_the_report_prints_without_a_run(self):
         from ultraquant.forge.distill import GateReport
 

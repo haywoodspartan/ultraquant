@@ -214,7 +214,10 @@ class ClientTests(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", stub):
             answer = LMStudioClient().complete("what is six times seven?")
         self.assertEqual(answer.text, "42")
-        self.assertEqual(answer.source_url, "lmstudio://m1")
+        # The host marks it as model-derived so the stash can refuse to
+        # count it as independent of the web; the model id stays readable.
+        self.assertEqual(answer.source_url,
+                         "lmstudio://lm-studio.invalid/m1")
         self.assertEqual(answer.prompt, "what is six times seven?")
 
     def test_temperature_defaults_to_zero(self):
@@ -847,6 +850,46 @@ class QuarantineTests(unittest.TestCase):
         self.assertTrue(result["consensus"].corroborated)
         self.assertGreater(result["filed"], 0,
                            "a corroborated terse answer must be quarantined")
+
+    def test_a_model_cannot_corroborate_a_web_page(self):
+        """The most serious defect the review found, and it is unfixable-by-design.
+
+        A Wikipedia page and a local model agreeing on the Eiffel Tower were
+        counted as two independent sources and promoted to "corroborated" -
+        when the model was almost certainly trained on that page. Nothing can
+        establish what a model was trained on, so model sources are excluded
+        from the corroboration count outright. They still enter the stash with
+        their provenance; they simply never make a claim believed.
+        """
+        claim = ("The Eiffel Tower is a wrought iron lattice tower located in "
+                 "Paris France.")
+        self.stash.add_page("https://en.wikipedia.org/wiki/Eiffel_Tower",
+                            "Eiffel Tower", claim)
+        quarantine_answer(Answer(text=claim, model="qwen", prompt="q"),
+                          self.stash)
+        self.stash.analyze()
+        statuses = {entry["status"] for entry in self.stash.entries()}
+        self.assertNotIn("corroborated", statuses,
+                         "a model is not independent of the web it trained on")
+
+    def test_two_models_do_not_corroborate_each_other_in_the_stash(self):
+        claim = "Some claim about the world that two models both assert here."
+        for model in ("qwen", "gemma"):
+            quarantine_answer(Answer(text=claim, model=model, prompt="q"),
+                              self.stash)
+        self.stash.analyze()
+        for entry in self.stash.entries():
+            self.assertNotEqual(entry["status"], "corroborated")
+
+    def test_two_web_pages_still_corroborate(self):
+        """The guard must not break the case it was never about."""
+        claim = ("The Eiffel Tower is a wrought iron lattice tower located in "
+                 "Paris France.")
+        self.stash.add_page("https://en.wikipedia.org/wiki/X", "X", claim)
+        self.stash.add_page("https://www.britannica.com/X", "X", claim)
+        self.stash.analyze()
+        self.assertIn("corroborated",
+                      {e["status"] for e in self.stash.entries()})
 
     def test_one_model_answering_twice_is_still_one_source(self):
         """The single-source limit, which no amount of asking can escape."""

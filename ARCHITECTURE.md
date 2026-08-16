@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.1 · 999 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.2 · 1004 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         46 modules, 999 tests
+tests/         46 modules, 1004 tests
 ```
 
 ---
@@ -2991,7 +2991,7 @@ The two failures now report differently, because they need different fixes.
 | mechanism | held-out paraphrases | margin | decoy control |
 |---|---:|---:|---:|
 | raw phrasings | 0.035 → 0.396 | 6.31x sd | **1.000 → 0.133** |
-| content tokens only | 0.028 → 0.090 | 1.96x sd | 1.000 → 1.000 |
+| content tokens only | 0.028 → 0.090 | 1.79x sd | 1.000 → 1.000 |
 
 The first looks like a triumph and is a fraud. Natural phrasings are dense in
 function words, so `what`, `how`, `do` and `the` acquired weight for every
@@ -3003,7 +3003,7 @@ reported a clean pass at 6.31x seed variance — which is precisely the defect
 This control starts at 1.000 and can only fall, so it had room to condemn the
 result, and it did.
 
-Filtering to tokens that actually name something passes: **+0.062 at 1.96x seed
+Filtering to tokens that actually name something passes: **+0.062 at 1.79x seed
 sd with the control held exactly at 1.000**.
 
 **What passing does not mean.** The improvement is real, controlled and
@@ -3020,7 +3020,7 @@ next move after a small pass is to generate more data. Measured, that breaks it:
 
 | volume | before | after | margin | decoy control |
 |---|---:|---:|---:|---:|
-| 48 phrasings (12 per category) | 0.028 | 0.090 | 1.96x | **1.000** |
+| 48 phrasings (12 per category) | 0.028 | 0.090 | 1.79x | **1.000** |
 | 117 phrasings (30 per category) | 0.000 | 0.492 | 8.93x | **0.767** |
 
 At the larger volume the margin looks *spectacular* — half the held-out
@@ -3036,10 +3036,23 @@ exists to catch, now demonstrated twice in the same section. Nothing here
 establishes that the true ceiling is 12 rather than 15 or 20; only that 12 holds
 and 30 does not.
 
+**The margin was also inflated by the wrong standard deviation.** The gate used
+`statistics.pstdev` over its splits — population sd, which divides by n rather
+than n-1 and so understates the spread of a *sample*. Corrected to `stdev`, the
+reported margin falls from 1.96x to **1.79x**. It still clears the threshold,
+and it was never as far above it as published.
+
+Two more gate defects came out of the same review. Zero seed variance reported
+`margin_ratio = inf`, so a run whose splits all gave the identical delta — i.e.
+one that varied nothing — was an **automatic pass**; it now fails with that
+stated as the reason. And the printed control legend read "must not rise" while
+the code fails the gate on a *fall*, which is exactly backwards for a control
+measuring decoys correctly left alone.
+
 **A caveat the gate does not yet cover.** Generation is not deterministic even
 at temperature 0: three identical runs at 48 phrasings gave 0.090, 0.111 and
 0.118. The margin therefore carries run-to-run variance *on top of* the seed
-variance the gate measures, and the gate does not account for it. At 1.96x that
+variance the gate measures, and the gate does not account for it. At 1.79x that
 is not a comfortable distance from the 1.0 threshold.
 
 | stage | verdict |
@@ -3053,7 +3066,7 @@ is not a comfortable distance from the 1.0 threshold.
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
-| offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.96x sd; first mechanism failed, and it does not scale |
+| offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 
 Every gate was stated before its experiment ran; two experiments had their own
 flaws caught and recorded (§11.5's ceiling, §11.7's oracle-baseline); one

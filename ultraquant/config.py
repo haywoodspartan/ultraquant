@@ -188,11 +188,21 @@ def _merge(defaults: dict, loaded: dict, problems: list, prefix: str = "") -> di
 
 
 def _strip_secrets(node: Any) -> Any:
-    """Drop credential keys at every depth, not only the top level."""
-    if not isinstance(node, dict):
-        return node
-    return {k: _strip_secrets(v) for k, v in node.items()
-            if k not in NEVER_PERSISTED}
+    """Drop credential keys at every depth, through dicts *and* lists.
+
+    The first version recursed through dicts only and returned any list
+    unchanged, so a credential inside a list value - ``{"accounts": [{"token":
+    "sk-..."}]}`` - was written to the file verbatim. A settings file is
+    plaintext and may sit in a checkout, so the traversal has to reach
+    everywhere a dict can appear, not everywhere a dict happens to appear at
+    the top.
+    """
+    if isinstance(node, dict):
+        return {k: _strip_secrets(v) for k, v in node.items()
+                if k not in NEVER_PERSISTED}
+    if isinstance(node, (list, tuple)):
+        return [_strip_secrets(item) for item in node]
+    return node
 
 
 class Settings:
