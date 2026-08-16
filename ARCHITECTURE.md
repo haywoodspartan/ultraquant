@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.2 · 1004 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.3 · 1021 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         46 modules, 1004 tests
+tests/         47 modules, 1021 tests
 ```
 
 ---
@@ -3055,6 +3055,72 @@ at temperature 0: three identical runs at 48 phrasings gave 0.090, 0.111 and
 variance the gate measures, and the gate does not account for it. At 1.79x that
 is not a comfortable distance from the 1.0 threshold.
 
+### 11.14 A context window in memory, with disk as the reference
+
+The working memory this system had was the wrong shape for a machine where
+memory is the binding constraint. `SystematicMemory` keeps **every** episode in
+a Python list and bounds "working memory" to the last 16 by *count*;
+`working()` rebuilds a dict over the whole log per call. Resident cost grows
+without limit, the bound is in the wrong unit, and nothing that falls out leaves
+a trace — recall means scanning.
+
+`ultraquant/memory/context.py` is the other arrangement, and it is two
+structures sized very differently:
+
+* **Resident content** — recent turns held whole, bounded in **bytes**.
+* **A reference index** — for every turn ever written, 24 bytes: id, byte
+  offset, and a 64-bit membership signature. Three `array('Q')` buffers, not N
+  objects. This is what makes the disk addressable without being resident.
+
+Recall screens the index with AND + `bit_count` and seeks to the byte offsets of
+the winners. Measured: **24 B of index per turn**, so a million turns of history
+indexes in ~24 MB while the window itself holds whatever the budget allows.
+
+**The gate passed, and three things had to be fixed first — two of them in the
+mechanism, one in the gate.**
+
+*The signature carried about one bit.* The first version mixed a per-token CRC32
+seed with the bit index, also via CRC32. CRC32 is **linear over GF(2)**, so
+every bit index reduced to the same linear functional of the seed differing only
+by a constant flip. Three unrelated sentences all produced
+`0xaaaa5555aaaa5555`, recall returned the same three turns for four different
+questions — **and the gate reported a comfortable pass at 6.52x seed variance**.
+
+*A correct SimHash was still the wrong tool.* BLAKE2b fixed the degeneracy and
+ranked *unrelated chatter above the answer*: against "how tall is the tower",
+chatter scored Hamming 23 and the answer 25. SimHash is a random projection and
+needs many terms for its per-bit vote sums to be stable; a conversational turn
+has four to six content tokens, so each bit is the sign of a sum of five votes
+and flips on noise. A **membership bitmap** — each token sets two bits, scored
+by how much of the query the turn covers — is the right structure for short
+text, because the question is set overlap rather than vector angle.
+
+*The gate's seeds varied nothing.* With a fixed fact list merely shuffled, every
+seed produced the identical delta, because recall depends on vocabulary overlap
+and not on arrival order. The zero-variance guard added in §11.13 caught it and
+failed the run. Seeds now sample a different fact subset per history.
+
+*And its control was at ceiling.* Scored at `top_k=3` the distractor control sat
+at **1.000** — a query only had to rank the answer in its top three, which
+nothing plausible could fail. That is the §11.11 defect reappearing inside the
+gate written to avoid it. At `top_k=1` it reads 0.979: off ceiling, and able to
+fall.
+
+| condition | result |
+|---|---:|
+| buried questions, forgetting baseline | 0.000 |
+| buried questions, recall | **0.896** (+0.896, **10.39x** seed sd) |
+| distractors, strict `top_k=1` (**control**) | 0.979 |
+| answer still resident (**control**) | 1.000 |
+| peak resident against a 512 B budget | **512 B** |
+| index over 66 turns | 1,584 B — **24 B/turn** |
+
+**What it is not.** Not a KV cache. A KV cache holds computed attention state
+and discards it on overflow — information genuinely lost. This holds text and an
+index, so an overflowed turn is *recoverable*: better in that nothing is lost,
+worse in that a recalled turn must be re-read and the signature can fetch the
+wrong one. 0.896, not 1.000, is what that costs.
+
 | stage | verdict |
 |---|---|
 | 0 — modality-agnostic library | **PASSED** |
@@ -3066,6 +3132,7 @@ is not a comfortable distance from the 1.0 threshold.
 | hypervectors (unstaged) | half a pass (§11.7) — structure yes, retrieval no |
 | external encoder (unstaged) | **FAILED** (§11.11) — on its own rebuilt control |
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
+| context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 
 Every gate was stated before its experiment ran; two experiments had their own
