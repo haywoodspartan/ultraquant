@@ -235,6 +235,70 @@ class CategoryRouter:
             for shard_id in self.vault.shards_in(category):
                 self.vault.reinforce(shard_id, distinct, delta)
 
+    def correct(self, text: str, category: str, delta: float = 0.4) -> dict:
+        """Record that ``text`` belongs to ``category``, against a wrong winner.
+
+        The only ground truth for a routing error is a person saying so, and
+        until now there was no way to say it. ``:learn`` cannot: it reinforces
+        from the *reply* text rather than the misrouted query, and none of its
+        eight question kinds surfaces a misroute at all. Measured on the
+        deployed library — answering a fact about arithmetic moved it 1.2 -> 1.4
+        while ``crosses`` stayed at 2.15, so the 0.95 gap would close 0.2 at a
+        time and only when the answer's words happened to overlap the query.
+
+        So this does two things, and the second is the one that matters against
+        an entrenched error (§11.16): it strengthens the query's own content
+        tokens for the right category, **and weakens whichever category is
+        currently winning them**. Adding weight alone has to out-climb
+        accumulated weight; removing the accumulation is what actually reverses
+        the decision.
+
+        Weakening is bounded to what was learned. Base keywords are never
+        touched, because those were registered deliberately and a single
+        correction is not grounds for unregistering vocabulary — and learned
+        weight never goes below zero, so a correction cannot invent negative
+        evidence.
+
+        Args:
+            text: The query that routed wrongly.
+            category: Where it should have gone.
+            delta: Strength of the correction. Larger than ordinary learning,
+                because it carries a person's explicit judgement rather than a
+                turn's incidental success.
+
+        Returns:
+            ``{"tokens": [...], "strengthened": category, "weakened": {cat: amount}}``
+            so a caller can report exactly what changed.
+        """
+        tokens = [tok for tok in dict.fromkeys(_tokenize(text))
+                  if _informative(tok)]
+        if not tokens:
+            return {"tokens": [], "strengthened": category, "weakened": {}}
+
+        ranked = self.route(text, top_k=3)
+        wrong = [name for name, _score in ranked if name != category]
+
+        self.learn(" ".join(tokens), category, delta=delta)
+
+        weakened: dict[str, float] = {}
+        for other in wrong:
+            learned = self._learned.get(other)
+            if not learned:
+                continue
+            removed = 0.0
+            for token in tokens:
+                had = learned.get(token, 0.0)
+                if had > 0.0:
+                    # Down to zero, never below: a correction may remove
+                    # accumulated evidence but must not manufacture the
+                    # opposite claim.
+                    learned[token] = max(0.0, had - delta)
+                    removed += had - learned[token]
+            if removed:
+                weakened[other] = round(removed, 4)
+        return {"tokens": tokens, "strengthened": category,
+                "weakened": weakened}
+
     # ------------------------------------------------------------------ #
     # routing
     # ------------------------------------------------------------------ #

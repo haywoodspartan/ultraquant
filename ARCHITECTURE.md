@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.8 · 1076 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.9 · 1093 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         51 modules, 1076 tests
+tests/         52 modules, 1093 tests
 ```
 
 ---
@@ -3272,6 +3272,64 @@ learning gained four over bare vocabulary. So the remedy for those two is
 targeted supervised correction through `:learn`, which was always the legitimate
 path, not discarding the library's experience.
 
+### 11.18 Correcting a route, and a claim that had to be withdrawn
+
+§11.17 said the remedy for the deployed library's two entrenched errors was
+"targeted supervised correction through `:learn`". **That was wrong**, and
+checking it was the first thing this section did.
+
+`:learn` cannot correct a routing error, for two independent reasons. Its
+supervised path calls `router.learn(reply, category)` — it learns from the
+*answer text*, not from the query that misrouted, so it cannot move a query it
+was never shown. And none of its eight question kinds surfaces a misroute at
+all; they are all knowledge or pattern gaps. Measured: answering a fact about
+arithmetic moved it **1.2 → 1.4** while the wrong winner sat unmoved at **2.15**,
+so the 0.95 gap would close 0.2 at a time and only when the answer's words
+happened to overlap the query.
+
+The only ground truth for a routing error is a person saying so, and there was
+no way to say it. `CategoryRouter.correct` and the `:correct` command are that
+way:
+
+```
+:correct arithmetic add these two numbers
+```
+
+It does **two** things, and the second is what matters against entrenchment: it
+strengthens the query's own content tokens for the right category, *and weakens
+whichever category is currently winning them*. Adding weight alone has to
+out-climb an accumulation; removing the accumulation reverses the decision.
+
+Two limits are deliberate. Base keywords are never unregistered — those were
+chosen on purpose and one correction is not grounds for discarding vocabulary.
+And learned weight never goes below zero, so a correction can remove evidence
+but cannot manufacture the opposite claim.
+
+**Applied to the deployed library:**
+
+| | before | after |
+|---|---:|---:|
+| genuine routing | 0.750 | **1.000** |
+| decoys declined | 1.000 | 1.000 |
+| `crosses` on its own queries | — | 3.7 / 3.2 / 2.95, all still won |
+
+Both corrections reported `weakened: crosses -0.55, frames -0.1` and landed
+first-try.
+
+**No gate module accompanies this, and that is a judgement rather than an
+omission.** A gate is for a mechanism whose benefit is statistical and could be
+mistaken for noise; a correction either reverses the decision it names or it does
+not, so the claim is directly checkable. What genuinely needed a control was the
+collateral — a correction must not damage the categories it takes weight from —
+and `tests/test_route_correction.py` checks that the weakened category keeps its
+own queries and that abstention does not reopen.
+
+**One fixture mistake worth recording.** The first version of those tests built a
+router where `crosses` lacked the keywords that made it win in the first place,
+so nothing was entrenched and three tests failed — for the right reason. The
+fixture now carries the deployed shape, because a test for entrenchment that
+never entrenches proves nothing.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3352,7 +3410,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | router abstention | **PASSED** (§11.15) — 0.025 -> 0.975 at 12.57x sd, control held |
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
 | self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
-| confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held; prophylactic, not curative |
+| confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
+| route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 

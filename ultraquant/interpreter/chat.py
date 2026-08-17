@@ -45,6 +45,7 @@ UltraQuant Chat/Interpreter - commands:
   :code <source>         run one line through the sandboxed code function
   :entropy [src]         judge an entropy source by its output alone
   :settings              where preferences live, and what is in them
+  :correct <cat> <text>  this text should have routed to <cat>
   :learn                 survey for gaps; the model asks what it wants to know
   :learn answer <text>   answer the current question (glyph answers: 5 rows follow)
   :learn skip            set the current question aside
@@ -529,6 +530,49 @@ class ChatCLI:
         from ultraquant.config import Settings
 
         self.emit(Settings.load().describe())
+
+    def _cmd_correct(self, args: list[str], more) -> None:
+        """Tell the router a query belonged somewhere else.
+
+        ``:correct arithmetic add these two numbers``
+
+        The only ground truth for a routing error is a person saying so, and
+        there was no way to say it. ``:learn`` cannot do this job: it reinforces
+        from the *reply* text rather than the misrouted query, and none of its
+        question kinds surfaces a misroute. Measured on the deployed library, a
+        fact answered about arithmetic moved it 1.2 -> 1.4 while the wrong
+        winner stayed at 2.15.
+
+        This strengthens the query's own tokens for the right category and
+        weakens whichever category was winning them, which is what actually
+        reverses an entrenched decision rather than slowly out-climbing it.
+        """
+        if len(args) < 2:
+            self.emit("Usage: :correct <category> <the text that routed wrongly>")
+            return
+        category, text = args[0], " ".join(args[1:])
+        router = self.session.router
+        if category not in router._base:
+            self.emit(f"Unknown category {category!r}. Known: "
+                      + ", ".join(sorted(router._base)[:12]))
+            return
+        before = router.route(text, top_k=2)
+        result = router.correct(text, category)
+        if not result["tokens"]:
+            self.emit("Nothing to learn from that text - it is all stopwords.")
+            return
+        after = router.route(text, top_k=2)
+        self.session.save()
+        self.emit(f"  tokens     : {', '.join(result['tokens'])}")
+        self.emit(f"  before     : {before}")
+        self.emit(f"  after      : {after}")
+        if result["weakened"]:
+            self.emit("  weakened   : " + ", ".join(
+                f"{name} -{amount}" for name, amount in
+                sorted(result["weakened"].items())))
+        landed = after and after[0][0] == category
+        self.emit(f"  -> {'corrected' if landed else 'still not winning; '
+                          'correct it again or check the category'}")
 
     def _cmd_recognize(self, args: list[str], more) -> None:
         """Recognize a glyph."""

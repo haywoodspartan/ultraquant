@@ -241,6 +241,30 @@ class UltraQuantTUI:
             self._save_settings()
             self.running = False
             return "bye"
+        if name == "correct":
+            parts = rest.split()
+            if len(parts) < 2:
+                return ("usage: :correct <category> <the text that routed "
+                        "wrongly>")
+            session = self.ensure_session()
+            category, text = parts[0], " ".join(parts[1:])
+            if category not in session.router._base:
+                return (f"unknown category {category!r}; known: "
+                        + ", ".join(sorted(session.router._base)[:12]))
+            before = session.router.route(text, top_k=2)
+            result = session.router.correct(text, category)
+            if not result["tokens"]:
+                return "nothing to learn from that text - it is all stopwords"
+            after = session.router.route(text, top_k=2)
+            session.save()
+            lines = [f"tokens  : {', '.join(result['tokens'])}",
+                     f"before  : {before}", f"after   : {after}"]
+            if result["weakened"]:
+                lines.append("weakened: " + ", ".join(
+                    f"{n} -{a}" for n, a in sorted(result["weakened"].items())))
+            lines.append("corrected" if after and after[0][0] == category
+                         else "still not winning - correct it again")
+            return "\n".join(lines)
         if name == "settings":
             if rest == "save":
                 self._save_settings()
@@ -285,6 +309,7 @@ class UltraQuantTUI:
             "  :trace      the thought trace of the last chat turn",
             "  :home <dir> point at a different session root (saved)",
             "  :settings   where preferences live, and what is in them",
+            "  :correct <cat> <text>  that text should have routed to <cat>",
             "  :help  :quit",
         ]
         return "\n".join(lines)
