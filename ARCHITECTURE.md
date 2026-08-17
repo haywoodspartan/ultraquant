@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.7 · 1063 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 3.8 · 1076 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         50 modules, 1063 tests
+tests/         51 modules, 1076 tests
 ```
 
 ---
@@ -3227,6 +3227,51 @@ default, and `generate_phrasings` catches a per-teacher failure internally, so a
 timeout surfaced as an empty result. The timeout is now 600 s and the real
 reason is reported instead of the symptom.
 
+### 11.17 Reinforcement gated on confirmation
+
+§11.16 measured the loop and left it open because fixing it needs a signal the
+pipeline appeared not to have. It has a weaker one that is good enough: not
+whether a route was *correct*, but whether the machinery the route reached did
+anything.
+
+`_route_confirmation` accepts exactly two signals, and both come from the routed
+experts: an expert **placed the input** (`prediction` set, not flagged
+unfamiliar), or the blackboard **composed a reading**. Absent either, the turn
+produced nothing through that route and it is not reinforced — the trace says
+`not reinforced (geometry): unconfirmed route` rather than staying silent.
+
+**Three signals had to be removed, and running it is what caught them.** The
+first version also accepted a recalled fact, a code result and an advanced plan.
+None depends on the route: `Recall` runs **before** `Route` in the pipeline, so a
+fact is found wherever the text routes, and code and planning are driven by
+intent rather than category. Live, "what shape is this glyph" reinforced
+`crosses` purely because a fact happened to be recalled — the original defect
+wearing a confirmation signal that confirmed the wrong thing. A test asserts the
+pipeline order, so the reason cannot rot.
+
+| | unconditional | confirmation-gated |
+|---|---:|---:|
+| wrong-answer margin after 40 rounds | 2.33 | **0.60** (+1.73, **7.75x** seed sd) |
+| paraphrase transfer (**control**) | 1.000 | 1.000 |
+| total learned weight | 8.38 | 3.19 |
+
+**The control had to be rebuilt before it meant anything — the third time.** Its
+paraphrases were "crossing marks on the page" and "a boxed square shape", which
+contain `mark` and `square`: both *registered* keywords. Verified against a
+router with no learning at all, both routed correctly, so the control read 1.000
+for a mechanism that had learned nothing. The rebuilt paraphrases share only a
+token registered nowhere (`hatching`, `bordered`) and score **0.000** without
+learning, which a test now asserts.
+
+**It is prophylactic, not curative — and the obvious remedy is wrong.** Weight
+already accumulated stays accumulated, so the deployed library keeps its two
+entrenched `crosses` errors at 0.750 genuine routing. The tempting fix is a
+clean redeploy. Measured, a fresh deploy scores **0.500** — *worse*. The
+accumulated learning is net positive: entrenchment cost two queries while
+learning gained four over bare vocabulary. So the remedy for those two is
+targeted supervised correction through `:learn`, which was always the legitimate
+path, not discarding the library's experience.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3306,7 +3351,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | LLMLS teacher panel | built, not a capability gate (§11.12) |
 | router abstention | **PASSED** (§11.15) — 0.025 -> 0.975 at 12.57x sd, control held |
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
-| self-reinforcement | **measured, not fixed** (§11.16) — entrenches errors 3.9x; repeat training degraded genuine routing 0.875 -> 0.750 |
+| self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
+| confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held; prophylactic, not curative |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |
 

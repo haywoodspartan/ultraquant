@@ -759,6 +759,41 @@ class Respond(Thought):
         ctx.note(self.name, f"{len(ctx.data['response'])} chars")
 
 
+def _route_confirmation(ctx) -> str | None:
+    """Why *this route* should be believed, or None if nothing confirms it.
+
+    The pipeline cannot know whether a route was *correct* — the router's own
+    choice is the only signal available at reinforcement time, and learning from
+    it is the circularity §11.16 measured: accuracy held at 0.400 while the
+    wrong answer's margin grew 0.60 -> 2.33, making every error 3.9x harder to
+    overturn.
+
+    What it *can* know is whether the machinery the route reached did anything.
+    Only two signals qualify, and narrowing to them was not the first attempt:
+
+    * ``prediction`` — an expert from the routed category placed the input, and
+      it was not flagged unfamiliar.
+    * ``composed`` — the blackboard built a reading from the routed experts.
+
+    **The signals that had to be removed.** The first version also accepted a
+    recalled fact, a code result, and an advanced plan. None of those depends on
+    the route: ``Recall`` runs *before* ``Route`` in the pipeline, so a fact is
+    found regardless of where the text routes, and code and planning are driven
+    by intent rather than category. Caught by running it — "what shape is this
+    glyph" reinforced ``crosses`` because a fact happened to be recalled, which
+    is the original defect wearing a confirmation signal that confirmed the
+    wrong thing.
+
+    Returns:
+        A short reason, recorded in the trace, or None.
+    """
+    if ctx.data.get("prediction") and not ctx.data.get("unfamiliar"):
+        return "expert placed it"
+    if ctx.data.get("composed"):
+        return "blackboard composed"
+    return None
+
+
 class Learn(Thought):
     """Build off what just happened: store, reinforce, and consolidate truth."""
 
@@ -795,14 +830,33 @@ class Learn(Thought):
                 part.strip() for part in ctx.response_parts if part.strip()
             )
 
-        # Reinforce the associative catalog for the categories that were used.
+        # Reinforce the associative catalog — but only for a route something
+        # downstream actually confirmed.
+        #
+        # This used to reinforce the top route unconditionally, which made the
+        # router learn from its own guesses. Measured (§11.16): accuracy did
+        # not fall, but the margin by which a wrong category beat the right one
+        # grew 0.60 -> 2.33 over 60 turns, so every error became ~3.9x harder to
+        # overturn. That is why the plural fix in §11.15 could give `arithmetic`
+        # a full point of base overlap and still lose to a `crosses` that had
+        # entrenched past it.
+        #
+        # There is no ground truth here — the router's own choice is the only
+        # thing available, which is the circularity. What there *is* is evidence
+        # the route led somewhere: an expert placed the input, a fact was
+        # recalled, code ran, a plan advanced. Absent any of that the route
+        # produced nothing, and reinforcing it teaches a guess.
         tokens = ctx.data.get("tokens", [])[:8]
+        confirmation = _route_confirmation(ctx)
         for category, _score in ctx.data.get("routes", [])[:1]:
+            if not confirmation:
+                learned.append(f"not reinforced ({category}): unconfirmed route")
+                continue
             session.router.learn(ctx.text, category, delta=0.05)
             shard_id = ExpertPool.shard_id(category)
             if session.vault.has(shard_id) and tokens:
                 session.vault.reinforce(shard_id, tokens, delta=0.05)
-            learned.append(f"reinforced {category}")
+            learned.append(f"reinforced {category} ({confirmation})")
 
         if intent == "glyph" and ctx.data.get("unfamiliar"):
             session.memory.remember_episode(

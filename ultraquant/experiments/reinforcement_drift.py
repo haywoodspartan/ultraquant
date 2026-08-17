@@ -1,9 +1,15 @@
 """What does reinforcing the router's own top route actually do?
 
-`thoughts.py`'s Learn step reinforces whichever category the pipeline routed to,
-unconditionally, at `delta=0.05`. Nothing checks the route was right — so a
-wrong route teaches itself, and the next identical query is claimed more
-decisively by the same wrong category.
+`thoughts.py`'s Learn step **used to** reinforce whichever category the pipeline
+routed to, unconditionally, at `delta=0.05`, with nothing checking the route was
+right — so a wrong route taught itself and the next identical query was claimed
+more decisively by the same wrong category.
+
+This module measures that mechanism **in isolation**, by calling
+``router.learn`` directly, and continues to report the old numbers on purpose:
+it is the diagnostic the fix was gated against, so it must keep measuring the
+unfixed behaviour. The pipeline itself now reinforces only a route something
+confirmed (§11.17 and :func:`~ultraquant.interpreter.thoughts._route_confirmation`).
 
 That was inferred from the deployed library, where `crosses` had learned the
 token ``number`` and beat `arithmetic` on "add these two numbers". This measures
@@ -25,13 +31,19 @@ library and *still* lost, because `crosses` had entrenched to 1.75 while
 `arithmetic` reached 1.10. The fix was real and arrived after the error had
 already been reinforced past it.
 
-**Why this is not fixed here.** Correcting it needs a signal for whether a route
-was right, and the pipeline has none: the router's own choice is the only thing
-available at that point, which is precisely the circularity. Supervised calls
-are fine and are left alone — ``learning.py`` and ``selflearn.py`` reinforce
-from a *user's* answer, which is independent evidence. The unsupervised call at
-``thoughts.py:801`` is the one with no ground truth behind it, and choosing what
-should replace it is a design question with its own gate, not a patch.
+**How it was fixed, and what the fix does not do.** The pipeline has no ground
+truth for a route, but it does have evidence that the machinery the route
+reached *did something*: an expert placed the input, or the blackboard composed
+a reading. Reinforcement is now gated on that, measured in
+``reinforcement_gate.py``: the margin falls 2.33 -> 0.60 while paraphrase
+transfer holds.
+
+It is **prophylactic, not curative**. Weight already accumulated stays
+accumulated, so a library that has been running the old rule keeps its
+entrenched errors until it is retrained from a clean deployment or its learned
+table is decayed. Supervised reinforcement is untouched and always was
+legitimate: ``learning.py`` and ``selflearn.py`` learn from a *user's* answer,
+which is independent of the router's guess.
 
 Run it::
 
