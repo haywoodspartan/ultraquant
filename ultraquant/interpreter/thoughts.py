@@ -47,6 +47,15 @@ _URL_RE = re.compile(r"https?://\S+")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _GLYPH_ROW = re.compile(r"^[#.]{5}$")
 
+#: A text opening with one of these is a question even without a question mark.
+#: Kept to unambiguous leads: "is the shop open" is interrogative, but a bare
+#: "is" prefix also matches "is short for ..." style fragments rarely typed, and
+#: the cost of misreading one of those as a question (an unanswered lookup) is
+#: far below the cost of misreading a question as a statement (junk stored as
+#: fact, question unanswered) - which is what happened.
+_INTERROGATIVE_LEADS = ("what ", "who ", "where ", "when ", "which ", "why ",
+                        "how ", "is ", "are ", "does ", "do ", "can ")
+
 #: Below this similarity to every stored prototype, a pattern is reported as
 #: unfamiliar rather than forced onto the nearest category. Chosen from measured
 #: distributions: noisy copies of known glyphs never fall below 0.866, so this
@@ -264,9 +273,15 @@ class Perceive(Thought):
         elif _URL_RE.search(text):
             intent = "url"
             ctx.data["url"] = _URL_RE.search(text).group(0)
-        elif lowered.startswith("remember") or (" is " in lowered and not text.endswith("?")):
+        elif lowered.startswith("remember") or (
+                " is " in lowered and not text.endswith("?")
+                and not lowered.startswith(_INTERROGATIVE_LEADS)):
+            # An interrogative lead beats the " is " heuristic: "how tall is
+            # the tower" contains " is " and was being read as a *statement*,
+            # which both refused to answer it and stored junk - the fact
+            # "how tall" = "the tower" was really written by this branch.
             intent = "fact_statement"
-        elif text.endswith("?"):
+        elif text.endswith("?") or lowered.startswith(_INTERROGATIVE_LEADS):
             intent = "question"
         else:
             intent = "chat"
@@ -714,12 +729,66 @@ class Reason(Thought):
             key, fact = facts[0]
             ctx.say(f"{key} is {fact['value']} (confidence {fact['confidence']:.2f}).")
             ctx.note(self.name, f"answered from fact {key!r}")
-        else:
-            ctx.say(
-                "I don't hold anything on that yet. Tell me directly ('X is Y'), "
-                "or give me a URL and I'll stash what it claims for analysis."
-            )
-            ctx.note(self.name, "no matching fact")
+            return
+
+        # Exact key-match missed. Two fallbacks, in trust order, before giving
+        # up - both were sitting unused while the pipeline said "I don't hold
+        # anything" about things it held:
+        #
+        # 1. Keyword overlap over stored fact keys. "how tall is the tower"
+        #    shares no *key phrase* with the stored `tower height`, but shares
+        #    the token - and find_facts already ranks exactly that.
+        # 2. Turns recovered by the context window (§11.14). A statement made
+        #    in conversation and evicted from RAM is reachable through its
+        #    24-byte reference; if it parses as "X is Y" and overlaps the
+        #    question, it answers - attributed to the conversation, not
+        #    presented as a stored fact, because it never earned promotion.
+        from ultraquant.shards.router import _informative
+
+        memory = ctx.session.memory
+        # Informative tokens only. The first version filtered on length alone,
+        # and "what is the melting point of tungsten" matched a recovered turn
+        # reading "what is the tower height?" on the token "what" - the
+        # fabrication control caught an answer being built out of a stopword.
+        question_tokens = {tok for tok in _TOKEN_RE.findall(ctx.text.lower())
+                           if _informative(tok)}
+        for key in memory.find_facts(ctx.text, top_k=3):
+            key_tokens = {tok for tok in _TOKEN_RE.findall(key.lower())
+                          if _informative(tok)}
+            if not (key_tokens & question_tokens):
+                continue
+            fact = memory.recall_fact(key)
+            if fact is not None:
+                ctx.say(f"{key} is {fact['value']} "
+                        f"(confidence {fact['confidence']:.2f}).")
+                ctx.note(self.name, f"answered from keyword fact {key!r}")
+                return
+
+        for turn in ctx.data.get("recovered_turns", []):
+            turn_text = str(turn.get("text", "")).strip()
+            # A recovered *question* is not a statement, however well it
+            # parses: "what is the tower height?" splits into key "what" and
+            # value "the tower height?", and answering from it fabricates.
+            if turn_text.endswith("?") or turn_text.lower().startswith(
+                    _INTERROGATIVE_LEADS):
+                continue
+            parsed = _parse_statement(turn_text)
+            if parsed is None:
+                continue
+            key, value = parsed
+            key_tokens = {tok for tok in _TOKEN_RE.findall(key.lower())
+                          if _informative(tok)}
+            if key_tokens & question_tokens:
+                ctx.say(f"Earlier in this conversation: {key} is {value}.")
+                ctx.note(self.name,
+                         f"answered from recovered turn {turn.get('id')}")
+                return
+
+        ctx.say(
+            "I don't hold anything on that yet. Tell me directly ('X is Y'), "
+            "or give me a URL and I'll stash what it claims for analysis."
+        )
+        ctx.note(self.name, "no matching fact")
 
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)
