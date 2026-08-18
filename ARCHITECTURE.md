@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.5 · 1177 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.6 · 1189 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         58 modules, 1177 tests
+tests/         59 modules, 1189 tests
 ```
 
 ---
@@ -3409,6 +3409,45 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.24 Part-based features measured nothing, and the candidate list is spent
+
+The last of §11.21's three mechanisms got its gate: `part_features` reads the
+sixteen overlapping 2x2 patches as 4-bit patterns and histograms them — local
+shapes counted with the positions thrown away — plus the ten row/column means;
+`hybrid_features` appends the 16 bins to the 30 positional numbers. Three arms
+at hidden 64 (the §11.22 champion), so the gate varies representation only:
+
+| arm | held variants | noisy canon (control) |
+|---|---:|---:|
+| positional/64 (reference) | 0.539 | 0.867 |
+| parts/64 | 0.397 | 0.453 |
+| hybrid/64 | 0.539 | 0.867 |
+
+**FAIL, in both directions.** Parts alone collapse the control — local
+texture cannot even hold noisy canonicals apart, because two flipped pixels
+perturb patch counts more than pixel positions. The hybrid buys nothing:
+-0.000 at seed sd 0.106. And the invariance's limit lands exactly on the hard
+cases: patch counts are translation-invariant only while a shape's one-cell
+halo stays in-grid, so the border-hugging variants — the difficult ones —
+lose their boundary patches to clipping (both halves of that are pinned in
+`tests/test_parts_gate.py`).
+
+**The exact zero is the section's second finding.** The hybrid's 8-seed hit
+total ties the reference's at 125/232, and their control totals tie too,
+while every per-seed value differs — a coincidence so defect-shaped it was
+debugged as one. The chase cleared the arms and caught a real defect in the
+report instead: the contrast was computed "best-overall vs reference", which
+degenerates to a row of exact zeros whenever the reference wins — a FAIL
+whose printed evidence says nothing. The registered text said "the best
+*parts* arm"; the code now matches the registration, and the honest scale of
+the null (sd 0.106) is what that fix exposed.
+
+With this, every mechanism named for the variant problem is measured:
+position (§11.21, no), scale (§11.22, no), capacity (§11.22, the one real
+lift), parts (here, no). Hidden 64 still fails 46% of held variants, and the
+remaining lever is **data** — 26 taught variants per split is what every
+mechanism starved on, and §11.20 already measured which models can draw more.
+
 ### 11.23 The adoption gate: §11.22's pass stops at the shape it was measured on
 
 §11.22 ended by refusing to change the forge default silently, calling it "a
@@ -3685,6 +3724,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | translation representation | **FAILED twice** (§11.21) — centering hurt its own target, augmentation collapsed the control; the real difficulty is structure and scale |
 | capacity vs scale (variants) | **PASSED** (§11.22) — hidden 64 lifts held variants +0.091 at 1.86x sd and improves the control; scale normalisation measured useless; §11.21's "structure and scale" resolves to under-fitting |
 | width adoption at the deployed shape | **FAILED** (§11.23) — hidden 64 is *worse* for the 2-class family experts (-0.026 at -1.06x sd) at +94% forged bytes; the deployed default survives measured |
+| part-based features | **FAILED** (§11.24) — parts alone collapse the control to 0.453; the hybrid buys -0.000 at sd 0.106; §11.21's candidate list is spent and the remaining lever is data |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

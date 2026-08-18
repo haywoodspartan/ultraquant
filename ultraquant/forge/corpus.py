@@ -96,6 +96,50 @@ def scaled_features(rows: list[str]) -> list[float]:
     return features_of(scale_normalize(rows))
 
 
+def part_features(rows: list[str]) -> list[float]:
+    """Local structure counted, wherever it sits: the part-based features.
+
+    The last unmeasured candidate from ARCHITECTURE §11.21. The sixteen
+    overlapping 2x2 patches of the grid are each read as a 4-bit pattern, and
+    the histogram over the sixteen possible patterns is the feature — a
+    **count of local shapes with the positions thrown away**. A corner plus
+    and the centred plus put their crossing- and line-patches in different
+    places but in similar numbers, which is exactly the invariance raw pixels
+    cannot have; stripes keep only parallel-pair patches, and an up arrow and
+    a down arrow histogram differently because a 2x2 pattern and its vertical
+    mirror are different bins.
+
+    The ten row and column means follow, because a histogram alone throws away
+    *all* arrangement and the eight families are not distinguishable by local
+    texture only. 26 numbers: 16 patch bins (each a fraction of 16) + 5 row
+    means + 5 column means.
+    """
+    pixels = render(rows)
+    bins = [0.0] * 16
+    for y in range(4):
+        for x in range(4):
+            code = ((int(pixels[y * 5 + x] > 0.5) << 3)
+                    | (int(pixels[y * 5 + x + 1] > 0.5) << 2)
+                    | (int(pixels[(y + 1) * 5 + x] > 0.5) << 1)
+                    | int(pixels[(y + 1) * 5 + x + 1] > 0.5))
+            bins[code] += 1.0 / 16.0
+    col_means = [sum(pixels[r * 5 + c] for r in range(5)) / 5.0
+                 for c in range(5)]
+    return bins + row_means(pixels) + col_means
+
+
+def hybrid_features(rows: list[str]) -> list[float]:
+    """The 30 positional features with the 16 patch bins appended: 46 numbers.
+
+    The concatenation arm — position kept *and* parts counted — because
+    §11.21 measured what happens when a candidate is only tested alone.
+    Separate from :func:`features_of` for the standing reason: deployed
+    experts trained on 30 positional features must not have the definition
+    changed under them.
+    """
+    return features_of(rows) + part_features(rows)[:16]
+
+
 def builtin_taxonomy() -> dict[str, dict[str, list[str]]]:
     """The reference glyphs grouped into families.
 
