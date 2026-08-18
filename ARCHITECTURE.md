@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.8 · 1206 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.9 · 1215 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         61 modules, 1206 tests
+tests/         62 modules, 1215 tests
 ```
 
 ---
@@ -3409,6 +3409,36 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.27 Load dies too, and the variant chain closes on the data itself
+
+The load gate crossed taught-set size {15, 30, 60, 90} from the pooled banks
+with two anchor policies (the historical fixed 96 noisy copies, and copies
+scaled to hold the light-load anchor:variant ratio), against a pooled held
+set drawn first. Two pre-registered claims: load is supported if a smaller N
+beats N=90 beyond seed sd under the fixed anchor; the anchor remedy is
+supported if scaling rescues N=90 beyond seed sd.
+
+**Neither survived.** The fixed-anchor curve is flat — 0.575/0.571/0.588/
+0.588, "best" N=60 over N=90 by +0.000 at sd 0.040: six times the variant
+mass, no damage on a pooled target. Anchor scaling keeps the control
+healthier (0.871 vs 0.820 at N=90 — the one visible trace of anchor
+thinning) but buys +0.017 at sd 0.047 on the held set. NOT SUPPORTED, twice.
+
+Three gates now triangulate §11.25's alarming regression: styles transfer
+(§11.26), volume is harmless on a pooled target (here), and the original
+bank is simply the hardest sub-target (within-original 0.504 vs within-new
+0.615). The -0.073 at -1.05x sd was a borderline-noise event on the hardest
+slice, not a mechanism. The full suspect list for the variant ceiling is
+dead: position (§11.21), scale (§11.22), parts (§11.24), style (§11.26),
+load (§11.27) — capacity (§11.22) the one real, bounded lift. What remains
+is the data: shift-Jaccard validation admits drawings a reader might not
+call their label, and nothing trains past ambiguous targets. Measuring that
+needs a human-labeled sample — the learn queue's "ask the human second"
+territory, a curation mechanism rather than another training gate. The
+chain rests there, characterised: this data, these features, this net sit
+at 0.54–0.62 held-variant recognition, and every cheaper explanation was
+measured and buried beside it.
+
 ### 11.26 One distribution after all: §11.25's diagnosis dies, and the suspect is load
 
 §11.25 left "off-distribution interference" standing. This gate made it
@@ -3803,6 +3833,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | part-based features | **FAILED** (§11.24) — parts alone collapse the control to 0.453; the hybrid buys -0.000 at sd 0.106; §11.21's candidate list is spent and the remaining lever is data |
 | the data lever | **FAILED** (§11.25) — 67 new validated variants from six voices score -0.073 at -1.05x sd on the frozen held set; balance and capacity cleared post-hoc; the diagnosis is off-distribution interference between drawing styles |
 | one-distribution hypothesis | **NOT REJECTED** (§11.26) — cross-bank transfer holds within one sd both directions; §11.25's style diagnosis dies; the surviving suspect is variant load against a thinning canonical anchor |
+| load and its anchor remedy | **NOT SUPPORTED, twice** (§11.27) — the size curve is flat (+0.000 at sd 0.040 across a 6x mass range); §11.25's regression reclassified as borderline noise on the hardest slice; the chain closes on data ambiguity, measurable only with human labels |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
