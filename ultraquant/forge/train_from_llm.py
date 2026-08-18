@@ -45,7 +45,8 @@ from ultraquant.forge.distill import (
 from ultraquant.interpreter.llmls import LMStudioUnavailable, TeacherPanel
 from ultraquant.interpreter.lmstudio import LMStudioClient
 
-__all__ = ["TrainingReport", "train_router", "main"]
+__all__ = ["TrainingReport", "train_router",
+           "train_next_voice", "parameter_count", "main"]
 
 #: Categories a forged library invents for synthetic families. Their keywords
 #: carry no meaning, so a model asked about them will invent some.
@@ -54,6 +55,27 @@ _SYNTHETIC = re.compile(r"^(family|cat|category|class)[_-]?\d+$", re.I)
 #: Keywords too generic to describe a topic to a model.
 _UNINFORMATIVE = frozenset({"sym", "family", "0", "1", "2", "what", "where",
                             "who", "fact"})
+
+#: Parameter count parsed from a model id ("mistral-7b" -> 7.0, "qwen3-48b"
+#: -> 48.0). The catalogue does not report size in bytes, but community naming
+#: reliably carries the parameter count, and that is the ordering "smallest to
+#: largest" actually means. A model whose id names no size sorts last: its cost
+#: is unknown, and unknown does not belong at the front of a cost-ordered
+#: queue.
+_PARAM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*b\b", re.I)
+
+
+def parameter_count(model_id: str) -> float:
+    """Billions of parameters named in a model id, or +inf when unnamed.
+
+    ``max``, not ``min``, when an id names several counts: MoE naming carries
+    both totals and actives ("qwen3.6-35b-a3b" is 35B total, 3B active), and
+    the total is what decides load cost - the first version took ``min`` and
+    ordered a 19.6 GB model in front of a 4 GB one.
+    """
+    matches = _PARAM_RE.findall(model_id.replace("_", "-"))
+    return max(float(m) for m in matches) if matches else float("inf")
+
 
 #: Queries that belong to none of the trained categories. Routing them into one
 #: is the failure this mechanism actually has.
@@ -87,6 +109,8 @@ class TrainingReport:
     decoys_before: float = 0.0
     decoys_after: float = 0.0
     model: str = ""
+    #: Category -> the phrasings actually taught (the held half excluded).
+    taught: dict = field(default_factory=dict)
 
     @property
     def phrasings(self) -> int:
@@ -151,6 +175,194 @@ def _decoys_left_alone(router, categories: set) -> float:
     return missed / len(_DECOYS)
 
 
+def _trainable_categories(router, report: TrainingReport) -> dict[str, str]:
+    """Category -> topic for everything worth asking a model about."""
+    topics: dict[str, str] = {}
+    for category in sorted(router._base):
+        if _SYNTHETIC.match(category):
+            report.skipped[category] = "synthetic family, no real topic"
+            continue
+        topic = _topic_for(category, router._base.get(category, set()))
+        if topic is None:
+            report.skipped[category] = "no descriptive keywords to ask about"
+            continue
+        topics[category] = topic
+    return topics
+
+
+def _teach_and_measure(session, generated: dict, report: TrainingReport,
+                       holdout: float, seed: int) -> TrainingReport:
+    """Split, teach, and measure - shared by both training modes."""
+    router = session.router
+    if not generated:
+        return report
+    rng = random.Random(seed)
+    teach: dict[str, list[str]] = {}
+    held: list[tuple[str, str]] = []
+    for category, phrasings in generated.items():
+        shuffled = list(phrasings)
+        rng.shuffle(shuffled)
+        cut = max(1, int(len(shuffled) * (1.0 - holdout)))
+        teach[category] = shuffled[:cut]
+        held += [(p, category) for p in shuffled[cut:]]
+
+    categories = set(router._base)
+    report.before = _score(router, held)
+    report.decoys_before = _decoys_left_alone(router, categories)
+    for category, phrasings in teach.items():
+        report.trained[category] = distil_into_router(router, category,
+                                                      phrasings)
+    report.after = _score(router, held)
+    report.decoys_after = _decoys_left_alone(router, categories)
+    # What was actually taught, for callers that keep a ledger. The held half
+    # never touched the router and must not consume absorption budget.
+    report.taught = teach
+    return report
+
+
+def _catalogue_state(home: Path) -> dict:
+    """The cross-run training ledger, stored beside the vault.
+
+    One model per run only works if the runs share memory: which teachers have
+    already taught, and how much of each category's budget is spent. Without
+    it, every invocation would re-teach the same phrasings and the §11.13
+    ceiling — which is about total absorbed weight, not per-run volume — would
+    be exceeded by simple repetition, which is exactly how the second training
+    run in §11.16 degraded the library.
+    """
+    import json
+
+    path = home / "vault" / "distilled.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+    return {"teachers": [], "phrasings": {}}
+
+
+def _save_catalogue_state(home: Path, state: dict) -> None:
+    import json
+
+    path = home / "vault" / "distilled.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True),
+                    encoding="utf-8")
+
+
+def train_next_voice(session, home: Path, holdout: float = 0.5,
+                     seed: int = 0, ttl: int = 900) -> TrainingReport:
+    """Train from the next untried voice, smallest model first.
+
+    One model at a time, smallest to largest, until the catalogue is full —
+    the shape the training was asked to take, and each part has a reason:
+
+    * **One at a time** — the teachers here are 7-48B models on one card;
+      loading several thrashes VRAM (measured earlier at ~78 GB resident with
+      duplicate instances). Each run loads exactly one model.
+    * **Smallest first** — cheapest generation first, so the library banks most
+      of its coverage before the expensive models are ever loaded. The 7B costs
+      seconds per category where the 35B cost 65 s.
+    * **Until full** — "enough catalogued info" is made precise by the §11.13
+      ceiling: each category absorbs at most
+      :data:`SAFE_PHRASINGS_PER_CATEGORY` distilled phrasings **ever, across
+      all runs**, tracked in ``vault/distilled.json``. When every trainable
+      category is at budget, the run reports the catalogue full and teaches
+      nothing.
+
+    A voice that already taught is skipped — a lineage sibling of a used
+    teacher adds near-identical phrasing distributions (§11.12), so the queue
+    is voices, not models.
+
+    Args:
+        session: A built session, whose router is trained in place.
+        home: The session directory, for the cross-run ledger.
+        holdout: Fraction of new phrasings withheld and measured.
+        seed: Split seed.
+        ttl: Idle seconds before the teacher unloads.
+
+    Returns:
+        The :class:`TrainingReport`. ``model`` names the voice used, or is
+        empty when the catalogue is already full or no voice remains.
+    """
+    from ultraquant.interpreter.llmls import catalogue, independent_groups
+
+    report = TrainingReport()
+    topics = _trainable_categories(session.router, report)
+    if not topics:
+        return report
+
+    state = _catalogue_state(home)
+    used = set(state.get("teachers", []))
+    taught: dict = state.get("phrasings", {})
+
+    remaining = {name: SAFE_PHRASINGS_PER_CATEGORY - len(taught.get(name, []))
+                 for name in topics}
+    open_categories = {name: room for name, room in remaining.items()
+                       if room > 0}
+    if not open_categories:
+        report.skipped["(all)"] = (
+            f"catalogue full: every category holds its measured budget of "
+            f"{SAFE_PHRASINGS_PER_CATEGORY} distilled phrasings; further "
+            "training adds nothing the decoy control would survive")
+        return report
+
+    cards = [c for c in catalogue() if c.is_chat]
+    voices = independent_groups(cards)
+    untried = []
+    for group in voices:
+        members = sorted(group, key=lambda c: (parameter_count(c.id), c.id))
+        if any(c.id in used for c in group):
+            continue
+        untried.append(members[0])
+    if not untried:
+        report.skipped["(all)"] = (
+            "every independent voice has already taught; the queue is voices, "
+            "not models, because a lineage sibling adds near-identical "
+            "phrasings")
+        return report
+    untried.sort(key=lambda c: (parameter_count(c.id), c.id))
+    card = untried[0]
+    report.model = card.id
+
+    panel = TeacherPanel([card.id], client=LMStudioClient(timeout=600.0),
+                         ttl=ttl)
+    panel.load(card.id)
+
+    already = {phrase.lower() for phrases in taught.values()
+               for phrase in phrases}
+    generated: dict[str, list[str]] = {}
+    for category, room in sorted(open_categories.items()):
+        topic = topics[category]
+        produced = generate_phrasings(panel, category, topic,
+                                      count=min(room + 2,
+                                                SAFE_PHRASINGS_PER_CATEGORY))
+        usable = [phrase for phrase in produced.phrasings
+                  if content_tokens(phrase)
+                  and phrase.lower() not in already][:room]
+        if len(usable) >= 2:
+            generated[category] = usable
+        else:
+            report.skipped[category] = (
+                f"only {len(usable)} new usable phrasing(s) from this voice")
+
+    report = _teach_and_measure(session, generated, report, holdout, seed)
+
+    # The ledger records only what was actually taught, so a failed teach does
+    # not consume budget, but the teacher is recorded either way - a voice that
+    # produced nothing usable will produce nothing usable next run too.
+    state.setdefault("teachers", []).append(card.id)
+    # Only the taught half consumes budget. The first version recorded every
+    # *generated* phrasing, so one teacher filled the whole ledger while half
+    # of each category's real absorption budget sat unspent - and run 2 would
+    # have reported "catalogue full" after a single voice.
+    for category, phrasings in report.taught.items():
+        kept = state.setdefault("phrasings", {}).setdefault(category, [])
+        kept.extend(phrasings)
+    _save_catalogue_state(home, state)
+    return report
+
+
 def train_router(session, panel: TeacherPanel, holdout: float = 0.5,
                  seed: int = 0, count: int | None = None) -> TrainingReport:
     """Distil phrasings for every nameable category and teach them.
@@ -170,22 +382,13 @@ def train_router(session, panel: TeacherPanel, holdout: float = 0.5,
     Returns:
         The :class:`TrainingReport`. The router is saved by the caller.
     """
-    router = session.router
     requested = SAFE_PHRASINGS_PER_CATEGORY if count is None else int(count)
     per_category = min(requested, SAFE_PHRASINGS_PER_CATEGORY)
 
     report = TrainingReport(model=", ".join(card.id for card in panel.cards))
-    categories = set(router._base)
+    topics = _trainable_categories(session.router, report)
     generated: dict[str, list[str]] = {}
-
-    for category in sorted(categories):
-        if _SYNTHETIC.match(category):
-            report.skipped[category] = "synthetic family, no real topic"
-            continue
-        topic = _topic_for(category, router._base.get(category, set()))
-        if topic is None:
-            report.skipped[category] = "no descriptive keywords to ask about"
-            continue
+    for category, topic in topics.items():
         try:
             produced = generate_phrasings(panel, category, topic,
                                           count=per_category)
@@ -208,28 +411,7 @@ def train_router(session, panel: TeacherPanel, holdout: float = 0.5,
                 else f"only {len(usable)} usable phrasing(s) came back")
             continue
         generated[category] = usable
-
-    if not generated:
-        return report
-
-    rng = random.Random(seed)
-    teach: dict[str, list[str]] = {}
-    held: list[tuple[str, str]] = []
-    for category, phrasings in generated.items():
-        shuffled = list(phrasings)
-        rng.shuffle(shuffled)
-        cut = max(1, int(len(shuffled) * (1.0 - holdout)))
-        teach[category] = shuffled[:cut]
-        held += [(p, category) for p in shuffled[cut:]]
-
-    report.before = _score(router, held)
-    report.decoys_before = _decoys_left_alone(router, categories)
-    for category, phrasings in teach.items():
-        report.trained[category] = distil_into_router(router, category,
-                                                      phrasings)
-    report.after = _score(router, held)
-    report.decoys_after = _decoys_left_alone(router, categories)
-    return report
+    return _teach_and_measure(session, generated, report, holdout, seed)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -249,6 +431,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", action="append", default=None,
                         help="teacher model id; repeatable. Defaults to "
                              "whatever is loaded in LM Studio.")
+    parser.add_argument("--next", action="store_true", dest="next_voice",
+                        help="train from the next untried voice, smallest "
+                             "model first; cumulative budget tracked in "
+                             "vault/distilled.json, so repeated runs stop at "
+                             "the measured ceiling")
     parser.add_argument("--count", type=int, default=None,
                         help=f"phrasings per category (capped at "
                              f"{SAFE_PHRASINGS_PER_CATEGORY})")
@@ -260,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         models = args.model
-        if not models:
+        if not args.next_voice and not models:
             from ultraquant.interpreter.llmls import catalogue
 
             models = [card.id for card in catalogue()
@@ -272,7 +459,8 @@ def main(argv: list[str] | None = None) -> int:
         # Generous: a 35B model took 65 s to list twelve phrasings for one
         # category on this machine, and the client's 120 s default left almost
         # no headroom once several categories ran in sequence.
-        panel = TeacherPanel(models, client=LMStudioClient(timeout=600.0))
+        panel = (None if args.next_voice else
+                 TeacherPanel(models, client=LMStudioClient(timeout=600.0)))
     except LMStudioUnavailable as exc:
         print(f"LM Studio unavailable: {exc}", file=sys.stderr)
         return 1
@@ -294,7 +482,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         session = build_session(home, seed=0)
-        report = train_router(session, panel, count=args.count)
+        if args.next_voice:
+            report = train_next_voice(session, home)
+        else:
+            report = train_router(session, panel, count=args.count)
         print(report.as_text())
         if args.dry_run:
             print(f"\ndry run - worked on a copy; nothing in "

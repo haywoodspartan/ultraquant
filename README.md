@@ -45,7 +45,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1093 tests, ~4 min
+python -m unittest discover -s tests      # 1112 tests, ~4 min
 ```
 
 In the chat, try:
@@ -75,7 +75,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1093 tests across 52 modules
+tests/         1112 tests across 53 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
@@ -102,6 +102,19 @@ Credentials are deliberately **not** stored - the file is plaintext and may sit
 in a checkout, so the BlueQubit token and array password stay in the
 environment. A corrupt or unreadable file never stops the program starting: it
 falls back to defaults and says what it could not use.
+
+## Training the library from local models
+
+```bash
+python -m ultraquant.forge.train_from_llm uq_home --next
+```
+
+Each invocation trains from the **next untried voice, smallest model first** -
+one model loaded at a time, never several. The budget is cumulative: each
+category absorbs at most 12 distilled phrasings ever (the measured ceiling from
+ARCHITECTURE.md §11.13), tracked in `vault/distilled.json`, and the run says
+so when the catalogue is full. Held-out routing and a decoy check are printed
+every run, so a training pass that made things worse is visible immediately.
 
 ## Rebuilding the native accelerators (optional)
 

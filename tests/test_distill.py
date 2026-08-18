@@ -123,6 +123,38 @@ class GenerationTests(unittest.TestCase):
         generate_phrasings(panel, "geometry")
         self.assertEqual(client.efforts, ["none"])
 
+    def test_the_cap_is_total_across_teachers_not_per_teacher(self):
+        """Four voices at the full cap each would teach quadruple the ceiling.
+
+        11.13's limit is about how much weight a category can absorb - the
+        router cannot tell whether the 30th phrasing came from one teacher or
+        three. The first multi-teacher version asked each teacher for the full
+        cap, through the very module whose docstring warns about it.
+        """
+        from ultraquant.forge.distill import SAFE_PHRASINGS_PER_CATEGORY
+
+        newline = chr(10)
+        replies = {f"m{i}": newline.join(f"teacher {i} phrasing number {j}"
+                                         for j in range(20))
+                   for i in range(4)}
+        panel, client = self._panel(replies)
+        report = generate_phrasings(panel, "geometry")
+        self.assertLessEqual(len(report.phrasings),
+                             SAFE_PHRASINGS_PER_CATEGORY)
+        for _model, prompt in client.prompts:
+            self.assertNotIn(f"List {SAFE_PHRASINGS_PER_CATEGORY * 4} ", prompt)
+
+    def test_every_voice_contributes_before_any_contributes_twice(self):
+        """Round-robin: one verbose teacher must not crowd out the others."""
+        newline = chr(10)
+        replies = {"m1": newline.join(f"alpha phrasing {j}" for j in range(30)),
+                   "m2": newline.join(["beta phrasing one",
+                                       "beta phrasing two"])}
+        panel, _ = self._panel(replies)
+        report = generate_phrasings(panel, "geometry", count=6)
+        self.assertIn("beta phrasing one", report.phrasings)
+        self.assertIn("beta phrasing two", report.phrasings)
+
     def test_a_silent_teacher_yields_nothing_rather_than_junk(self):
         panel, _ = self._panel({"m1": ""})
         self.assertEqual(generate_phrasings(panel, "geometry").phrasings, [])

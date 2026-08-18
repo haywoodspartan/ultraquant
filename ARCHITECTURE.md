@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 3.9 · 1093 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.0 · 1112 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         52 modules, 1093 tests
+tests/         53 modules, 1112 tests
 ```
 
 ---
@@ -3330,6 +3330,58 @@ so nothing was entrenched and three tests failed — for the right reason. The
 fixture now carries the deployed shape, because a test for entrenchment that
 never entrenches proves nothing.
 
+### 11.19 The storage split made real, and training one voice at a time
+
+Two changes with one shape: the vault is the permanent store, and everything
+short-term is byte-bounded RAM with disk reachable by reference.
+
+**The context window is live.** §11.14 built and gated it; nothing used it. It
+is now a `Session` field: every pipeline turn is appended (after the thoughts
+run, so a turn can never match itself), `Recall` consults it, and a turn evicted
+from the resident window is paged back through its 24-byte reference. Verified
+in the wired pipeline, not just the gate: 51 turns at a 512 B budget left 6
+resident, and "how deep is the harbour" recovered the buried fathoms turn —
+the trace reads `2 turn(s) paged back from disk`. `:resident` now shows the
+split in one place: expert cache budget, context window residency, and what
+lies on disk behind both.
+
+**Training runs one voice at a time, smallest first, until full.** The bulk
+all-voices trainer was replaced on request, and each part of the shape carries
+a reason. One at a time, because the teachers are 7–48B models on one card and
+several resident was measured to thrash it. Smallest first, because the 7B
+costs seconds per category where the 35B cost 65 s — the library banks most of
+its coverage before an expensive model is ever loaded. And "until we have
+enough" is made precise by the §11.13 ceiling: each category absorbs at most
+12 distilled phrasings **ever, across all runs**, tracked in
+`vault/distilled.json`. When every category is at budget the run reports the
+catalogue full and teaches nothing.
+
+Three defects were caught before they cost anything:
+
+* **`min()` ordered a 19.6 GB model first.** MoE ids name both totals and
+  actives (`qwen3.6-35b-a3b` is 35B total, 3B active), and taking the minimum
+  put the 35B in front of the 7B. Load cost tracks the total; `max()` does.
+* **The cap was per teacher.** Four voices at 12 each would have taught 48 per
+  category — quadruple the measured ceiling, through the very module whose
+  docstring warns about it. The cap is now enforced across teachers at the
+  merge, round-robin so every voice contributes before any contributes twice.
+* **The ledger over-counted by 2x.** It recorded every *generated* phrasing,
+  but only the taught half ever touches the router — the held half is
+  measurement. One teacher would have filled the whole ledger with half of
+  every category's real budget unspent, and run 2 would have reported
+  "catalogue full" after a single voice. It records taught phrasings only, and
+  the existing ledger was repaired by recomputing the seeded split.
+
+**The runs so far.** Run 1, `mistralrp-…-mistral-7b` (7B, smallest): 8
+categories, held-out routing 0.562 -> 0.604   (+0.042), decoys held at 1.000. Run 2,
+`katarau-9b-ru-rp-nsfw`: 24 phrasing(s), held-out 0.458 -> 0.500   (+0.042), decoys held.
+Budget consumed per category: arithmetic:9, arrows:9, crosses:9, frames:9, geometry:9, language:9, lines:9, world:9 of 12.
+
+The queue is voices, not models — a lineage sibling of a used teacher adds
+near-identical phrasings (§11.12), so `cydonia-22b` never runs once
+`mistral-7b` has, and the remaining queue is the 31B and the unsized
+`command-r`, largest-last.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3411,6 +3463,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
 | self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
 | confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
+| storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training under a cumulative ceiling |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |

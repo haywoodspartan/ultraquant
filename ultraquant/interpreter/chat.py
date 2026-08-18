@@ -181,6 +181,14 @@ class ChatCLI:
             f"| peak {stats['peak_bytes']} B"
         )
         self.emit(f"  hits {stats['hits']} misses {stats['misses']} evictions {stats['evictions']}")
+        window = getattr(self.session, "context", None)
+        if window is not None:
+            ctx = window.stats()
+            self.emit(
+                f"  context window: {ctx['resident_turns']} turn(s) resident "
+                f"({ctx['resident_bytes']} B of {ctx['budget_bytes']} B), "
+                f"{ctx['turns']} on disk ({ctx['stored_bytes']} B), "
+                f"index {ctx['index_bytes']} B")
         self.emit(f"  paged in (LRU->MRU): {', '.join(stats['resident']) or '(nothing)'}")
 
     def _cmd_budget(self, args: list[str], more) -> None:

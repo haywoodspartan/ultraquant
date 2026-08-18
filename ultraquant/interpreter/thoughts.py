@@ -99,6 +99,10 @@ class Session:
     storage: Any | None = None
     #: Pattern-driven prefetcher, present when the storage has a RAM tier.
     working_set: Any | None = None
+    #: The byte-bounded conversation window (§11.14): recent turns resident in
+    #: RAM, every turn on disk, a 24-byte reference each. This is the
+    #: short-term workable memory; the vault is the permanent store.
+    context: Any | None = None
 
     def save(self) -> None:
         """Persist every store that has one."""
@@ -165,6 +169,8 @@ def build_session(
 
         working_set = PatternWorkingSet(vault, router, tier=storage)
 
+    from ultraquant.memory.context import ContextWindow
+
     session = Session(
         root=root,
         memory=memory,
@@ -179,6 +185,7 @@ def build_session(
         rng=random.Random(seed),
         storage=storage,
         working_set=working_set,
+        context=ContextWindow(root / "context"),
     )
     return session
 
@@ -284,9 +291,23 @@ class Recall(Thought):
         ctx.data["facts"] = hits
         episodes = memory.recall_episodes(limit=3)
         ctx.data["episodes"] = episodes
+
+        # The context window (§11.14): turns still resident are the working
+        # memory and cost nothing to consult; turns evicted from RAM are
+        # reachable through their 24-byte references, so a subject buried
+        # hundreds of turns ago is one screened seek away rather than gone.
+        # Gate measured: buried-fact recall 0.000 -> 0.896 for a 512 B
+        # resident budget.
+        recovered: list[dict] = []
+        window = ctx.session.context
+        if window is not None and ctx.text.strip():
+            recovered = window.recall(ctx.text, top_k=2)
+            ctx.data["recovered_turns"] = recovered
         ctx.note(
             self.name,
-            f"{len(hits)} matching fact(s), {len(episodes)} recent episode(s)",
+            f"{len(hits)} matching fact(s), {len(episodes)} recent episode(s)"
+            + (f", {len(recovered)} turn(s) paged back from disk"
+               if recovered else ""),
             facts=[k for k, _ in hits],
         )
 
@@ -912,4 +933,9 @@ def run_pipeline(text: str, session: Session) -> tuple[str, list[dict]]:
     for thought in PIPELINE:
         thought.run(ctx)
     session.last_trace = ctx.trace
+    # Appended after the pipeline, not before: Recall consults the window, and
+    # a turn that could match itself would score perfectly on every query it
+    # contains while teaching nothing.
+    if session.context is not None and text.strip():
+        session.context.add(text, intent=ctx.data.get("intent", "chat"))
     return ctx.data.get("response", ""), ctx.trace

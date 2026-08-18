@@ -186,17 +186,27 @@ def generate_phrasings(
 ) -> DistillReport:
     """Ask every panel member for query phrasings of one category.
 
-    Each teacher is asked separately and *all* their answers are kept, unlike
+    Each teacher is asked separately and their answers are merged, unlike
     :meth:`TeacherPanel.ask`. Consensus is the wrong instrument here: the point
     of several teachers is more vocabulary coverage, and two models offering
     different phrasings is the desired outcome rather than a disagreement to
     resolve. There is nothing to corroborate — a phrasing is not a claim.
 
+    **The cap is total, not per teacher.** §11.13's ceiling is about how much
+    weight a category can absorb before the decoy control breaks — 12 phrasings
+    hold, 30 do not — and the router cannot tell whether the 30th phrasing came
+    from one teacher or three. The first multi-teacher version asked *each*
+    teacher for the full cap, so a four-voice panel would have taught 48 per
+    category: quadruple the measured limit, through the very module whose
+    docstring warns about it. Each teacher is now asked for its share, and the
+    merged list is round-robin interleaved so every voice contributes before
+    any voice contributes twice, then truncated at the cap.
+
     Args:
         panel: The teachers.
         category: The router category these phrasings should route to.
         topic: What to describe, if the category name is not it.
-        count: Phrasings to request per teacher, defaulting to the measured
+        count: Total phrasings across all teachers, defaulting to the measured
             :data:`SAFE_PHRASINGS_PER_CATEGORY`. Raising it inflates the
             apparent margin while breaking the decoy control.
         max_tokens: Generous, because reasoning models bill thinking against
@@ -209,9 +219,13 @@ def generate_phrasings(
         others still contribute.
     """
     subject = topic or category
-    prompt = _PROMPT.format(n=count, topic=subject)
+    teachers = max(1, len(panel.cards))
+    # Each teacher's share of the total, rounded up so dedup losses and a thin
+    # teacher do not leave the merged list far short of the cap.
+    share = max(2, -(-count // teachers))
+    prompt = _PROMPT.format(n=share, topic=subject)
     report = DistillReport(category=category)
-    seen: set[str] = set()
+    per_teacher: list[list[str]] = []
     for card in panel.cards:
         try:
             # Listing phrasings needs no chain of thought, and some local
@@ -226,19 +240,35 @@ def generate_phrasings(
             report.rejected.append((card.id, f"unavailable: {exc}"))
             continue
         report.models.append(card.id)
+        mine: list[str] = []
         for line in (answer.text or "").splitlines():
             phrase = _clean(line)
             words = phrase.split()
-            key = phrase.lower()
             if not phrase:
                 continue
             if not (_MIN_WORDS <= len(words) <= _MAX_WORDS):
                 report.rejected.append((phrase, "wrong length for a query"))
-            elif key in seen:
-                report.rejected.append((phrase, "duplicate"))
             else:
-                seen.add(key)
-                report.phrasings.append(phrase)
+                mine.append(phrase)
+        per_teacher.append(mine)
+
+    # Round-robin merge: every voice contributes before any contributes twice,
+    # so one verbose teacher cannot crowd the others out of the capped total.
+    seen: set[str] = set()
+    for rank in range(max((len(m) for m in per_teacher), default=0)):
+        for mine in per_teacher:
+            if rank >= len(mine):
+                continue
+            phrase = mine[rank]
+            key = phrase.lower()
+            if key in seen:
+                report.rejected.append((phrase, "duplicate"))
+                continue
+            if len(report.phrasings) >= count:
+                report.rejected.append((phrase, "over the total cap"))
+                continue
+            seen.add(key)
+            report.phrasings.append(phrase)
     return report
 
 
