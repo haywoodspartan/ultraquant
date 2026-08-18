@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.4 · 1168 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.5 · 1177 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         57 modules, 1168 tests
+tests/         58 modules, 1177 tests
 ```
 
 ---
@@ -3409,6 +3409,47 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.23 The adoption gate: §11.22's pass stops at the shape it was measured on
+
+§11.22 ended by refusing to change the forge default silently, calling it "a
+sizing decision with a measured disk cost". This gate is that measurement —
+and it is a **FAIL** that protected the deployed system from its own passing
+gate.
+
+The trap it was built against: §11.22's monolith — one net over all eight
+glyph families — is a protocol inherited from §11.20, and **the deployed forge
+builds nothing of that shape**. It builds four family experts of two classes
+each (lines, arrows, frames, crosses) at hidden 32. A width that under-fits an
+8-way problem may be perfectly adequate for a 2-way one, so the capacity
+result had to be re-asked at the deployed shape before it could touch a
+deployed constant. 2x2 again: width {32 deployed, 64 candidate} x corpus
+{deployed recipe, deployed recipe + banked variants}, held variants scored
+within their family expert (chance 0.5 — not comparable to the monolith
+gates), and the real cost forged end-to-end at both widths:
+
+| arm | held variants | noisy canon (control) |
+|---|---:|---:|
+| hidden 32 (deployed) | 0.784 | 1.000 |
+| **hidden 32 + variants** | **0.797** | 0.996 |
+| hidden 64 | 0.754 | 1.000 |
+| hidden 64 + variants | 0.772 | 1.000 |
+
+The registered contrast — 64+variants vs 32+variants — is **-0.026 at -1.06x
+seed sd**: the candidate width is *worse* at the family shape, and the library
+it would forge costs **82,820 bytes against 42,595** (+94%) for that
+regression. Capacity binds the monolith, not the family experts. The deployed
+default survives — measured, not unquestioned — and `tests/` now pins both the
+verdict and the `--hidden 32` default so neither drifts on the monolith's
+evidence.
+
+Honesty notes, both in the gate's docstring: the control sits at ceiling
+because two well-separated prototypes genuinely are that easy — it moved off
+1.000 in one arm, so it is not §11.11's structurally-unfailable defect — and
+variant-teaching buys +0.013 at the deployed shape, about what it bought the
+monolith in §11.20. The 53 banked variants remain data waiting on a better
+mechanism; **part-based features** is the one §11.21 candidate still holding
+an unmeasured claim to a gate.
+
 ### 11.22 Capacity was the binding constraint, and scale normalisation measured useless
 
 §11.21 corrected the problem statement to "structure and scale" and named three
@@ -3643,6 +3684,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | glyph-variant distillation | **FAILED** (§11.20) — +0.013 at 0.23x sd; data kept |
 | translation representation | **FAILED twice** (§11.21) — centering hurt its own target, augmentation collapsed the control; the real difficulty is structure and scale |
 | capacity vs scale (variants) | **PASSED** (§11.22) — hidden 64 lifts held variants +0.091 at 1.86x sd and improves the control; scale normalisation measured useless; §11.21's "structure and scale" resolves to under-fitting |
+| width adoption at the deployed shape | **FAILED** (§11.23) — hidden 64 is *worse* for the 2-class family experts (-0.026 at -1.06x sd) at +94% forged bytes; the deployed default survives measured |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
