@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.0 · 1112 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.1 · 1124 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         53 modules, 1112 tests
+tests/         54 modules, 1124 tests
 ```
 
 ---
@@ -3382,6 +3382,33 @@ near-identical phrasings (§11.12), so `cydonia-22b` never runs once
 `mistral-7b` has, and the remaining queue is the 31B and the unsized
 `command-r`, largest-last.
 
+**Run 4 regressed the library, and turned the decoy check into a gate.** The
+last voice, `command-r`, emitted the phrasing `Sign of the
+times<|END_OF_TURN_TOKEN|>` — its chat-template token leaked into the
+completion, survived `_clean`, and the router learned `end`, `turn` and `token`
+as evidence for `crosses`, plus `times`, which plural-folds to `time` and
+claimed "what time does the train leave". Held-out routing fell −0.125 and
+decoys fell **1.000 → 0.800**. The trainer printed exactly that — and saved the
+router anyway. The check was a caption where it needed to be a gate.
+
+Three changes came out of one bad run:
+
+* `_clean` strips `<|…|>` template tokens, so a teacher's chat scaffolding can
+  never again become routing evidence.
+* `CategoryRouter.unlearn` and `ShardVault.weaken` — the exact inverses of
+  `learn` and `reinforce`, floored at zero. Learn-then-unlearn restores the
+  prior table exactly, which a test asserts.
+* `_teach_and_measure` **rolls back any run whose decoy score falls**: the
+  teaching is unlearned in the same transaction, nothing reaches the ledger,
+  and the report reads `ROLLED BACK` instead of a warning above a save.
+
+Run 4's damage was then undone by the same mechanism applied retroactively
+(1.60 weight removed), and the library measures **decoys 1.000, genuine 8/8**
+with the budget back at 10 of 12 per category. `command-r` stays recorded as
+used — re-running it would produce the same junk — so the voice queue is
+exhausted: four voices taught, one rolled back, largest last, exactly the
+sequence asked for.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3463,7 +3490,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
 | self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
 | confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
-| storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training under a cumulative ceiling |
+| storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
 | offline distillation | **PASSED narrowly** (§11.13) — +0.062 at 1.79x sd; first mechanism failed, it does not scale, and the margin was inflated until corrected |

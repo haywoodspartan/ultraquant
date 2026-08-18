@@ -235,6 +235,50 @@ class CategoryRouter:
             for shard_id in self.vault.shards_in(category):
                 self.vault.reinforce(shard_id, distinct, delta)
 
+    def unlearn(self, text: str, category: str, delta: float = 0.1,
+                filter_tokens: bool = True) -> float:
+        """Reverse one :meth:`learn` call - the rollback primitive.
+
+        A trainer that measures its own damage needs a way to undo it in the
+        same transaction: run 4 of the sequential training taught a phrasing
+        carrying a leaked chat-template token, the decoy check caught the fall
+        (1.000 -> 0.800), and there was no way to take the teaching back -
+        the report was a warning where it needed to be a gate.
+
+        Exact inverse: subtract ``delta`` from each distinct content token's
+        learned weight, floored at zero, and weaken the category's shard
+        associations by the same amount. Because :meth:`learn` adds exactly
+        ``delta`` with no cap on the router table, learn-then-unlearn restores
+        the prior weights exactly (the vault association cap at 5.0 can make
+        its half inexact for weights near the cap, which deployed weights are
+        nowhere near).
+
+        Returns:
+            Total weight removed from the learned table.
+        """
+        tokens = _tokenize(text)
+        if filter_tokens:
+            tokens = [tok for tok in tokens if _informative(tok)]
+        if not tokens:
+            return 0.0
+        distinct = list(dict.fromkeys(tokens))
+        learned = self._learned.get(category)
+        removed = 0.0
+        if learned:
+            for token in distinct:
+                had = learned.get(token, 0.0)
+                if had > 0.0:
+                    kept = max(0.0, had - delta)
+                    removed += had - kept
+                    if kept > 0.0:
+                        learned[token] = kept
+                    else:
+                        del learned[token]
+        with self.vault.batch():
+            for shard_id in self.vault.shards_in(category):
+                self.vault.weaken(shard_id, distinct, delta)
+        return removed
+
     def correct(self, text: str, category: str, delta: float = 0.4) -> dict:
         """Record that ``text`` belongs to ``category``, against a wrong winner.
 

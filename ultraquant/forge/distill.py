@@ -89,6 +89,7 @@ the gate measures, and the gate does not currently account for it.
 from __future__ import annotations
 
 import random
+import re
 import statistics
 from dataclasses import dataclass, field
 from typing import Sequence
@@ -167,8 +168,17 @@ class DistillReport:
         return "\n".join(lines)
 
 
+#: Chat-template control tokens that leak into completions. command-r emitted
+#: "Sign of the times<|END_OF_TURN_TOKEN|>" as a phrasing: the marker survived
+#: into the router, which learned ``end``, ``turn`` and ``token`` as evidence
+#: for ``crosses`` - and ``times``, which plural-folds to ``time`` and claimed
+#: "what time does the train leave". One leaked token cost a decoy.
+_TEMPLATE_TOKEN = re.compile(r"<\|[^|>]*\|>")
+
+
 def _clean(line: str) -> str:
-    """Strip list markers and punctuation a model adds despite being asked not to."""
+    """Strip list markers, template tokens, and stray punctuation."""
+    line = _TEMPLATE_TOKEN.sub(" ", line)
     text = line.strip()
     while text[:1] in "-*+0123456789.)• " and text[:1]:
         text = text[1:].lstrip()

@@ -772,6 +772,30 @@ class ShardVault:
             self._save_catalog()
         return removed
 
+    def weaken(
+        self, shard_id: str, keywords: list[str], delta: float = 0.1
+    ) -> None:
+        """Subtract from this shard's associations - :meth:`reinforce` undone.
+
+        Floored at zero and dropped when it reaches it; needed by
+        :meth:`CategoryRouter.unlearn` so a rejected training run can be
+        rolled back rather than merely regretted.
+        """
+        entry = self._catalog[shard_id]
+        self._index_entry(entry, -1)
+        assoc: dict[str, float] = entry["associations"]
+        for key in dict.fromkeys(keywords):
+            had = assoc.get(key)
+            if had is None:
+                continue
+            kept = max(0.0, had - delta)
+            if kept > 0.0:
+                assoc[key] = kept
+            else:
+                del assoc[key]
+        self._index_entry(entry, +1)
+        self._save_catalog()
+
     def reinforce(
         self, shard_id: str, keywords: list[str], delta: float = 0.1
     ) -> None:

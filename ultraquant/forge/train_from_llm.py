@@ -111,6 +111,8 @@ class TrainingReport:
     model: str = ""
     #: Category -> the phrasings actually taught (the held half excluded).
     taught: dict = field(default_factory=dict)
+    #: True when the decoy gate fired and this run's teaching was undone.
+    rolled_back: bool = False
 
     @property
     def phrasings(self) -> int:
@@ -134,6 +136,10 @@ class TrainingReport:
                      + ("   <- FELL: the router became more willing to answer, "
                         "not better informed"
                         if self.decoys_after < self.decoys_before else "   (held)"))
+        if self.rolled_back:
+            lines.append("ROLLED BACK - this run made the router claim "
+                         "unrelated queries, so its teaching was undone; "
+                         "nothing was kept and no budget was consumed")
         return "\n".join(lines)
 
 
@@ -217,6 +223,22 @@ def _teach_and_measure(session, generated: dict, report: TrainingReport,
     # What was actually taught, for callers that keep a ledger. The held half
     # never touched the router and must not consume absorption budget.
     report.taught = teach
+
+    # The decoy check is a gate, not a caption. Run 4 of the sequential
+    # training taught a leaked chat-template token, decoys fell 1.000 -> 0.800,
+    # and the report said so while the router was saved anyway - a warning
+    # where a rollback was needed. A run that makes the router more willing to
+    # claim unrelated queries is undone in the same transaction.
+    if report.decoys_after < report.decoys_before:
+        for category, phrasings in teach.items():
+            for phrase in phrasings:
+                tokens = content_tokens(phrase)
+                if tokens:
+                    router.unlearn(" ".join(tokens), category)
+        report.taught = {}
+        report.trained = {}
+        report.rolled_back = True
+        report.decoys_after = _decoys_left_alone(router, categories)
     return report
 
 
