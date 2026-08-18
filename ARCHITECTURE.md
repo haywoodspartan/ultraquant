@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.6 · 1189 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.7 · 1198 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         59 modules, 1189 tests
+tests/         60 modules, 1198 tests
 ```
 
 ---
@@ -3409,6 +3409,45 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.25 The data lever measured negative, and the diagnosis is distribution
+
+§11.24 ended with "the remaining lever is data". This gate pulled it — with
+the evaluation frozen first, which is the design decision everything below
+depends on: held sets split only from the original 53-variant bank, new
+variants training-side only, so the target could not move with the data.
+
+**The drawing, one voice at a time, smallest first** (fresh kept / rejected):
+katarau-9b 12/32 — the 9B *can* draw, unlike §11.20's 7B — cydonia-22b 15/15,
+qwen3.8-27b 11/31, gemma-4-31b 6/32 (mostly duplicating its own earlier
+draws: the measured drawer is mined out), qwen3.6-35b-a3b 18/22, command-r
+5/14. And qwen3-48b: **0/0** — a runaway reasoner that burns any token budget
+in hidden reasoning under this prompt and, unlike every model §11.13
+measured, is *not* tamed by ``reasoning_effort="none"``. 67 fresh validated
+variants staged.
+
+**The gate failed in the direction nobody wants:**
+
+| arm | held variants | noisy canon (control) |
+|---|---:|---:|
+| baseline (original teach half) | 0.539 | 0.867 |
+| enlarged (+67 new variants) | 0.466 | 0.766 |
+
+-0.073 at -1.05x seed sd, control down with it. More validated data made
+everything worse. Three post-hoc probes — labelled post-hoc — cleared the
+easy suspects: class balancing recovers the control but not the held set
+(0.496); hidden 96 scores 0.504 and hidden **128** scores 0.526, so twice the
+champion width still loses to no-new-data. What remains is
+**off-distribution interference**: the held set is original-era drawing
+style, the additions are five other voices' styles, and the mixture pulls
+features away from the distribution the frozen evaluation measures.
+
+The claim boundary matters: this says new-style data does not help
+*old-style recognition* — not that the new data is worthless. The successor
+question is whether "glyph variant" is one distribution at all: train on one
+voice's bank and test on another's, both directions, before any more drawing
+is worth the tokens. The 67 stay staged (`glyph_variants_new.json`), never
+merged into the frozen bank.
+
 ### 11.24 Part-based features measured nothing, and the candidate list is spent
 
 The last of §11.21's three mechanisms got its gate: `part_features` reads the
@@ -3725,6 +3764,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | capacity vs scale (variants) | **PASSED** (§11.22) — hidden 64 lifts held variants +0.091 at 1.86x sd and improves the control; scale normalisation measured useless; §11.21's "structure and scale" resolves to under-fitting |
 | width adoption at the deployed shape | **FAILED** (§11.23) — hidden 64 is *worse* for the 2-class family experts (-0.026 at -1.06x sd) at +94% forged bytes; the deployed default survives measured |
 | part-based features | **FAILED** (§11.24) — parts alone collapse the control to 0.453; the hybrid buys -0.000 at sd 0.106; §11.21's candidate list is spent and the remaining lever is data |
+| the data lever | **FAILED** (§11.25) — 67 new validated variants from six voices score -0.073 at -1.05x sd on the frozen held set; balance and capacity cleared post-hoc; the diagnosis is off-distribution interference between drawing styles |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
