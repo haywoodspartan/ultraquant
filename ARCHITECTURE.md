@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.1 · 1124 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.2 · 1147 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         54 modules, 1124 tests
+tests/         56 modules, 1147 tests
 ```
 
 ---
@@ -3409,6 +3409,49 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.20 Drawing distillation reached the experts, and failed on their features
+
+The routing distillation taught the router how people *phrase* things. This
+pointed the same idea at the pattern experts: a local model draws validated
+**variants** of each canonical glyph — a plus in a corner, offset stripes, a
+thick square — and the gate asks whether training on them improves recognition
+of variants never seen, without costing the canonicals.
+
+**Which model can draw inverts which model can phrase.** Probed before
+building: the 7B that carried the routing distillation echoed the canonical and
+mislabeled a diagonal as a plus — zero usable of three — while the 31B drew a
+shifted plus and a thick plus. Smallest-first was measured right for text and
+wrong for drawing. Neither is a principle; both are task measurements.
+
+**The validator burned through two wrong metrics, measurably.** Plain cell
+agreement scored offset horizontal bars — unambiguously stripes to a reader —
+**0.000** against `stripes_h` (perfectly anti-aligned) and 0.4 against `plus`,
+rejecting a correct variant as mislabeled. Shift-invariant agreement fixed that
+and over-corrected, because sparse glyphs agree on empty cells almost
+everywhere. **Jaccard over set pixels under ±2-cell shift** is what
+discriminates: offset stripes pass, a diagonal labeled "plus" is rejected as
+resembling `cross`, and 53 of ~120 generated glyphs survived validation.
+
+**The gate failed, and the diagnosis is §11.5's lesson arriving a third way.**
+
+| | baseline | with variants |
+|---|---:|---:|
+| held-out variants | 0.435 | 0.448 (+0.013, **0.23x** seed sd) |
+| noisy canonicals (control) | 0.773 | 0.758 (held within sd) |
+
+Training on half the variants barely helps with the other half, because the
+expert features are **position-bound**: 25 raw pixels plus five row means, so a
+corner plus shares almost no feature mass with the centered plus anchoring its
+family. The validator needed shift-invariant matching to judge these variants
+fairly — and the experts have the identical blindness in their representation,
+where a fix in the metric cannot reach. §11.5 found that a representation which
+merely re-encodes existing features cannot transfer; this is its converse: data
+that only a better representation could exploit, arriving before the
+representation exists. The variants are validated and kept
+(`vault/glyph_variants.json`) for the day a translation-capable representation
+gets its own gate. That mechanism — shift augmentation or invariant features —
+is new machinery, not a retry of this run.
+
 ### 11.14 A context window in memory, with disk as the reference
 
 The working memory this system had was the wrong shape for a machine where
@@ -3490,6 +3533,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
 | self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
 | confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
+| glyph-variant distillation | **FAILED** (§11.20) — +0.013 at 0.23x sd; features are position-bound, data kept |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
