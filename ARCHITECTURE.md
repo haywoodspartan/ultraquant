@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.7 · 1198 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.8 · 1206 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         60 modules, 1198 tests
+tests/         61 modules, 1206 tests
 ```
 
 ---
@@ -3409,6 +3409,43 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.26 One distribution after all: §11.25's diagnosis dies, and the suspect is load
+
+§11.25 left "off-distribution interference" standing. This gate made it
+falsifiable — the one-distribution hypothesis: variants are one learnable
+distribution regardless of drawing voice, so a net trained on one bank should
+recognise the other about as well as a bank recognises its own held half.
+Four arms at hidden 64, cross arms training on **whole** banks (twice the
+within arms' data — biased in favour of transfer, so rejection would have
+been conservative); rejection pre-registered as both cross arms falling more
+than one sd below their matching within arms:
+
+| arm | variant acc | noisy canon (control) |
+|---|---:|---:|
+| within-original | 0.504 | 0.879 |
+| within-new | 0.615 | 0.859 |
+| cross original->new | 0.556 | 0.824 |
+| cross new->original | 0.460 | 0.809 |
+
+Gaps: -0.059 at sd 0.115 and -0.044 at sd 0.092 — both inside one sd.
+**NOT REJECTED.** The voices are not meaningfully different distributions,
+§11.25's parting diagnosis is measured wrong, and that is the second time
+running that a section's parting diagnosis died in the next section's gate
+(§11.20's "position" died in §11.21). The reports for this gate say
+REJECTED / NOT REJECTED, never PASS — keeping or discarding a hypothesis is
+not a capability.
+
+What the numbers point at instead — a hypothesis, not a finding: **load**.
+§11.25's enlarged arm (94 variants taught) scored 0.466 on the original held
+set; this gate's cross arm trained on the 67 new variants *alone* scores
+0.460 on the whole original bank — the 27 same-style variants bought almost
+nothing. Every heavily-loaded arm lands in the 0.46–0.56 band; the
+lightly-loaded within arms sit at the top of theirs. The suspect is the
+fixed canonical anchor thinning as variant mass grows (§11.21's augmentation
+collapse was this at 25x). Its gate: vary taught-set size at fixed
+composition from the pooled banks, fixed pooled held set. Until it runs, no
+more drawing tokens — transfer works, so volume is not what binds.
+
 ### 11.25 The data lever measured negative, and the diagnosis is distribution
 
 §11.24 ended with "the remaining lever is data". This gate pulled it — with
@@ -3765,6 +3802,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | width adoption at the deployed shape | **FAILED** (§11.23) — hidden 64 is *worse* for the 2-class family experts (-0.026 at -1.06x sd) at +94% forged bytes; the deployed default survives measured |
 | part-based features | **FAILED** (§11.24) — parts alone collapse the control to 0.453; the hybrid buys -0.000 at sd 0.106; §11.21's candidate list is spent and the remaining lever is data |
 | the data lever | **FAILED** (§11.25) — 67 new validated variants from six voices score -0.073 at -1.05x sd on the frozen held set; balance and capacity cleared post-hoc; the diagnosis is off-distribution interference between drawing styles |
+| one-distribution hypothesis | **NOT REJECTED** (§11.26) — cross-bank transfer holds within one sd both directions; §11.25's style diagnosis dies; the surviving suspect is variant load against a thinning canonical anchor |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
