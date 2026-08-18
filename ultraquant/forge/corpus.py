@@ -18,7 +18,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from ultraquant.pattern.recognition import PATTERNS, render, row_means
+from ultraquant.pattern.recognition import (PATTERNS, center_glyph,
+                                            render, row_means)
 
 __all__ = [
     "CategoryCorpus",
@@ -65,6 +66,20 @@ def features_of(rows: list[str]) -> list[float]:
     """Feature vector for a glyph: 25 pixels followed by the five row means."""
     pixels = render(rows)
     return pixels + row_means(pixels)
+
+
+def centered_features(rows: list[str]) -> list[float]:
+    """The same 30 features, position normalised away first.
+
+    :func:`features_of` over :func:`~ultraquant.pattern.recognition.center_glyph`:
+    same dimensionality, same downstream machinery, but a glyph and its
+    translation produce (near-)identical vectors. Kept as a separate function
+    rather than changed in place because every deployed expert was trained on
+    positional features — swapping the definition under them would silently
+    break existing libraries, where offering the centred variant lets new
+    training choose it and the gate measure it.
+    """
+    return features_of(center_glyph(rows))
 
 
 def builtin_taxonomy() -> dict[str, dict[str, list[str]]]:

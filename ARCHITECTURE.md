@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.2 · 1147 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.3 · 1158 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         56 modules, 1147 tests
+tests/         57 modules, 1158 tests
 ```
 
 ---
@@ -3409,6 +3409,53 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.21 The translation-capable representation was built, and the problem moved
+
+§11.20 diagnosed the variant-training failure as position-bound features and
+banked the 53 validated variants for "the day a translation-capable
+representation gets its own gate". Both were built:
+`center_glyph` translates any glyph so its mass sits at the grid centre —
+the O(1) form of the shift-search the variant validator already needed — and
+`centered_features` runs the same 30 features over it, so a glyph and its
+translation produce identical vectors. `features_of` is untouched, because
+deployed experts were trained on positional features and changing the
+definition under them would silently break existing libraries.
+
+**The gate was factorial** — two representations crossed with two training
+sets — because the claim is an interaction, and only the four-way table
+attributes a gain. It failed:
+
+| arm | held variants | noisy canon (control) |
+|---|---:|---:|
+| positional | 0.435 | 0.773 |
+| positional+variants | 0.448 | 0.758 |
+| centered | 0.397 | 0.785 |
+| **centered+variants** | **0.405** | 0.746 |
+
+Not merely no gain: on the **off-centre subset the mechanism was built for**,
+centring is worse than nothing — 0.319 → **0.200**. Two measurements explain
+it. 33 of 53 variants are already centred (models draw centred), so the
+mechanism is the identity on 62% of the data. And centring the 20 off-centre
+variants translates them into the most contested region of the grid, where all
+eight families' canonical pixels crowd — position is normalised and the
+residual scale mismatch (a shrunk plus is *small*, not just displaced) now
+competes exactly where discrimination is hardest.
+
+**The standard alternative failed harder.** Shift augmentation — every
+training row also at ±2-cell offsets — collapsed the canonical control from
+0.711 to **0.348**. A 30→24→8 ternary network cannot represent eight families
+crossed with twenty-five positions; asked to, it stops representing the
+families.
+
+**What the double failure buys is a corrected problem statement.** The
+variants' difficulty is **structure and scale, not translation**: 62% sit
+exactly where their canonical sits and still only ~44% are recognised. §11.20's
+diagnosis was importantly wrong, and only building its remedy revealed that.
+The mechanisms that would address the real difficulty — scale normalisation,
+part-based features, or plain capacity — are each new machinery deserving their
+own gate. `center_glyph` stays: it is correct at what it does, tested, and the
+validator-side shift matching that motivated it remains in service.
+
 ### 11.20 Drawing distillation reached the experts, and failed on their features
 
 The routing distillation taught the router how people *phrase* things. This
@@ -3533,7 +3580,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | plural folding | **PASSED** (§11.15) — 0.500 -> 1.000, abstention unchanged |
 | self-reinforcement | **measured** (§11.16) — entrenches errors 3.9x; repeat training degraded routing 0.875 -> 0.750 |
 | confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
-| glyph-variant distillation | **FAILED** (§11.20) — +0.013 at 0.23x sd; features are position-bound, data kept |
+| glyph-variant distillation | **FAILED** (§11.20) — +0.013 at 0.23x sd; data kept |
+| translation representation | **FAILED twice** (§11.21) — centering hurt its own target, augmentation collapsed the control; the real difficulty is structure and scale |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

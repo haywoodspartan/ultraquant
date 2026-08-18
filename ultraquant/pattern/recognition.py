@@ -44,6 +44,49 @@ PATTERNS: dict[str, list[str]] = {
 LABELS: list[str] = list(PATTERNS)
 
 
+def center_glyph(rows: list[str]) -> list[str]:
+    """Translate a glyph so its set-pixel centroid sits at the grid centre.
+
+    The translation-capable half of the representation §11.20 found missing.
+    The expert features were 25 raw pixels plus five row means, so a plus drawn
+    in a corner shared almost no feature mass with the centred plus anchoring
+    its family — and training on model-drawn variants gained +0.013 at 0.23x
+    seed sd, indistinguishable from nothing. The variant *validator* had the
+    same problem and fixed it by searching shifts; this is the O(1) version of
+    the same idea, applied once at feature time: normalise position away, then
+    extract features as before.
+
+    The centroid is rounded to the nearest cell and the glyph shifted by the
+    difference to the centre; content pushed off the edge is lost, which for a
+    5x5 grid is rare (mass must sit far off-centre AND span the full grid) and
+    is the same trade the validator's shift-search makes. A glyph with no set
+    pixels has no centroid and is returned unchanged.
+
+    Deterministic and stateless, so features computed by one process match
+    features computed by another — the property every stored signature relies
+    on.
+    """
+    coords = [(x, y) for y, row in enumerate(rows)
+              for x, ch in enumerate(row) if ch == "#"]
+    if not coords:
+        return list(rows)
+    cx = round(sum(x for x, _y in coords) / len(coords))
+    cy = round(sum(y for _x, y in coords) / len(coords))
+    dx, dy = 2 - cx, 2 - cy
+    if dx == 0 and dy == 0:
+        return list(rows)
+    blank = "." * 5
+    grid = [blank] * 5
+    for y, row in enumerate(rows):
+        ny = y + dy
+        if not 0 <= ny < 5:
+            continue
+        shifted = ("." * max(0, dx) + row + "." * max(0, -dx))
+        shifted = shifted[max(0, -dx):][:5].ljust(5, ".")
+        grid[ny] = shifted
+    return grid
+
+
 def render(rows: list[str]) -> list[float]:
     """Flatten glyph rows to floats, row-major (``#`` -> 1.0, anything else -> 0.0).
 
