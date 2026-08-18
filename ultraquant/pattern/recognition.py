@@ -87,6 +87,59 @@ def center_glyph(rows: list[str]) -> list[str]:
     return grid
 
 
+def scale_normalize(rows: list[str]) -> list[str]:
+    """Fit a glyph's bounding box to the grid, aspect preserved, centred.
+
+    The mechanism §11.21 pointed at: the variants' measured difficulty is
+    structure and *scale* — a shrunk 3x3 plus shares few pixels with the
+    full-size plus even when both sit dead centre. This stretches the set-pixel
+    bounding box to fill the grid by nearest-neighbour sampling, with two
+    guards that exist because their absence was reasoned through first:
+
+    * **Aspect is preserved** (one uniform factor, the smaller of the two
+      axes'). Stretching axes independently would turn a single horizontal bar
+      into a full 5x5 block — destroying exactly the stripes-versus-square
+      distinction the experts must keep.
+    * **The result is centred**, reusing the same placement rule as
+      :func:`center_glyph`, so scale and position normalise together or not at
+      all.
+
+    A glyph with no set pixels, or one already spanning the grid, is returned
+    unchanged.
+    """
+    coords = [(x, y) for y, row in enumerate(rows)
+              for x, ch in enumerate(row) if ch == "#"]
+    if not coords:
+        return list(rows)
+    min_x = min(x for x, _y in coords)
+    max_x = max(x for x, _y in coords)
+    min_y = min(y for _x, y in coords)
+    max_y = max(y for _x, y in coords)
+    width = max_x - min_x + 1
+    height = max_y - min_y + 1
+    factor = min(5 / width, 5 / height)
+    target_w = max(1, min(5, round(width * factor)))
+    target_h = max(1, min(5, round(height * factor)))
+    if (target_w, target_h) == (width, height):
+        return center_glyph(rows)
+
+    scaled = [["." for _ in range(target_w)] for _ in range(target_h)]
+    for j in range(target_h):
+        for i in range(target_w):
+            src_x = min_x + (i * width) // target_w
+            src_y = min_y + (j * height) // target_h
+            if rows[src_y][src_x] == "#":
+                scaled[j][i] = "#"
+
+    off_x = (5 - target_w) // 2
+    off_y = (5 - target_h) // 2
+    grid = [["." for _ in range(5)] for _ in range(5)]
+    for j in range(target_h):
+        for i in range(target_w):
+            grid[off_y + j][off_x + i] = scaled[j][i]
+    return ["".join(row) for row in grid]
+
+
 def render(rows: list[str]) -> list[float]:
     """Flatten glyph rows to floats, row-major (``#`` -> 1.0, anything else -> 0.0).
 

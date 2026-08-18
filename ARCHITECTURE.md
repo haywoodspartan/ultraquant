@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.3 · 1158 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.4 · 1168 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         57 modules, 1158 tests
+tests/         57 modules, 1168 tests
 ```
 
 ---
@@ -3409,6 +3409,66 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.22 Capacity was the binding constraint, and scale normalisation measured useless
+
+§11.21 corrected the problem statement to "structure and scale" and named three
+candidate mechanisms — scale normalisation, part-based features, capacity —
+"each deserving their own gate". This gate took the two cheap ones, and took
+them **factorially**, because §11.21 is precisely the demonstration of what
+uncrossed arms do: a mechanism can help, hurt, or do nothing depending on what
+it is combined with.
+
+The mechanism built for it is `scale_normalize`: stretch the set-pixel bounding
+box to fill the grid by nearest-neighbour sampling, with two guards reasoned
+before writing — **one uniform factor** for both axes, because independent
+stretching would turn a single bar into a full block and destroy exactly the
+stripes-versus-square distinction; and **centred placement**, reusing
+`center_glyph`'s rule, so scale and position normalise together.
+`scaled_features` sits beside `features_of` and `centered_features` for the
+same reason as before: deployed experts trained on positional features must
+not have the definition changed under them. A pre-gate probe motivated the
+second factor: hidden (64,) lifted *both* held-variants and the control in a
+sweep — while depth ((32,16)) collapsed — so any representation claim had to
+survive being crossed with width.
+
+**The gate PASSED — on the arm neither prior diagnosis predicted:**
+
+| arm | held variants | noisy canon (control) |
+|---|---:|---:|
+| positional/24 (§11.20's arm) | 0.448 | 0.758 |
+| **positional/64** | **0.539** | **0.867** |
+| scaled/24 | 0.422 | 0.770 |
+| scaled/64 | 0.457 | 0.867 |
+
+Capacity alone: **+0.091 at 1.86x seed sd**, with the control not merely held
+but improved. Scale normalisation does nothing: worse than the reference at
+hidden 24, and at hidden 64 it *loses* to plain positional features — the
+information the normalisation discards (where and how large the glyph was)
+turns out to be worth more than the alignment it buys. It joins `center_glyph`
+as machinery that is correct at what it does, tested, and **not adopted**,
+because it measured below the alternative.
+
+**The diagnosis chain closes on the least glamorous candidate.** §11.20 said
+the features were position-bound; §11.21 built centering and measured that
+wrong (62% of variants already centred); this gate measures the scale half
+wrong too. The 30→24→8 ternary network was simply **under-fitting
+everything** — variants and canonicals alike — and widening it lifts both.
+Three gates, each correcting the previous one's diagnosis, and the answer was
+never representational: it was the width of one hidden layer. This also
+retro-illuminates §11.21's augmentation collapse — a net that under-fits eight
+families cannot absorb eight families crossed with twenty-five positions —
+though whether augmentation survives at hidden 64 was not crossed here and
+remains unmeasured.
+
+Two honest limits. Hidden 64 still fails 46% of held variants, so capacity is
+the *binding* constraint on this data, not a solution — the remaining
+candidate from §11.21's list, part-based features, keeps its claim to a gate.
+And the deployed forge default (hidden 32) is **not changed by this**: a wider
+expert is a larger shard in a library whose size ratios are load-bearing (§6),
+so adopting 64 is a sizing decision with a measured disk cost, not a silent
+constant bump. The gate lives at `experiments/capacity_gate.py`, named for
+what won.
+
 ### 11.21 The translation-capable representation was built, and the problem moved
 
 §11.20 diagnosed the variant-training failure as position-bound features and
@@ -3582,6 +3642,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | confirmation-gated reinforcement | **PASSED** (§11.17) — margin 2.33 -> 0.60 at 7.75x sd, transfer held |
 | glyph-variant distillation | **FAILED** (§11.20) — +0.013 at 0.23x sd; data kept |
 | translation representation | **FAILED twice** (§11.21) — centering hurt its own target, augmentation collapsed the control; the real difficulty is structure and scale |
+| capacity vs scale (variants) | **PASSED** (§11.22) — hidden 64 lifts held variants +0.091 at 1.86x sd and improves the control; scale normalisation measured useless; §11.21's "structure and scale" resolves to under-fitting |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

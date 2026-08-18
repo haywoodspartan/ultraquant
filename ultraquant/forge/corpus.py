@@ -19,7 +19,8 @@ import random
 from dataclasses import dataclass, field
 
 from ultraquant.pattern.recognition import (PATTERNS, center_glyph,
-                                            render, row_means)
+                                            render, row_means,
+                                            scale_normalize)
 
 __all__ = [
     "CategoryCorpus",
@@ -80,6 +81,19 @@ def centered_features(rows: list[str]) -> list[float]:
     training choose it and the gate measure it.
     """
     return features_of(center_glyph(rows))
+
+
+def scaled_features(rows: list[str]) -> list[float]:
+    """The 30 features over a scale- and position-normalised glyph.
+
+    :func:`~ultraquant.pattern.recognition.scale_normalize` first, then the
+    unchanged feature extraction — same dimensionality, same downstream
+    machinery, but a shrunk plus and the canonical plus produce (near-)
+    identical vectors. Separate from :func:`features_of` for the same reason
+    :func:`centered_features` is: deployed experts trained on positional
+    features must not have the definition changed under them.
+    """
+    return features_of(scale_normalize(rows))
 
 
 def builtin_taxonomy() -> dict[str, dict[str, list[str]]]:
