@@ -202,7 +202,16 @@ class UltraQuantTUI:
                 self.settings.set("online", bool(self.session.web.online))
             except Exception:  # noqa: BLE001 - a settings write is never fatal
                 pass
-        self.settings.set("home", str(self.home))
+        # A home under the system temp directory is ephemeral by
+        # definition (tests and scratch sessions live there); persisting
+        # it points every later launch at a directory that will not
+        # exist. The full test suite did exactly this to a real settings
+        # file once.
+        import tempfile
+
+        temp_root = str(Path(tempfile.gettempdir()).resolve())
+        if not str(Path(self.home).resolve()).startswith(temp_root):
+            self.settings.set("home", str(self.home))
         self.settings.save()
 
     # ------------------------------------------------------------------ #

@@ -18,6 +18,7 @@ a terminal.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Iterator
@@ -26,6 +27,9 @@ from ultraquant.interpreter.selflearn import SelfLearner
 from ultraquant.interpreter.stash import StashError
 from ultraquant.interpreter.thoughts import Session, build_session, run_pipeline
 from ultraquant.pattern.recognition import LABELS
+
+#: One row of a pasted glyph: exactly five cells of set/unset.
+_GLYPH_ROW = re.compile(r"[#.]{5}$")
 
 HELP = """\
 UltraQuant Chat/Interpreter - commands:
@@ -84,6 +88,22 @@ class ChatCLI:
         if not line.strip():
             return
         if not line.startswith(":"):
+            # A bare glyph row starts a paste: pull the rest of the grid
+            # so the pipeline sees one five-row glyph, not five unrelated
+            # lines each answered "I have nothing on that".
+            if _GLYPH_ROW.fullmatch(line.strip()):
+                rows, leftover = self._collect_glyph(line.strip(), more)
+                if len(rows) == 5:
+                    response, _trace = run_pipeline("\n".join(rows),
+                                                    self.session)
+                    self.emit(response)
+                else:
+                    for row in rows:
+                        response, _trace = run_pipeline(row, self.session)
+                        self.emit(response)
+                if leftover is not None:
+                    self.handle(leftover, more)
+                return
             response, _trace = run_pipeline(line, self.session)
             self.emit(response)
             return
@@ -98,6 +118,35 @@ class ChatCLI:
             handler(args, more)
         except Exception as exc:  # noqa: BLE001 - the REPL must survive anything
             self.emit(f"{type(exc).__name__}: {exc}")
+
+    @staticmethod
+    def _collect_glyph(first: str,
+                       more: Iterator[str] | None
+                       ) -> tuple[list[str], str | None]:
+        """Gather up to five glyph rows starting from ``first``.
+
+        Stops early on a blank line (the interactive escape hatch -
+        input() cannot raise StopIteration, so a user who typed one
+        stray row gets out by pressing enter), on a line that is not a
+        glyph row (returned as leftover for normal handling), or when
+        the source runs dry.
+        """
+        rows = [first]
+        while len(rows) < 5:
+            if more is not None:
+                try:
+                    row = next(more)
+                except StopIteration:
+                    break
+            else:
+                row = input()
+            stripped = row.strip()
+            if not stripped:
+                break
+            if not _GLYPH_ROW.fullmatch(stripped):
+                return rows, row
+            rows.append(stripped)
+        return rows, None
 
     @staticmethod
     def _take_rows(more: Iterator[str] | None, count: int = 5) -> list[str]:

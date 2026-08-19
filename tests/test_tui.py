@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import io
+import os
 import pathlib
 import shutil
 import tempfile
@@ -28,10 +29,19 @@ class TUIBasicsTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="uq_tui_"))
+        # Isolate the settings file: without this, every TUI test
+        # that saves writes the developer's real settings - the full
+        # suite once left a deleted temp dir as the standing home.
+        self._old_config = os.environ.get("ULTRAQUANT_CONFIG")
+        os.environ["ULTRAQUANT_CONFIG"] = str(self.dir / "settings.json")
         self.out = io.StringIO()
         self.tui = UltraQuantTUI(home=self.dir, stream=self.out, color=False)
 
     def tearDown(self) -> None:
+        if self._old_config is None:
+            os.environ.pop("ULTRAQUANT_CONFIG", None)
+        else:
+            os.environ["ULTRAQUANT_CONFIG"] = self._old_config
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_every_screen_is_reachable_and_describes_itself(self) -> None:
@@ -90,10 +100,19 @@ class TUISessionTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="uq_tuisession_"))
+        # Isolate the settings file: without this, every TUI test
+        # that saves writes the developer's real settings - the full
+        # suite once left a deleted temp dir as the standing home.
+        self._old_config = os.environ.get("ULTRAQUANT_CONFIG")
+        os.environ["ULTRAQUANT_CONFIG"] = str(self.dir / "settings.json")
         self.out = io.StringIO()
         self.tui = UltraQuantTUI(home=self.dir, stream=self.out, color=False)
 
     def tearDown(self) -> None:
+        if self._old_config is None:
+            os.environ.pop("ULTRAQUANT_CONFIG", None)
+        else:
+            os.environ["ULTRAQUANT_CONFIG"] = self._old_config
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_a_scripted_session_runs_end_to_end(self) -> None:

@@ -128,6 +128,12 @@ class TrainingReport:
             lines.append(f"    {name:<14} {count} phrasing(s)")
         for name, why in sorted(self.skipped.items()):
             lines.append(f"    {name:<14} skipped: {why}")
+        if not self.model and not self.trained and not self.rolled_back:
+            # Nothing loaded, nothing measured: a 0.000 -> 0.000 table
+            # here reads as a broken router when the truth is that no
+            # run happened. A rollback is the opposite of nothing - its
+            # report must keep the measurements that triggered it.
+            return "\n".join(lines)
         lines.append("")
         lines.append(f"held-out routing   {self.before:.3f} -> {self.after:.3f}"
                      f"   ({self.after - self.before:+.3f})")

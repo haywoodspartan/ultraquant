@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.10 · 1225 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.12 · 1253 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         63 modules, 1225 tests
+tests/         65 modules, 1253 tests
 ```
 
 ---
@@ -3409,6 +3409,117 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.30 Inference by spreading activation: the library thinks, and the gate holds
+
+The question path could recall what it was told and could derive when
+*commanded* (``goal:``). What it could not do was notice, on its own, that
+an answer it was never told exists implicitly in what it holds. That gap is
+also where this architecture makes its differentiating claim, so the
+mechanism is deliberately **brain-shaped rather than transformer-shaped**,
+and the differences are structural:
+
+* **Activation, not attention.** A transformer infers in one dense forward
+  pass — every parameter participates, and nothing about the answer says
+  which memories produced it. Here a question injects activation at its
+  concept tokens; activation spreads along stored associations (a fact's
+  key tokens to its value tokens, and value tokens are other facts' keys);
+  only touched facts ever page in. Inference has the same sparse-recall
+  economics as the shard library itself — nothing is resident because
+  everything might be needed.
+* **Convergence, not completion.** An answer forms where activations from
+  *different parts of the question* meet. "what is the tower melting
+  point?" spreads from {tower} and {melting, point}; ``steel melting
+  point`` is reached from both — via ``tower material → steel`` on one
+  side, directly on the other — and that convergence is the answer. With
+  iron's melting point also held, iron is never touched by the tower half
+  and stays silent: **a fact reached from only part of the question is a
+  pun, not a proof**. Every fabrication in the book (§11.14's stopword
+  answer, the tungsten question, §11.29's wrong-metal assertion) is an
+  activation spread without this rule.
+* **The trail is the answer.** Every inference names the facts it crossed,
+  is marked "inferred, not stored", and carries the **minimum** confidence
+  along the path — derivation dilutes belief, never concentrates it.
+  Arithmetic combination (sum/difference/larger over two named numeric
+  facts) sits beside the spread, and mismatched units refuse: 300 meters
+  plus 2 kilometers is not 302 anything.
+* **Bounded honesty.** Activation decays 0.5 per bridge over a 0.2 floor:
+  two bridges reach (0.25), three stop (0.125). The floor is stated, and
+  the gate measures it instead of hiding it.
+
+**The gate** (`experiments/inference_gate.py`) runs the full live pipeline
+in both arms — baseline disables only the inference call — over generated
+fact worlds with four question sets: direct recall, chains (depth 1–3),
+combinations, and decoys that share tokens with held facts but connect to
+nothing. It failed its own zero-variance rule twice first — a
+combine-selection defect made every world +0.500 exactly, then too-easy
+worlds made every world +1.000 exactly, and at sd 0.000 any margin is
+unfalsifiable. The worlds were hardened, not the rule. Then:
+
+| arm | direct | inferred | decoy falls |
+|---|---:|---:|---:|
+| baseline | 1.000 | 0.000 | 0.000 |
+| inference | 1.000 | **0.938** | 0.000 |
+
+**+0.938 at 8.10x seed sd**, zero decoys fell in either arm (cross-unit
+sums included), recall untouched. The 0.062 miss is entirely the depth-3
+worlds — the designed floor, measured. `tests/test_inference.py` pins the
+mechanism, the guards (each named for the fabrication it prevents), and —
+§11.11's discipline — proves the decoy control *can* fail: an eager
+matcher reaches every decoy the convergence rule refuses.
+
+What this deliberately defers, each a registered candidate for its own
+gate: **consolidation** (an inference that keeps being used should be able
+to earn promotion toward a stored fact — through §11.17's
+confirmation gate, because §11.16 measured what unconfirmed reinforcement
+does), unit conversion, and activation with learned edge weights.
+
+### 11.29 A battery against the live chat surface, and six defects fixed
+
+Component tests green is not the surface working — §11.5's lesson, aimed
+this time at the chat CLI. A scripted battery drove every documented
+interaction through the real `--script` surface, and six defects fell out,
+each now fixed with the regression that would have caught it
+(`tests/test_chat_surface.py`):
+
+1. **A pasted glyph answered row by row.** The README's first example —
+   paste five glyph rows — arrived as five separate inputs, each told "I
+   have nothing on that". The CLI now collects a bare glyph row into the
+   full grid (blank line escapes, a non-glyph line is processed normally,
+   EOF ends collection) and the paste reads as one glyph again.
+2. **Total ignorance claimed over a stocked quarantine.** "what is code?"
+   answered "I don't hold anything on that" while the stash held staged
+   claims about code. The unknown reply now counts staged claims sharing an
+   informative token with the question and points at ':stash'/':analyze'/
+   ':promote' — pointing, never quoting, because staged text has not earned
+   belief.
+3. **The plural fold stopped at the router.** "what are towers?" missed the
+   just-stored `tower height` because the question fallback compared raw
+   tokens. Both sides now fold through `normalize_token`, and the folded
+   token set is probed against the fact index as well.
+4. **The planner failed without naming the missing part.** "no plan reaches
+   the goal within depth 6" is search internals, not an explanation — and a
+   goal naming one held and one unheld thing is *structurally* unplannable
+   (derived-from-all needs every input). The failure now names what is
+   missing and both remedies; a plan that succeeds while ignoring an unheld
+   term now says so.
+5. **The full test suite wrote the developer's real settings file.** TUI
+   tests never isolated `ULTRAQUANT_CONFIG`, and one suite run left a
+   deleted temp directory as the standing session home. Tests now isolate;
+   the TUI and GUI both refuse to persist a home under the system temp
+   directory at all, because an ephemeral session must never become the
+   default.
+6. **An empty training run printed a zero table.** With every voice already
+   taught, `--next` reported `held-out routing 0.000 -> 0.000` — a broken
+   router's numbers for a run that never happened. The empty report now
+   omits the measurement block.
+
+The battery also confirmed two behaviours worth keeping on record: the
+tungsten fabrication guard still refuses to invent, and the voice-queue
+"already taught" verdict was checked against live lineage data and is
+correct — cydonia and the qwens are siblings of used teachers, so the
+phrasings channel stays at its measured limit until a genuinely new voice
+appears.
+
 ### 11.28 The blind reader confirmed the last suspect, and the chain ends with a mechanism
 
 §11.27 said the remaining question needed an oracle. The user delegated the
@@ -3874,6 +3985,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | one-distribution hypothesis | **NOT REJECTED** (§11.26) — cross-bank transfer holds within one sd both directions; §11.25's style diagnosis dies; the surviving suspect is variant load against a thinning canonical anchor |
 | load and its anchor remedy | **NOT SUPPORTED, twice** (§11.27) — the size curve is flat (+0.000 at sd 0.040 across a 6x mass range); §11.25's regression reclassified as borderline noise on the hardest slice; the chain closes on data ambiguity, measurable only with human labels |
 | blind curation | **PASSED** (§11.28) — a blind independent reader (Claude Fable 5, named as such) rejected 26% of the banks; dropping those lifts endorsed-held recognition +0.072 at 2.00x sd, and the old ceiling's errors concentrate in the rejected pile (0.406 vs 0.580) |
+| spreading-activation inference | **PASSED** (§11.30) — self-initiated derivation answers 0.938 of chain/combination questions at 8.10x sd with zero decoy falls and recall untouched; convergence, not completion, and the trail is the answer |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

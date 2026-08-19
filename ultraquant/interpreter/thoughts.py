@@ -698,6 +698,21 @@ class Reason(Thought):
             ctx.note(self.name, "goal named nothing known")
             return
 
+        # The parts of the goal that resolved to nothing held. A goal is a
+        # conjunction; planning over only the held parts either fails
+        # structurally (one key cannot satisfy derived-from-all) or worse,
+        # succeeds while silently ignoring what is missing - and "no plan
+        # reaches the goal within depth 6" names neither cause.
+        segments = [seg.strip() for seg in
+                    re.split(r",| and ", lowered) if seg.strip()]
+        missing = []
+        for seg in segments:
+            if any(key in seg for key in keys):
+                continue
+            cleaned = re.sub(r"^(?:the|a|an)\s+", "", seg).strip("?. ")
+            if cleaned and cleaned not in ("goal", "goal:"):
+                missing.append(cleaned)
+
         planner = Planner(build_actions(session))
         state = {"_keys": keys}
         if ctx.data.get("glyph_rows"):
@@ -705,9 +720,23 @@ class Reason(Thought):
         try:
             plan = planner.plan(goal_derived_from(*keys), state)
         except PlanningError as exc:
-            ctx.say(f"I could not find a way to do that: {exc}")
+            if missing:
+                held = ", ".join(keys)
+                wanted = "', '".join(missing)
+                ctx.say(f"I can't plan that yet: I hold nothing for "
+                        f"'{wanted}' and the goal needs a value derived "
+                        f"from everything it names (held: {held}). Tell me "
+                        f"directly ('{missing[0]} is ...'), or ':learn' can "
+                        "ask.")
+            else:
+                ctx.say(f"I could not find a way to do that: {exc}")
             ctx.note(self.name, "no plan found")
             return
+        if missing:
+            wanted = "', '".join(missing)
+            ctx.data["plan_caveat"] = (f"Note: I hold nothing for "
+                                       f"'{wanted}', so the result ignores "
+                                       "it.")
 
         produced = {
             name: value for name, value in plan.state.items()
@@ -716,9 +745,11 @@ class Reason(Thought):
         answer = max(produced, key=lambda n: len(n)) if produced else None
         ctx.data["plan"] = plan.describe()
         ctx.data["plan_state"] = produced
+        caveat = ctx.data.get("plan_caveat", "")
         ctx.say(
             f"Plan ({len(plan)} steps): " + "; ".join(plan.describe())
             + (f"\nResult: {answer} = {produced[answer]:g}" if answer else "")
+            + (f"\n{caveat}" if caveat else "")
         )
         ctx.note(self.name, f"planned {len(plan)} steps over {len(planner.actions)} "
                             f"actions, explored {plan.explored} states")
@@ -743,26 +774,71 @@ class Reason(Thought):
         #    24-byte reference; if it parses as "X is Y" and overlaps the
         #    question, it answers - attributed to the conversation, not
         #    presented as a stored fact, because it never earned promotion.
-        from ultraquant.shards.router import _informative
+        from ultraquant.shards.router import (_informative,
+                                              normalize_token)
 
         memory = ctx.session.memory
         # Informative tokens only. The first version filtered on length alone,
         # and "what is the melting point of tungsten" matched a recovered turn
         # reading "what is the tower height?" on the token "what" - the
         # fabrication control caught an answer being built out of a stopword.
-        question_tokens = {tok for tok in _TOKEN_RE.findall(ctx.text.lower())
+        # Folded with the router's plural rule on both sides: "what are
+        # towers?" holds the token "towers", the stored key holds
+        # "tower", and raw comparison missed a fact the session had
+        # just been told.
+        question_tokens = {normalize_token(tok)
+                           for tok in _TOKEN_RE.findall(ctx.text.lower())
                            if _informative(tok)}
-        for key in memory.find_facts(ctx.text, top_k=3):
-            key_tokens = {tok for tok in _TOKEN_RE.findall(key.lower())
+
+        # Derivation runs BEFORE the loose keyword fallback: its coverage
+        # rules are strict (every content token accounted for), so when a
+        # chain or combination exists it answers the whole question - where
+        # the keyword fallback would have answered whichever single premise
+        # ranked first and stopped.
+        from ultraquant.reason.inference import infer
+
+        derived = infer(ctx.text, memory)
+        if derived is not None:
+            ctx.say(derived.describe())
+            ctx.note(self.name,
+                     f"inferred ({derived.kind}) from "
+                     f"{len(derived.premises)} facts: "
+                     + ", ".join(repr(k) for k, _v in derived.premises))
+            return
+
+        candidates = list(memory.find_facts(ctx.text, top_k=3))
+        folded_query = " ".join(sorted(question_tokens))
+        for key in memory.find_facts(folded_query, top_k=3):
+            if key not in candidates:
+                candidates.append(key)
+        for key in candidates:
+            key_tokens = {normalize_token(tok)
+                          for tok in _TOKEN_RE.findall(key.lower())
                           if _informative(tok)}
             if not (key_tokens & question_tokens):
                 continue
             fact = memory.recall_fact(key)
-            if fact is not None:
+            if fact is None:
+                continue
+            # Assert only when the key covers everything the question asked
+            # about. A question holding content the key lacks is asking
+            # about something ELSE that happens to share words - "the
+            # melting point of tungsten" reached "steel melting point" here
+            # and was answered with the wrong metal as if it were the
+            # answer. Nearest-held is still worth SAYING; it is not worth
+            # asserting as identity.
+            if question_tokens <= key_tokens:
                 ctx.say(f"{key} is {fact['value']} "
                         f"(confidence {fact['confidence']:.2f}).")
                 ctx.note(self.name, f"answered from keyword fact {key!r}")
                 return
+            ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
+                    f"{fact['value']} (confidence "
+                    f"{fact['confidence']:.2f}).")
+            ctx.note(self.name,
+                     f"nearest-held {key!r}; question content "
+                     "not fully covered")
+            return
 
         for turn in ctx.data.get("recovered_turns", []):
             turn_text = str(turn.get("text", "")).strip()
@@ -784,6 +860,32 @@ class Reason(Thought):
                          f"answered from recovered turn {turn.get('id')}")
                 return
 
+        # Nothing believed - but the quarantine may already hold claims
+        # on exactly this topic, and "I don't hold anything" while
+        # sitting on them sends the user to the web for what is one
+        # ':analyze' away. Staged text stays unquoted: it has not earned
+        # belief.
+        staged = 0
+        try:
+            for entry in ctx.session.stash.entries(status="staged"):
+                blob = str(entry.get("claim", entry.get("text", "")))
+                entry_tokens = {normalize_token(tok) for tok in
+                                _TOKEN_RE.findall(blob.lower())
+                                if _informative(tok)}
+                if entry_tokens & question_tokens:
+                    staged += 1
+        except Exception:  # noqa: BLE001 - a stash probe never breaks Respond
+            staged = 0
+        if staged:
+            ctx.say(
+                f"Nothing believed on that yet, but {staged} staged "
+                "claim(s) in quarantine mention it - ':stash' lists "
+                "them, ':analyze' weighs them, ':promote <id>' "
+                "believes one."
+            )
+            ctx.note(self.name,
+                     f"no fact; {staged} staged claim(s) surfaced")
+            return
         ctx.say(
             "I don't hold anything on that yet. Tell me directly ('X is Y'), "
             "or give me a URL and I'll stash what it claims for analysis."

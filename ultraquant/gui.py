@@ -2319,7 +2319,12 @@ class UltraQuantGUI:
                               int(float(self.budget_var.get()) * 1024))
         except (tk.TclError, ValueError):
             pass
-        self.settings.set("home", str(self.home))
+        import tempfile
+        temp_root = str(Path(tempfile.gettempdir()).resolve())
+        # An ephemeral (temp-dir) home must not become the standing
+        # default.
+        if not str(Path(self.home).resolve()).startswith(temp_root):
+            self.settings.set("home", str(self.home))
         models = self._panel_models() if hasattr(self, "panel_tree") else []
         if models:
             # Only overwrite a remembered panel when one is actually selected,
