@@ -126,8 +126,20 @@ class TrainingReport:
                  f"{self.phrasings} phrasing(s)"]
         for name, count in sorted(self.trained.items()):
             lines.append(f"    {name:<14} {count} phrasing(s)")
+        # Identical skip reasons collapse into one line: a library holding
+        # dozens of synthetic families printed every one of them, and the
+        # signal (which categories were REALLY skipped, and why) drowned in
+        # a wall of "no real topic".
+        by_reason: dict[str, list[str]] = {}
         for name, why in sorted(self.skipped.items()):
-            lines.append(f"    {name:<14} skipped: {why}")
+            by_reason.setdefault(why, []).append(name)
+        for why, names in sorted(by_reason.items()):
+            if len(names) > 3:
+                lines.append(f"    {names[0]} .. {names[-1]} "
+                             f"({len(names)}) skipped: {why}")
+            else:
+                for name in names:
+                    lines.append(f"    {name:<14} skipped: {why}")
         if not self.model and not self.trained and not self.rolled_back:
             # Nothing loaded, nothing measured: a 0.000 -> 0.000 table
             # here reads as a broken router when the truth is that no

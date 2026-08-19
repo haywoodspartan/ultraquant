@@ -734,5 +734,151 @@ class PanelTabTests(unittest.TestCase):
                 os.environ["LMSTUDIO_BASE_URL"] = previous
 
 
+@unittest.skipUnless(_TK_OK, "Tk display not available")
+class DistillTests(unittest.TestCase):
+    """The Panel tab's distillation surface: the CLI contract, clickable.
+
+    No LM Studio is contacted: the trainer is stubbed, because what the
+    GUI owes is the wiring - session in, report to the log, router saved
+    only when something was taught, ledger label refreshed.
+    """
+
+    def setUp(self) -> None:
+        import queue as queue_module
+
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_distill_"))
+        self._old_config = os.environ.get("ULTRAQUANT_CONFIG")
+        os.environ["ULTRAQUANT_CONFIG"] = str(self.dir / "settings.json")
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.app = gui_module.UltraQuantGUI(self.root, self.dir / "home")
+        deadline = time.time() + 60
+        while time.time() < deadline and self.app.busy:
+            self.root.update()
+            time.sleep(0.02)
+        self.queue_module = queue_module
+
+    def tearDown(self) -> None:
+        if self._old_config is None:
+            os.environ.pop("ULTRAQUANT_CONFIG", None)
+        else:
+            os.environ["ULTRAQUANT_CONFIG"] = self._old_config
+        try:
+            self.root.destroy()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _drain(self, seconds: float = 5.0) -> None:
+        deadline = time.time() + seconds
+        while time.time() < deadline and self.app.busy:
+            self.root.update()
+            time.sleep(0.02)
+        self.root.update()
+
+    def test_the_ledger_label_reads_the_cumulative_state(self) -> None:
+        import json
+
+        vault = self.dir / "home" / "vault"
+        vault.mkdir(parents=True, exist_ok=True)
+        (vault / "distilled.json").write_text(json.dumps({
+            "teachers": ["a-7b", "b-9b"],
+            "phrasings": {"lines": ["x"] * 10, "arrows": ["y"] * 8},
+        }), encoding="utf-8")
+        self.app._distill_refresh()
+        label = self.app.distill_status.get()
+        self.assertIn("2 voice(s) taught", label)
+        self.assertIn("8-10/12", label)
+
+    def test_a_taught_run_reaches_the_log_and_saves_the_router(self) -> None:
+        from ultraquant.forge import train_from_llm as trainer
+
+        saved = []
+        report = trainer.TrainingReport()
+        report.model = "stub-7b"
+        report.trained = {"lines": 2}
+        report.before, report.after = 0.5, 0.75
+        report.decoys_before = report.decoys_after = 1.0
+
+        real_train = trainer.train_next_voice
+        real_save = self.app.session.router.save
+        trainer.train_next_voice = lambda session, home, **kw: report
+        self.app.session.router.save = lambda: saved.append(True)
+        try:
+            self.app._distill_next()
+            self._drain()
+        finally:
+            trainer.train_next_voice = real_train
+            self.app.session.router.save = real_save
+
+        log = self.app.panel_log.get("1.0", "end")
+        self.assertIn("stub-7b", log)
+        self.assertIn("router saved", log)
+        self.assertEqual(saved, [True])
+
+    def test_an_empty_run_saves_nothing(self) -> None:
+        """The CLI's persistence rule, kept: no teaching, no save."""
+        from ultraquant.forge import train_from_llm as trainer
+
+        saved = []
+        report = trainer.TrainingReport()
+        report.skipped["(all)"] = "every independent voice has already taught"
+
+        real_train = trainer.train_next_voice
+        real_save = self.app.session.router.save
+        trainer.train_next_voice = lambda session, home, **kw: report
+        self.app.session.router.save = lambda: saved.append(True)
+        try:
+            self.app._distill_next()
+            self._drain()
+        finally:
+            trainer.train_next_voice = real_train
+            self.app.session.router.save = real_save
+
+        self.assertEqual(saved, [])
+        self.assertIn("already taught",
+                      self.app.panel_log.get("1.0", "end"))
+
+    def test_lm_studio_down_is_a_message_not_a_traceback(self) -> None:
+        from ultraquant.forge import train_from_llm as trainer
+        from ultraquant.interpreter.lmstudio import LMStudioUnavailable
+
+        def down(session, home, **kw):
+            raise LMStudioUnavailable("nobody home")
+
+        real_train = trainer.train_next_voice
+        trainer.train_next_voice = down
+        try:
+            self.app._distill_next()
+            self._drain()
+        finally:
+            trainer.train_next_voice = real_train
+
+        log = self.app.panel_log.get("1.0", "end")
+        self.assertIn("LM Studio unavailable: nobody home", log)
+        self.assertIsNone(self.app.last_error)
+
+
+class SkipGroupingTests(unittest.TestCase):
+    """Identical skip reasons collapse; distinct ones stay itemised."""
+
+    def test_a_wall_of_identical_skips_becomes_one_line(self) -> None:
+        from ultraquant.forge.train_from_llm import TrainingReport
+
+        report = TrainingReport()
+        report.model = "stub"
+        report.trained = {"lines": 1}
+        report.before = report.after = 0.5
+        report.decoys_before = report.decoys_after = 1.0
+        for index in range(24):
+            report.skipped[f"family_{index:03d}"] = (
+                "synthetic family, no real topic")
+        report.skipped["world"] = "only 1 new usable phrasing(s)"
+        text = report.as_text()
+        self.assertIn("family_000 .. family_023 (24) skipped:", text)
+        self.assertNotIn("family_007", text)
+        self.assertIn("world", text)
+
+
 if __name__ == "__main__":
     unittest.main()

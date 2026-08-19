@@ -47,7 +47,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1277 tests, ~4 min
+python -m unittest discover -s tests      # 1282 tests, ~4 min
 ```
 
 In the chat, try:
@@ -77,7 +77,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1277 tests across 67 modules
+tests/         1282 tests across 67 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
@@ -110,6 +110,9 @@ falls back to defaults and says what it could not use.
 ```bash
 python -m ultraquant.forge.train_from_llm uq_home --next
 ```
+
+The same run is one click in the GUI: **Panel -> Distill next voice**,
+with the cumulative ledger shown beside the button.
 
 Each invocation trains from the **next untried voice, smallest model first** -
 one model loaded at a time, never several. The budget is cumulative: each

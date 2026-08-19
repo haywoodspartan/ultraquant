@@ -811,8 +811,26 @@ class UltraQuantGUI:
                         variable=self.panel_to_stash).pack(anchor="w", padx=8,
                                                            pady=(0, 8))
 
+        distill = ttk.LabelFrame(frame, text="Distill into the library")
+        distill.pack(fill="x", padx=6, pady=(0, 6))
+        drow = ttk.Frame(distill)
+        drow.pack(fill="x", padx=8, pady=8)
+        ttk.Button(drow, text="Distill next voice",
+                   command=self._distill_next).pack(side="left")
+        self.distill_status = tk.StringVar(value="ledger not read yet")
+        ttk.Label(drow, textvariable=self.distill_status, wraplength=840,
+                  justify="left").pack(side="left", padx=12)
+        ttk.Label(distill, text=(
+            "One model per click, smallest untried voice first - a lineage "
+            "sibling of a used teacher is skipped, the cumulative budget "
+            "stops at the measured ceiling, and a run that makes the router "
+            "claim unrelated queries rolls itself back."),
+            wraplength=980, justify="left").pack(anchor="w", padx=8,
+                                                 pady=(0, 8))
+
         self.panel_log = self._text(frame, height=14)
         self.panel_log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self._distill_refresh()
 
     def _build_settings_tab(self) -> None:
         """Edit the persisted settings directly.
@@ -1130,6 +1148,8 @@ class UltraQuantGUI:
                     self.answer_input.insert("1.0", payload)
                 elif tag == "panel_status":
                     self.panel_status.set(payload)
+                elif tag == "distill_status":
+                    self._distill_refresh()
                 elif tag == "panel_tree":
                     self._fill_panel_tree(payload)
                 elif tag == "panel_reload":
@@ -2118,6 +2138,65 @@ class UltraQuantGUI:
 
         self._run_async(f"{'Loading' if load else 'Unloading'} models",
                         work)
+
+    def _distill_refresh(self) -> None:
+        """Show the cumulative distillation ledger beside the button."""
+        try:
+            from ultraquant.forge.distill import SAFE_PHRASINGS_PER_CATEGORY
+            from ultraquant.forge.train_from_llm import _catalogue_state
+
+            state = _catalogue_state(self.home)
+            teachers = state.get("teachers", [])
+            taught = state.get("phrasings", {})
+            if taught:
+                used = [len(items) for items in taught.values()]
+                budget = (f"{min(used)}-{max(used)}"
+                          if min(used) != max(used) else str(used[0]))
+                summary = (f"{len(teachers)} voice(s) taught; "
+                           f"{budget}/{SAFE_PHRASINGS_PER_CATEGORY} "
+                           "phrasings per category banked")
+            else:
+                summary = (f"{len(teachers)} voice(s) taught; "
+                           "nothing banked yet")
+            self.distill_status.set(summary)
+        except Exception:  # noqa: BLE001 - a ledger probe never breaks the tab
+            self.distill_status.set("ledger unreadable - see the log")
+
+    def _distill_next(self) -> None:
+        """Distill the next untried voice into the library, transactionally.
+
+        The same contract as ``train_from_llm --next``, driven from the
+        session this window already holds: one model loaded per run,
+        smallest untried voice first, held-out routing and the decoy
+        control measured every time, and a run the decoys reject is rolled
+        back in the same transaction. The router is saved only when
+        something was actually taught - the CLI's exact persistence rule.
+        """
+        if self.session is None:
+            self._notify("The session is still starting - try again in a "
+                         "moment.")
+            return
+
+        def work() -> None:
+            from ultraquant.forge.train_from_llm import train_next_voice
+            from ultraquant.interpreter.lmstudio import LMStudioUnavailable
+
+            self.events.put(("panel", "\n=== distilling next voice ===\n"))
+            try:
+                report = train_next_voice(self.session, self.home)
+            except LMStudioUnavailable as exc:
+                self.events.put(("panel",
+                                 f"LM Studio unavailable: {exc}\n"))
+                return
+            self.events.put(("panel", report.as_text() + "\n"))
+            if report.trained:
+                self.session.router.save()
+                self.events.put(("panel",
+                                 f"router saved to "
+                                 f"{self.session.router.path}\n"))
+            self.events.put(("distill_status", None))
+
+        self._run_async("Distilling next voice", work)
 
     def _panel_ask(self) -> None:
         """Put the question to every selected model, in isolation."""
