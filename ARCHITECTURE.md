@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.18 · 1317 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.19 · 1327 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         70 modules, 1317 tests
+tests/         71 modules, 1327 tests
 ```
 
 ---
@@ -3409,6 +3409,43 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.36 Adjective tolerance: one word may decorate, never substitute
+
+§11.35's registered claim, closed with the safety argument carried in
+the structure. One library-unknown token may be dropped and the spread
+retried — on the inference path ONLY. It is safe there because
+convergence still demands a bridge: drop "tungsten" from "the melting
+point of tungsten" and the residual's coverage is all-direct, which the
+spread already refuses as plain recall's territory; drop "weathered"
+from "the weathered tower conductivity" and the residual converges
+through ``tower material -> steel``. The recall path never gets the
+drop — there, the same trick would assert steel's number for tungsten,
+the §11.29 fabrication verbatim. Two unknown tokens refuse outright:
+that is not decoration, it is a question the library does not
+understand, and saying so beats guessing which word mattered. Curiosity
+gets the tolerance too, but by a POSITIONAL rule, because there the
+one-unknown test cannot work: in the missing-premise scenario the asked
+attribute is itself library-unknown (that is why it is missing), so
+"weathered tower conductivity" holds two unknowns. An adjective precedes
+a key-known token; the asked attribute precedes nothing known — so
+"weathered" drops, "conductivity" survives into the ask, and the ghost
+in "obelisk melting point" drops the same way only to die at the
+empty-remainder guard.
+
+**The gate PASSED:**
+
+| arm | tolerated answers |
+|---|---:|
+| baseline | 0.000 |
+| modifier | **0.667** |
+
+**+0.667 at 1.35x seed sd**, zero unknown-entity fabrications across
+every decoy in either arm, every tolerated answer naming the token it
+dropped ("reading 'weathered' as a modifier") so a reader can veto the
+reading. The 0.333 miss is the double-modifier worlds, refused by the
+at-most-one rule. Tolerance without a new hole, because the old guard
+does the guarding.
+
 ### 11.35 Compound questions: sequential attention, honest halves, hygienic asks
 
 "What is the tower melting point and the bridge length?" used to demote
@@ -4179,6 +4216,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | curiosity from failed inference | **PASSED** (§11.33) — a refused convergence asks for its missing premise through the learn queue; the fail->ask->learn->infer loop closes in 0.750 of worlds at 1.62x sd with 1.000 premise precision, zero spam, zero ungrounded asks |
 | the ladder | **PASSED narrowly** (§11.34) — hint-guided climbing closes depth-4/5 questions at +0.625 (1.21x sd) using exactly the depth-minimal confirmations (1.80 vs 1.80); bottom revision retracts the whole ladder, zero stale |
 | compound questions | **PASSED** (§11.35) — conjunctions decompose through the full single-question machinery: +0.778 full answers at 1.76x sd, missing halves named at 1.000, arithmetic decoys held, zero malformed curiosity keys; adjective brittleness recorded as the next claim |
+| adjective tolerance | **PASSED** (§11.36) — one unknown token reads as a modifier on the inference path only (+0.667 at 1.35x sd), named in every answer, zero unknown-entity fabrications in either arm; the bridge requirement is the safety proof |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

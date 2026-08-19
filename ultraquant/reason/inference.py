@@ -337,6 +337,29 @@ def missing_premise(text: str, memory) -> dict | None:
     question_tokens = _fold(text)
     if len(question_tokens) < 2:
         return None
+    # The same modifier tolerance the inference path has, but the
+    # one-unknown rule cannot work here: in the missing-premise scenario
+    # the asked-about attribute is ITSELF library-unknown (that is why it
+    # is missing), so "weathered tower conductivity" holds two unknowns.
+    # The discriminator is positional - an adjective PRECEDES a key-known
+    # token ("weathered tower"), while the asked attribute precedes
+    # nothing known. "obelisk melting point" drops its ghost the same way
+    # and then dies at the empty-remainder guard below.
+    raw_sequence = [normalize_token(tok)
+                    for tok in _TOKEN_RE.findall(text.lower())]
+    droppable = set()
+    for index, folded in enumerate(raw_sequence):
+        if folded not in question_tokens:
+            continue
+        if not _library_unknown(folded, memory):
+            continue
+        following = next((later for later in raw_sequence[index + 1:]
+                          if later in question_tokens), None)
+        if following is not None and not _library_unknown(following,
+                                                          memory):
+            droppable.add(folded)
+    if len(droppable) == 1 and len(question_tokens) >= 3:
+        question_tokens = question_tokens - droppable
     probes = [" ".join(sorted(question_tokens))] + sorted(question_tokens)
     facts = _reachable_facts(memory, probes)
     best: tuple | None = None
@@ -378,6 +401,14 @@ def missing_premise(text: str, memory) -> dict | None:
     return best[1] if best is not None else None
 
 
+def _library_unknown(token: str, memory) -> bool:
+    """True when no held fact key contains this token."""
+    for key in memory.find_facts(token, top_k=3):
+        if token in _fold(key):
+            return False
+    return True
+
+
 def infer(text: str, memory) -> Inference | None:
     """Derive an answer from stored facts, or None.
 
@@ -395,4 +426,25 @@ def infer(text: str, memory) -> Inference | None:
     combined = _combine(question_tokens, text, memory)
     if combined is not None:
         return combined
-    return _spread(question_tokens, memory)
+    direct = _spread(question_tokens, memory)
+    if direct is not None:
+        return direct
+
+    # Adjective tolerance, on the INFERENCE path only (§11.35's registered
+    # claim). "the weathered tower conductivity" fails whole because no
+    # key holds "weathered"; dropping ONE library-unknown token and
+    # retrying is safe HERE because convergence still demands a bridge -
+    # "the melting point of tungsten" minus "tungsten" leaves tokens whose
+    # coverage is all-direct, which the spread already refuses as plain
+    # recall's territory. The same drop on the exact/keyword path would
+    # assert steel's number for tungsten, which is exactly the fabrication
+    # the demotion rule exists to prevent - so recall never gets it.
+    unknown = [tok for tok in question_tokens
+               if _library_unknown(tok, memory)]
+    if len(unknown) == 1 and len(question_tokens) >= 3:
+        residual = question_tokens - set(unknown)
+        tolerated = _spread(residual, memory)
+        if tolerated is not None:
+            tolerated.answer += f" (reading '{unknown[0]}' as a modifier)"
+            return tolerated
+    return None
