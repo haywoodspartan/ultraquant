@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.16 · 1294 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.17 · 1302 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         68 modules, 1294 tests
+tests/         69 modules, 1302 tests
 ```
 
 ---
@@ -3409,6 +3409,42 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.34 The ladder: the system's own hints steer its teaching, at exactly minimal cost
+
+§11.31 left "stepwise confirmation of longer chains" unmeasured, and
+building the protocol found the better claim: the curiosity hints
+(§11.33) already form the guide. A refused deep question names the
+premise it needs; asking THAT question either derives (two bridges of
+reach) or refuses with the next hint down; each confirmed derivation
+consolidates two bridges into one recallable fact. The gate's driver is
+deliberately mechanical — follow the hint, say "yes" to what derives,
+know nothing about the world — because the claim is that the SYSTEM
+carries the plan, not the teacher.
+
+Two protocol corrections first, both conservative, both recorded:
+depth-3 worlds sat inside §11.30's direct reach and closed in both arms
+(+0.500 at 0.94x sd of pure dilution), and the driver was affirming the
+deep question itself, padding the confirmation count. Then:
+
+| arm | closure | stale after revise |
+|---|---:|---:|
+| baseline | 0.000 | 0.000 |
+| ladder | **0.625** | 0.000 |
+
+**+0.625 at 1.21x seed sd** — §11.31's narrow-margin class, from the
+same binary world structure — and the finding worth the section:
+**1.80 confirmations per closed world against a depth-minimal 1.80**.
+Hint-guided climbing is not merely sufficient, it is exactly minimal.
+Broken-rung worlds all stalled cleanly; after revising the chain's
+bottom fact, zero stale assertions — the recursive retraction takes the
+whole ladder down with its premise.
+
+What the cognitive loop now composes to, measured at every joint:
+a question too deep to answer guides its own teaching down to the
+reachable rung, climbs back up on confirmations, answers, survives
+revision honestly — and every step of that sentence has a gate behind
+it (§11.30, §11.31, §11.33, here).
+
 ### 11.33 Curiosity: a refused inference asks for exactly what it was missing
 
 "Teach it so that it can learn." The learn queue could survey for
@@ -4105,6 +4141,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | consolidation + truth maintenance | **PASSED narrowly** (§11.31) — a confirmed derivation extends reach past the activation floor (+0.625 at 1.21x sd) with zero stale answers and zero repetition leaks; the flush-resurrection defect found and fixed on the way |
 | validator tightening | **FAILED** (§11.32) — margin-and-floor recalls 0.050 of the reader's rejections at an unstable operating point; the reader judges shape gestalt, blind reading becomes the permanent admission protocol, and the built-but-not-adopted shelf gains strict_contradiction |
 | curiosity from failed inference | **PASSED** (§11.33) — a refused convergence asks for its missing premise through the learn queue; the fail->ask->learn->infer loop closes in 0.750 of worlds at 1.62x sd with 1.000 premise precision, zero spam, zero ungrounded asks |
+| the ladder | **PASSED narrowly** (§11.34) — hint-guided climbing closes depth-4/5 questions at +0.625 (1.21x sd) using exactly the depth-minimal confirmations (1.80 vs 1.80); bottom revision retracts the whole ladder, zero stale |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
