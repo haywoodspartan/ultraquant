@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.13 · 1268 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.14 · 1277 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         66 modules, 1268 tests
+tests/         67 modules, 1277 tests
 ```
 
 ---
@@ -3409,6 +3409,35 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.32 The validator cannot be tightened into the reader, and the shelf gains a resident
+
+§11.28 registered one open mechanism: tighten the shift-Jaccard validator
+against the curation file as ground truth. Built as
+`strict_contradiction` — the historical nearest-anchor rule plus the two
+checks the reader's rejections decompose onto, a floor (18 of 31 read as
+*nothing*) and a margin (13 read as a *different* label). The gate split
+calibration from evaluation (tuning thresholds on the data that grades
+them manufactures a pass): per split seed, grid-search (margin, floor) on
+half the verdicts, score the untouched half. Bars pre-registered: keep
+>=95% of reader-kept, catch >=50% of reader-rejected.
+
+**It FAILED, decisively**: held-half recall **0.050**, keep rate 0.947 —
+under its own bar, so even five percent recall was bought by shedding
+good variants — and the calibration never stabilised (two of five splits
+found no admissible grid point at all). The rejected items do not sit
+lower in shift-Jaccard agreement than the kept ones. The reader rejects
+on **shape gestalt** — whether a taper points, whether a silhouette reads
+— which agreement-under-shift does not encode on any threshold.
+
+Two consequences. The blind-reading protocol (§11.28) is **permanent**,
+not stopgap: mechanical validation catches gross errors at drawing time,
+and admission to the training bank goes through a reader. And
+`strict_contradiction` becomes the built-but-not-adopted shelf's third
+resident, beside `center_glyph` (§11.21) and `scale_normalize` (§11.22):
+correct at what it does, tested, measured out of a job — the shelf itself
+now a small monument to the difference between building a mechanism and
+earning its deployment.
+
 ### 11.31 Consolidation: a confirmed thought becomes memory, and revision takes it back
 
 §11.30 ended with consolidation registered — the episodic-to-semantic
@@ -4032,6 +4061,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | blind curation | **PASSED** (§11.28) — a blind independent reader (Claude Fable 5, named as such) rejected 26% of the banks; dropping those lifts endorsed-held recognition +0.072 at 2.00x sd, and the old ceiling's errors concentrate in the rejected pile (0.406 vs 0.580) |
 | spreading-activation inference | **PASSED** (§11.30) — self-initiated derivation answers 0.938 of chain/combination questions at 8.10x sd with zero decoy falls and recall untouched; convergence, not completion, and the trail is the answer |
 | consolidation + truth maintenance | **PASSED narrowly** (§11.31) — a confirmed derivation extends reach past the activation floor (+0.625 at 1.21x sd) with zero stale answers and zero repetition leaks; the flush-resurrection defect found and fixed on the way |
+| validator tightening | **FAILED** (§11.32) — margin-and-floor recalls 0.050 of the reader's rejections at an unstable operating point; the reader judges shape gestalt, blind reading becomes the permanent admission protocol, and the built-but-not-adopted shelf gains strict_contradiction |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

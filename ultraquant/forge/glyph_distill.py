@@ -148,6 +148,51 @@ def contradiction(rows: list[str], label: str) -> str | None:
     return None
 
 
+def strict_contradiction(rows: list[str], label: str,
+                         margin: float = 0.0,
+                         floor: float = 0.0) -> str | None:
+    """:func:`contradiction` with the two laxities the blind reader exposed.
+
+    ARCHITECTURE §11.28 measured the plain rule admitting 26% of the banks
+    against an independent reading, and the rejections decompose exactly onto
+    the two checks this adds:
+
+    * **floor** — a glyph must resemble its own canonical at least this much.
+      18 of the 31 reader-rejected variants read as *nothing*: they were each
+      nearest their claimed label, but weakly, and "nearest" was the whole
+      old test.
+    * **margin** — the own-label agreement must beat the best other label by
+      at least this much. The other 13 rejections read as a *different*
+      label; most had won their claim by a whisker.
+
+    Returns the offending other label, the sentinel ``"(ambiguous)"`` for a
+    floor failure, or None when the variant passes. With both parameters at
+    0.0 this is exactly the historical rule.
+
+    **The gate ran, and no operating point earned a caller** — see
+    ``experiments/validator_gate.py``: held-half recall 0.050 against a
+    0.50 bar, unstable calibration across splits. The reader rejects on
+    shape gestalt, which agreement thresholds do not encode, so this
+    function is the built-but-not-adopted shelf's third resident, beside
+    :func:`~ultraquant.pattern.recognition.center_glyph` and
+    :func:`~ultraquant.pattern.recognition.scale_normalize`. Bank
+    admission goes through a blind reading (§11.28), permanently.
+    """
+    own = _agreement(rows, PATTERNS[label])
+    if own < floor:
+        return "(ambiguous)"
+    best_other, offender = 0.0, None
+    for other, canonical in PATTERNS.items():
+        if other == label:
+            continue
+        score = _agreement(rows, canonical)
+        if score > best_other:
+            best_other, offender = score, other
+    if best_other > own or own - best_other < margin:
+        return offender
+    return None
+
+
 def generate_variants(client, model: str, label: str, count: int = 6,
                       max_tokens: int = 700) -> VariantReport:
     """Ask a model to draw variants of one canonical glyph, validated.
