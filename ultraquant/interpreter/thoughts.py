@@ -45,6 +45,13 @@ __all__ = [
 
 _URL_RE = re.compile(r"https?://\S+")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+#: A whole-input affirmation. Deliberately strict: only a bare agreement
+#: confirms a pending inference - anything longer is a new thought.
+_AFFIRMATION_RE = re.compile(
+    r"(yes|correct|right|indeed|confirmed|exactly|"
+    r"yes[ ,]+(that is|that's) (right|correct)|that is (right|correct)|"
+    r"that's (right|correct))[.!]?")
 _GLYPH_ROW = re.compile(r"^[#.]{5}$")
 
 #: A text opening with one of these is a question even without a question mark.
@@ -106,6 +113,11 @@ class Session:
     last_trace: list[dict] = field(default_factory=list)
     #: The backend the shard library lives on, if one was configured.
     storage: Any | None = None
+    #: A chain inference from the IMMEDIATELY previous turn, waiting for
+    #: the user to confirm it. One turn of freshness only: Perceive clears
+    #: it at the start of every run, so repetition can never consolidate -
+    #: that is SS11.16's trap, and only an explicit affirmation promotes.
+    pending_inference: dict | None = None
     #: Pattern-driven prefetcher, present when the storage has a RAM tier.
     working_set: Any | None = None
     #: The byte-bounded conversation window (§11.14): recent turns resident in
@@ -256,6 +268,16 @@ class Perceive(Thought):
 
         rows = _glyph_rows(text)
         lowered = text.lower()
+        # One-turn freshness for a pending inference: whatever this input
+        # is, the previous turn's derivation is no longer pending after it.
+        pending = getattr(ctx.session, "pending_inference", None)
+        ctx.session.pending_inference = None
+        if pending is not None and _AFFIRMATION_RE.fullmatch(lowered.strip()):
+            ctx.data["intent"] = "affirmation"
+            ctx.data["affirmed_inference"] = pending
+            ctx.note(self.name, "intent=affirmation, confirms pending "
+                                "inference", intent="affirmation")
+            return
         if rows is not None:
             intent = "glyph"
             ctx.data["glyph_rows"] = rows
@@ -444,6 +466,7 @@ class Reason(Thought):
             "glyph": self._glyph,
             "question": self._question,
             "fact_statement": self._fact,
+            "affirmation": self._affirm,
         }.get(intent, self._chat)
         handler(ctx)
 
@@ -800,6 +823,13 @@ class Reason(Thought):
         derived = infer(ctx.text, memory)
         if derived is not None:
             ctx.say(derived.describe())
+            if derived.conclusion is not None:
+                key, value = derived.conclusion
+                ctx.session.pending_inference = {
+                    "key": key, "value": value,
+                    "confidence": derived.confidence,
+                    "premises": list(derived.premises),
+                }
             ctx.note(self.name,
                      f"inferred ({derived.kind}) from "
                      f"{len(derived.premises)} facts: "
@@ -891,6 +921,33 @@ class Reason(Thought):
             "or give me a URL and I'll stash what it claims for analysis."
         )
         ctx.note(self.name, "no matching fact")
+
+    def _affirm(self, ctx: ThoughtContext) -> None:
+        """Consolidate the derivation the user just confirmed.
+
+        The episodic-to-semantic move, behind the only non-circular signal
+        available: the user said so. The derived fact keeps its diluted
+        confidence and its provenance, and the provenance is what lets a
+        later premise revision retract it (truth maintenance in
+        :meth:`SystematicMemory.remember_fact`).
+        """
+        pending = ctx.data.get("affirmed_inference") or {}
+        key = pending.get("key")
+        value = pending.get("value")
+        if not key or value is None:
+            ctx.say("Nothing is pending confirmation.")
+            ctx.note(self.name, "affirmation with nothing pending")
+            return
+        ctx.session.memory.consolidate_fact(
+            key, value,
+            confidence=float(pending.get("confidence", 0.0)),
+            premises=pending.get("premises", []),
+        )
+        ctx.say(f"Consolidated: {key} is {value} - derived and confirmed, "
+                "now recallable, and retracted automatically if a premise "
+                "is ever revised.")
+        ctx.note(self.name, f"consolidated {key!r} from "
+                            f"{len(pending.get('premises', []))} premises")
 
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.12 · 1253 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.13 · 1268 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         65 modules, 1253 tests
+tests/         66 modules, 1268 tests
 ```
 
 ---
@@ -3409,6 +3409,51 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.31 Consolidation: a confirmed thought becomes memory, and revision takes it back
+
+§11.30 ended with consolidation registered — the episodic-to-semantic
+move, and the second half of the brain-shaped story: derivation that
+earns confirmation should stop being re-derived and become recallable,
+usable as a premise. The signal question decides everything here.
+Repetition is NOT a signal — §11.16 measured reinforcement without
+confirmation making errors 3.9x harder to overturn — so the only
+promoter is the user's explicit affirmation, and pending state survives
+exactly one turn: "yes" immediately after a derivation consolidates it;
+"yes" after anything else agrees with something else.
+
+The price of materialising a conclusion is staleness, so **truth
+maintenance** ships in the same commit: a consolidated fact carries its
+premises (`derived_from`), and revising any premise retracts every
+conclusion resting on it, recursively, with a retraction episode logged.
+The staleness control caught a real defect before the gate even ran: the
+fact-shard store's `flush` skipped emptied buckets, so a retracted fact
+resurrected from the stale vault bucket — and recall-reinforcement then
+re-persisted the ghost. Deleting the last fact in a bucket was a silent
+no-op. Fixed in `factshards.flush`, pinned in
+`tests/test_consolidation.py`.
+
+**The gate** (two arms over generated depth-3 worlds, baseline with
+`consolidate_fact` disabled): derive the intermediate step, affirm, then
+ask the question §11.30 measured as refused. It forced two metric
+corrections first — the honest "Nearest I hold" demotion was being
+counted as an assertion because the value string appears in it, and the
+first world build miscounted its own hops — then **PASSED, narrowly, in
+§11.13's tradition of saying so**:
+
+| arm | deep reach | stale rate | repetition leak |
+|---|---:|---:|---:|
+| baseline | 0.000 | 0.000 | 0.000 |
+| consolidation | **0.625** | 0.000 | 0.000 |
+
++0.625 at **1.21x seed sd**, zero stale answers after premise revision,
+zero repetition leaks. The 0.375 miss is the depth-4 worlds, where the
+intermediate itself sits past the activation floor and nothing earns
+confirmation: **one confirmation buys exactly one step of reach**.
+Stepwise confirmation of longer chains is unmeasured and would need its
+own protocol. With this, the cycle the architecture claims is closed and
+measured end to end: perceive -> recall -> infer -> confirm ->
+consolidate -> revise -> retract.
+
 ### 11.30 Inference by spreading activation: the library thinks, and the gate holds
 
 The question path could recall what it was told and could derive when
@@ -3986,6 +4031,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | load and its anchor remedy | **NOT SUPPORTED, twice** (§11.27) — the size curve is flat (+0.000 at sd 0.040 across a 6x mass range); §11.25's regression reclassified as borderline noise on the hardest slice; the chain closes on data ambiguity, measurable only with human labels |
 | blind curation | **PASSED** (§11.28) — a blind independent reader (Claude Fable 5, named as such) rejected 26% of the banks; dropping those lifts endorsed-held recognition +0.072 at 2.00x sd, and the old ceiling's errors concentrate in the rejected pile (0.406 vs 0.580) |
 | spreading-activation inference | **PASSED** (§11.30) — self-initiated derivation answers 0.938 of chain/combination questions at 8.10x sd with zero decoy falls and recall untouched; convergence, not completion, and the trail is the answer |
+| consolidation + truth maintenance | **PASSED narrowly** (§11.31) — a confirmed derivation extends reach past the activation floor (+0.625 at 1.21x sd) with zero stale answers and zero repetition leaks; the flush-resurrection defect found and fixed on the way |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

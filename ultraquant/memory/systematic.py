@@ -213,7 +213,18 @@ class SystematicMemory:
             existing["value"] = value
             existing["confidence"] = float(confidence)
             existing["last_seen"] = now
+            # A revision breaks every conclusion that rested on the old
+            # value: truth maintenance retracts derived facts recursively,
+            # so the next question re-derives from what is NOW believed
+            # instead of recalling a conclusion whose premise is gone.
+            existing.pop("derived_from", None)
             self._put_fact(key, existing)
+            for gone in self._retract_derivatives(key):
+                self.remember_episode(
+                    kind="retraction",
+                    content={"key": gone,
+                             "because": f"premise {key!r} was revised"},
+                )
             self.remember_episode(
                 "revision",
                 {"key": key, "old_value": old_value, "new_value": value},
@@ -249,6 +260,64 @@ class SystematicMemory:
         """Return the stored fact record for ``key``, or None if absent."""
         fact = self._fact_record(key)
         return dict(fact) if fact is not None else None
+
+    # ------------------------------------------------------------------
+    # Consolidated (derived) facts and their truth maintenance
+    # ------------------------------------------------------------------
+
+    def consolidate_fact(self, key: str, value: Any, confidence: float,
+                         premises: list) -> None:
+        """Store a *derived* fact with the premises it rests on.
+
+        The brain-shaped move (ARCHITECTURE §11.30's registered successor):
+        a derivation that earned confirmation stops being re-derived and
+        becomes recallable - and usable as a premise for further
+        derivation, which is how two honest hops become three.
+
+        The price of materialising a conclusion is staleness, so the
+        provenance is load-bearing, not decorative: every premise
+        ``(key, value)`` is recorded, and :meth:`remember_fact` retracts
+        any derived fact whose premise is later revised. §11.16 measured
+        what an entrenched wrong answer costs; a consolidated fact that
+        outlives its premises is that error with a memory.
+        """
+        now = _utc_now()
+        self._put_fact(key, {
+            "value": value,
+            "confidence": float(confidence),
+            "reinforcements": 0,
+            "first_seen": now,
+            "last_seen": now,
+            "derived_from": [[str(p_key), str(p_value)]
+                             for p_key, p_value in premises],
+        })
+
+    def _retract_derivatives(self, revised_key: str) -> list[str]:
+        """Drop every derived fact resting on ``revised_key``, recursively.
+
+        Returns the retracted keys, for the caller's episode log.
+        """
+        retracted: list[str] = []
+        stack = [revised_key]
+        while stack:
+            changed = stack.pop()
+            for key in list(self.fact_keys()):
+                record = self._fact_record(key)
+                if not record or "derived_from" not in record:
+                    continue
+                if any(p_key == changed
+                       for p_key, _v in record["derived_from"]):
+                    self._drop_fact(key)
+                    retracted.append(key)
+                    stack.append(key)
+        return retracted
+
+    def _drop_fact(self, key: str) -> None:
+        """Remove a fact from whichever store is in use."""
+        if self.shards is not None:
+            self.shards.delete(key)
+        else:
+            self._facts.pop(key, None)
 
     # ------------------------------------------------------------------
     # Signature index

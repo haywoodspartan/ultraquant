@@ -208,7 +208,15 @@ class FactShards:
         written = 0
         with self.vault.batch():
             for shard_id, facts in self._dirty.items():
-                if not facts:
+                # An EMPTY staged bucket is not "nothing to do" - it means
+                # every fact in it was deleted, and skipping it resurrects
+                # them: the vault keeps the old bucket, the cache keeps the
+                # old payload, and the next recall serves a record that was
+                # retracted. Found live when truth maintenance deleted a
+                # consolidated fact whose bucket held nothing else - the
+                # stale answer came back, and recall-reinforcement then
+                # re-persisted the ghost.
+                if not facts and not self.vault.has(shard_id):
                     continue
                 associations = {}
                 for key in facts:

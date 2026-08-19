@@ -86,6 +86,9 @@ class Inference:
     premises: list = field(default_factory=list)
     confidence: float = 0.0
     kind: str = ""
+    #: ``(key, value)`` a chain's conclusion would be stored under if it
+    #: earns consolidation. Combines carry None: arithmetic re-derives.
+    conclusion: tuple | None = None
 
     def describe(self) -> str:
         """The answer with its premises named - inferred, never asserted."""
@@ -229,6 +232,7 @@ def _spread(question_tokens: set[str], memory) -> Inference | None:
         premises=premises,
         confidence=min(confidences) if confidences else 0.0,
         kind="chain",
+        conclusion=(f"{subject} {asked}", str(best.record.get("value", ""))),
     )
 
 

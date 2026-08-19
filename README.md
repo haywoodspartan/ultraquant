@@ -27,6 +27,7 @@ failures are documented next to the passes
 | **Grounded language** | induced lexicon, order and frame — no templates, asserted over the AST; speaks what it perceives, in three languages, at nesting depths never seen in training |
 | **Self-learning loop** | finds its own gaps, asks the web first (through a found-is-not-believed quarantine), asks the human second |
 | **Spreading-activation inference** | answers questions the library holds only implicitly: activation converges across stored facts (0.938 of chain/arithmetic questions at 8.10x sd, zero fabrication decoys fell); premises named, marked inferred, confidence diluted |
+| **Consolidation + truth maintenance** | say "yes" to a derivation and it becomes recallable memory usable as a premise (+0.625 reach at 1.21x sd); revise a premise and every conclusion resting on it retracts, recursively |
 | **Evidence accumulation** | corroboration and contradiction typed and graded from live-web measurement; belief rises by degree, conflicts become questions |
 | **Learned dispatch** | cores, threads and tiers decided by machine-learned experience — three brains (classical net / variational quantum circuit / one-qubit-per-core committee) in a measured shootout; 13x regret removed vs the static preference walk |
 
@@ -46,7 +47,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1253 tests, ~4 min
+python -m unittest discover -s tests      # 1268 tests, ~4 min
 ```
 
 In the chat, try:
@@ -76,7 +77,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1253 tests across 65 modules
+tests/         1268 tests across 66 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
