@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.9 · 1215 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.10 · 1225 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         62 modules, 1215 tests
+tests/         63 modules, 1225 tests
 ```
 
 ---
@@ -3409,6 +3409,45 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.28 The blind reader confirmed the last suspect, and the chain ends with a mechanism
+
+§11.27 said the remaining question needed an oracle. The user delegated the
+reading, so the oracle is named in the record for what it is: **Claude Fable
+5, not a human** — an independent reader, blind-protocolled, overturnable.
+All 120 banked variants were exported shuffled and unlabeled; the reader
+named what each grid reads as with only the canonical reference card, and a
+script joined the readings against the claims afterwards. Expectation could
+not anchor a verdict it never saw.
+
+**The reader rejected 31 of 120 (26%).** The disagreements sit where the
+geometry predicts: arrows lose the most (claimed arrows reading as plus,
+diamond, or nothing — arrows and plus share the full middle bar, so a
+sloppy taper collapses the distinction), then plus→none and stripes_v→none.
+
+**The gate — criteria registered before a single glyph was read — PASSED:**
+
+| arm | held (kept-only) | noisy canon (control) |
+|---|---:|---:|
+| trained on kept only | **0.633** | 0.840 |
+| trained on everything | 0.561 | 0.797 |
+
++0.072 at exactly **2.00x seed sd**, control improved. The concentration
+diagnostic corroborates from the other side: under the historical protocol,
+reader-kept held items score 0.580 against **0.406** on the rejected pile —
+the §11.20–§11.27 ceiling's error mass sits precisely where the blind
+reader said it would, measured before any retraining.
+
+So the eight-section investigation ends with a confirmed mechanism instead
+of another burial: the shift-Jaccard validator admits drawings a reader
+refuses, those drawings were the training poison, and curation is the fix.
+The boundaries stay honest: ambiguity was *part* of the ceiling (endorsed
+data reaches 0.633, so §11.20–§11.24's feature and capacity limits remain
+real); the validator is unchanged, because tightening it is a new mechanism
+needing its own gate against the curation file as ground truth; and future
+variant training trains on the curated bank
+(`glyph_curation.json` beside the banks, every rejection stored with what
+it read as instead, for any human to overturn).
+
 ### 11.27 Load dies too, and the variant chain closes on the data itself
 
 The load gate crossed taught-set size {15, 30, 60, 90} from the pooled banks
@@ -3834,6 +3873,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | the data lever | **FAILED** (§11.25) — 67 new validated variants from six voices score -0.073 at -1.05x sd on the frozen held set; balance and capacity cleared post-hoc; the diagnosis is off-distribution interference between drawing styles |
 | one-distribution hypothesis | **NOT REJECTED** (§11.26) — cross-bank transfer holds within one sd both directions; §11.25's style diagnosis dies; the surviving suspect is variant load against a thinning canonical anchor |
 | load and its anchor remedy | **NOT SUPPORTED, twice** (§11.27) — the size curve is flat (+0.000 at sd 0.040 across a 6x mass range); §11.25's regression reclassified as borderline noise on the hardest slice; the chain closes on data ambiguity, measurable only with human labels |
+| blind curation | **PASSED** (§11.28) — a blind independent reader (Claude Fable 5, named as such) rejected 26% of the banks; dropping those lifts endorsed-held recognition +0.072 at 2.00x sd, and the old ceiling's errors concentrate in the rejected pile (0.406 vs 0.580) |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
