@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.19 · 1327 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.20 · 1343 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         71 modules, 1327 tests
+tests/         73 modules, 1343 tests
 ```
 
 ---
@@ -3409,6 +3409,54 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.38 The density gate: convergence survives three orders of magnitude
+
+The make-or-break measurement from the "could this whole system work"
+assessment. Every cognitive gate had run on five-to-ten-fact worlds;
+this one built colliding-token worlds — multi-word entities from small
+word pools, shared attributes, the real shard-backed store — and swept
+100 / 1,000 / 10,000 facts with pre-registered bars: fabrication must
+not grow with density, chains and recall must hold, latency reported.
+
+**It failed four ways first, and every failure became architecture**
+(the full saga in `experiments/density_gate.py`): subject consistency
+(bridged evidence traces to one origin — no pooling puns from unrelated
+subjects, which measured 0.500 fabrication at just 100 facts); origin
+coverage (at most one origin token the question never said — no "low
+mill" answering for a ghost "royal mill"); subject-prefix bucketing
+with addressed retrieval (the true wall was the STORE: ranked bucket
+selection collapsed into ties at density, and a subject's facts now
+co-locate in a bucket its name computes directly, O(1) at any density,
+legacy fallback for old stores); and order as evidence (a multi-word
+origin must share an adjacent bigram with the question — no anagram
+"barn spire" answering for a ghost "spire barn"; tied anagrams refuse).
+
+**Then it passed clean**: chains 1.000, fabrication 0.000, recall 1.000
+at every tier; latency 13 -> 59 -> 199 ms/query, sub-linear, and
+entirely in the ranked path the addressed path bypasses.
+
+### 11.37 The paraphrase gate: the language wall measured, the hybrid tradeoff quantified
+
+The second make-or-break measurement. Four surface families over the
+same intents, decoys in every family: canonical 1.000, **reorder 1.000**
+(order-blindness confirmed), **verbose 1.000** (politeness filler is
+free), **synonym 0.000** — the wall at full height by the assertion
+standard, with its practical shape recorded: "how tall is the tower"
+still DELIVERS the right number hedged ("Nearest I hold: tower height
+is 417 meters"), while the chained synonym misses entirely and leaks a
+junky though hygiene-passing curiosity. Zero fabrications in every
+lexical family.
+
+**The embedding comparison** (text-embedding-nomic): at cosine>0.75 it
+buys 0.500 of the synonym wall with zero decoy falls; at 0.65 it
+fabricates **0.833** of the ghosts. The threshold is not a tuning
+detail — it is the entire safety argument, and the half the embedding
+buys is exactly the direct-attribute half: the chained half needs the
+library's spread, which key-matching cannot do. That is the hybrid
+division of labor, measured: embeddings translate surface forms at the
+boundary, the library chains and refuses at the core, and neither can
+do the other's job.
+
 ### 11.36 Adjective tolerance: one word may decorate, never substitute
 
 §11.35's registered claim, closed with the safety argument carried in
@@ -4217,6 +4265,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | the ladder | **PASSED narrowly** (§11.34) — hint-guided climbing closes depth-4/5 questions at +0.625 (1.21x sd) using exactly the depth-minimal confirmations (1.80 vs 1.80); bottom revision retracts the whole ladder, zero stale |
 | compound questions | **PASSED** (§11.35) — conjunctions decompose through the full single-question machinery: +0.778 full answers at 1.76x sd, missing halves named at 1.000, arithmetic decoys held, zero malformed curiosity keys; adjective brittleness recorded as the next claim |
 | adjective tolerance | **PASSED** (§11.36) — one unknown token reads as a modifier on the inference path only (+0.667 at 1.35x sd), named in every answer, zero unknown-entity fabrications in either arm; the bridge requirement is the safety proof |
+| the paraphrase gate | **PASSED** (§11.37) — reorder and verbose forms hold at 1.000 with zero fabrications; the synonym wall measured at 0.000-asserted (right value still delivered hedged); embeddings buy exactly the direct half at cosine>0.75 with zero falls, and fabricate 0.833 at 0.65 |
+| the density gate | **PASSED** (§11.38) — chains 1.000, fabrication 0.000, recall 1.000 from 100 to 10,000 colliding-token facts, after four failures became architecture: subject consistency, origin coverage, subject-prefix addressed buckets, order as evidence |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

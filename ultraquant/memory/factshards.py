@@ -72,13 +72,30 @@ class FactShards:
     # ------------------------------------------------------------------ #
 
     def bucket_of(self, key: str) -> str:
-        """The shard id holding ``key``.
+        """The shard id holding ``key``: hashed on the SUBJECT PREFIX.
 
-        Hashed rather than, say, keyed on first letter: real fact keys cluster
-        heavily by initial word, and that would leave a few enormous buckets
-        beside hundreds of empty ones.
+        The first density measurement found the scale wall here, not in
+        the reasoning: full-key hashing scattered one entity's facts
+        ("little wall arch material/height/width") across four buckets,
+        and at 10,000 facts every bucket associated every common token,
+        so ranked bucket selection collapsed into ties and the origin of
+        a valid chain was unreachable ~85% of the time.
+
+        Hashing the first two informative tokens co-locates a subject's
+        facts in ONE bucket - and makes retrieval ADDRESSABLE: a probe
+        that names the subject computes this bucket directly, O(1) at
+        any density, no ranking involved. Locality by topic, which is
+        also how recall is supposed to feel.
         """
-        digest = hashlib.blake2b(key.lower().encode("utf-8"), digest_size=4).digest()
+        prefix = " ".join(self.tokens(key)[:2]) or key.lower()
+        digest = hashlib.blake2b(prefix.encode("utf-8"),
+                                 digest_size=4).digest()
+        return f"fact:{int.from_bytes(digest, 'big') % self.buckets:03d}"
+
+    def _legacy_bucket_of(self, key: str) -> str:
+        """The pre-prefix-era address, kept so old stores stay readable."""
+        digest = hashlib.blake2b(key.lower().encode("utf-8"),
+                                 digest_size=4).digest()
         return f"fact:{int.from_bytes(digest, 'big') % self.buckets:03d}"
 
     @staticmethod
@@ -107,8 +124,14 @@ class FactShards:
         return dict(payload.get("facts", {}))
 
     def get(self, key: str) -> dict | None:
-        """The record for ``key``, paging in exactly one bucket."""
-        return self._load(self.bucket_of(key)).get(key)
+        """The record for ``key``, paging its bucket (legacy as fallback)."""
+        record = self._load(self.bucket_of(key)).get(key)
+        if record is not None:
+            return record
+        legacy = self._legacy_bucket_of(key)
+        if legacy != self.bucket_of(key):
+            return self._load(legacy).get(key)
+        return None
 
     def has(self, key: str) -> bool:
         """Whether ``key`` is held."""
@@ -168,6 +191,20 @@ class FactShards:
         # of one per bucket. A selective token narrows it to one anyway.
         candidates.sort(key=lambda pair: (-pair[0], pair[1]))
         buckets = [shard_id for _score, shard_id in candidates[:max_buckets]]
+        # Addressed retrieval: a probe naming a subject computes that
+        # subject's bucket directly. Every adjacent bigram of the probe is
+        # tried, because the probe may start mid-phrase; this is what
+        # keeps multi-token recall O(1) when the ranked candidates above
+        # have collapsed into density ties.
+        probe_tokens = self.tokens(text)
+        for start in range(max(len(probe_tokens) - 1, 0)):
+            prefix = " ".join(probe_tokens[start:start + 2])
+            digest = hashlib.blake2b(prefix.encode("utf-8"),
+                                     digest_size=4).digest()
+            addressed = (f"fact:"
+                         f"{int.from_bytes(digest, 'big') % self.buckets:03d}")
+            if addressed not in buckets:
+                buckets.append(addressed)
         hits: list[tuple[int, str]] = []
         for shard_id in buckets or list(self._dirty):
             for key in self._load(shard_id):
@@ -189,13 +226,14 @@ class FactShards:
         self._dirty[shard_id][key] = dict(record)
 
     def delete(self, key: str) -> bool:
-        """Forget a fact."""
-        shard_id = self.bucket_of(key)
-        if shard_id not in self._dirty:
-            self._dirty[shard_id] = self._load(shard_id)
-        return self._dirty.pop(key, None) is not None or (
-            self._dirty[shard_id].pop(key, None) is not None
-        )
+        """Forget a fact, wherever it lives (legacy bucket included)."""
+        removed = False
+        for shard_id in {self.bucket_of(key), self._legacy_bucket_of(key)}:
+            if shard_id not in self._dirty:
+                self._dirty[shard_id] = self._load(shard_id)
+            if self._dirty[shard_id].pop(key, None) is not None:
+                removed = True
+        return removed
 
     def flush(self) -> int:
         """Write staged buckets into the vault.

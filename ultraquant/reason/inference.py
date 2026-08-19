@@ -102,6 +102,22 @@ def _fold(text: str) -> set[str]:
             if _informative(tok)}
 
 
+def _probe_phrases(text_tokens: list[str]) -> list[str]:
+    """Consecutive bigrams and trigrams, the question's phrase chunks.
+
+    Single-token probes drown at density: "little" matches hundreds of
+    keys and top-k sampling misses the one that matters. The subject of a
+    question is a PHRASE, and probing "little wall arch" ranks that
+    entity's facts above every single-word sharer - activation injected
+    at chunks, the way subjects are actually named.
+    """
+    phrases = []
+    for size in (3, 2):
+        for start in range(len(text_tokens) - size + 1):
+            phrases.append(" ".join(text_tokens[start:start + size]))
+    return phrases
+
+
 def _reachable_facts(memory, probes: list[str], top_k: int = 8) -> dict:
     """Candidate facts touched by any probe text, key -> record.
 
@@ -122,27 +138,57 @@ def _reachable_facts(memory, probes: list[str], top_k: int = 8) -> dict:
 
 @dataclass
 class _Node:
-    """One activated fact during a spread."""
+    """One activated fact during a spread.
+
+    ``sources`` is DIRECT contact only. Bridged evidence lives in
+    ``origins``: origin fact key -> {"sources": ..., "path": ...}, one
+    entry per lineage, never pooled - the single-origin rule that keeps
+    a crowded library from assembling puns out of unrelated subjects.
+    """
 
     key: str
     record: dict
-    #: question token -> activation strength that reached this fact for it.
+    #: question token -> DIRECT activation (the fact's own key contact).
     sources: dict = field(default_factory=dict)
-    #: Facts crossed to get here, nearest last (empty for direct contact).
-    path: list = field(default_factory=list)
+    #: origin key -> bridged contribution, kept separate per lineage.
+    origins: dict = field(default_factory=dict)
 
 
-def _spread(question_tokens: set[str], memory) -> Inference | None:
-    """Spreading activation with a convergence requirement.
+def _ordered_fold(text: str) -> list[str]:
+    """The question's informative tokens, folded, in question order."""
+    out, seen = [], set()
+    for tok in _TOKEN_RE.findall(str(text).lower()):
+        folded = normalize_token(tok)
+        if folded in seen or not _informative(tok):
+            continue
+        seen.add(folded)
+        out.append(folded)
+    return out
+
+
+def _spread(question_tokens: set[str], memory,
+            ordered: list[str] | None = None) -> Inference | None:
+    """Spreading activation with a convergence-and-consistency requirement.
 
     Round 0 activates every fact sharing a token with the question, each
     source token at strength 1.0. Each later round lets an activated
-    fact's VALUE tokens carry its accumulated sources (decayed) into facts
-    they name. A fact whose sources come to cover the WHOLE question - some
-    directly, some over bridges - is a convergence, and the best one
-    answers.
+    fact's VALUE tokens carry its sources (decayed) into facts they name.
+    A fact whose DIRECT contact plus the contribution of ONE bridge origin
+    covers the whole question is a convergence, and the best one answers.
+
+    The single-origin rule is the density lesson: in a crowded library,
+    "old tower material is steel" and "north keep material is steel" both
+    bridge into "steel hardness", and pooling their activations completes
+    the coverage for "the north tower hardness" out of two UNRELATED
+    subjects - a pun assembled from fragments, measured at 0.500
+    fabrication the first time token-colliding worlds were tried. Bridged
+    evidence must trace to one origin fact; direct contact (the attribute
+    side) may come from the target itself.
     """
+    if ordered is None:
+        ordered = sorted(question_tokens)
     probes = [" ".join(sorted(question_tokens))]
+    probes += _probe_phrases(ordered)
     probes += sorted(question_tokens)
     facts = _reachable_facts(memory, probes)
     if not facts:
@@ -162,18 +208,30 @@ def _spread(question_tokens: set[str], memory) -> Inference | None:
     for _hop in range(_MAX_HOPS):
         grown = False
         for node in list(nodes.values()):
-            strength = max(node.sources.values()) * _DECAY
-            if strength < _FLOOR:
-                continue
+            # A node relays each origin lineage separately. Its own direct
+            # contact starts a lineage rooted at itself; every inherited
+            # lineage keeps its root.
+            lineages = []
+            if node.sources:
+                lineages.append((node.key, dict(node.sources), []))
+            for origin, entry in node.origins.items():
+                merged = dict(entry["sources"])
+                for token, s in node.sources.items():
+                    merged[token] = max(merged.get(token, 0.0), s)
+                lineages.append((origin, merged, entry["path"]))
             value = str(node.record.get("value", ""))
             bridge_tokens = _fold(value)
             if not bridge_tokens:
                 continue
-            targets = _reachable_facts(memory, [value])
+            # Addressed bridge probes: "iron" alone is also a PREFIX word
+            # in a dense store, and its ranked buckets drown the three
+            # "iron <property>" keys. Pairing the bridge value with each
+            # question token addresses the target's own bucket directly.
+            bridge_probes = [value] + [f"{value} {tok}"
+                                       for tok in sorted(question_tokens)]
+            targets = _reachable_facts(memory, bridge_probes)
             for t_key, t_record in targets.items():
                 if t_key == node.key:
-                    continue
-                if t_key in {p_key for p_key, _v in node.path} :
                     continue
                 t_tokens = _fold(t_key)
                 if not (t_tokens & bridge_tokens):
@@ -185,41 +243,102 @@ def _spread(question_tokens: set[str], memory) -> Inference | None:
                     for token in direct:
                         target.sources[token] = 1.0
                     nodes[t_key] = target
-                carried = node.path + [(node.key,
-                                        node.record.get("value", ""))]
-                for token, s in node.sources.items():
-                    arriving = s * _DECAY
-                    if arriving >= _FLOOR and \
-                            arriving > target.sources.get(token, 0.0):
-                        target.sources[token] = arriving
-                        target.path = carried
+                for origin, sources, path in lineages:
+                    if any(p_key == t_key for p_key, _v in path):
+                        continue
+                    if node.key == origin:
+                        carried_path = path + [(node.key,
+                                                node.record.get("value", ""))]
+                    else:
+                        carried_path = path + [(node.key,
+                                                node.record.get("value", ""))]
+                    arriving = {}
+                    for token, s in sources.items():
+                        decayed = s * _DECAY
+                        if decayed >= _FLOOR:
+                            arriving[token] = decayed
+                    if not arriving:
+                        continue
+                    entry = target.origins.get(origin)
+                    if entry is None or                             sum(arriving.values()) > sum(
+                                entry["sources"].values()):
+                        target.origins[origin] = {"sources": arriving,
+                                                  "path": carried_path}
                         grown = True
         if not grown:
             break
 
-    # Convergence: sources must cover the whole question, and at least one
-    # source must have arrived over a bridge (all-direct coverage is plain
-    # recall, which already had its turn upstream).
-    best: _Node | None = None
+    # Convergence: the target's DIRECT contact plus ONE origin's bridged
+    # contribution must cover the whole question, and the origin's path
+    # must be non-empty (all-direct coverage is plain recall's turn).
+    # Order is EVIDENCE at density: "river wall barn" and "river barn
+    # wall" are different entities with identical token sets, and the
+    # first 10,000-fact world contained both. Shared adjacent bigrams
+    # with the question rank the right origin above its anagram; a tie
+    # even there is genuine ambiguity and refuses below.
+    question_bigrams = {f"{a} {b}" for a, b in zip(ordered, ordered[1:])}
+
+    def _order_overlap(key: str) -> int:
+        key_tokens = [normalize_token(tok)
+                      for tok in _TOKEN_RE.findall(key.lower())]
+        key_bigrams = {f"{a} {b}" for a, b in
+                       zip(key_tokens, key_tokens[1:])}
+        return len(key_bigrams & question_bigrams)
+
+    best = None
+    contenders = []
     for node in nodes.values():
-        if set(node.sources) != question_tokens:
-            continue
-        if not node.path:
-            continue
-        if best is None:
-            best = node
-            continue
-        if (min(node.sources.values()), -len(node.path)) > \
-                (min(best.sources.values()), -len(best.path)):
-            best = node
+        for origin, entry in node.origins.items():
+            if not entry["path"]:
+                continue
+            combined = dict(entry["sources"])
+            for token, s in node.sources.items():
+                combined[token] = max(combined.get(token, 0.0), s)
+            if set(combined) != question_tokens:
+                continue
+            # Origin coverage: the first fact of the chain may have at
+            # most ONE token the question did not say - the relation slot
+            # ("material" in "tower material"). Two absent tokens means
+            # the origin names a MORE SPECIFIC subject than asked: "low
+            # mill material" answering for "the royal mill" is the
+            # density fabrication where a dropped or missing qualifier
+            # silently substitutes one entity for another.
+            origin_key = entry["path"][0][0]
+            if len(_fold(origin_key) - question_tokens) > 1:
+                continue
+            origin_key = entry["path"][0][0]
+            order_score = _order_overlap(origin_key)
+            # The absolute form of the order rule: a multi-word subject
+            # must share at least one adjacent bigram with the question.
+            # "great BARN SPIRE material" answering for a ghost "great
+            # SPIRE BARN" was the density fabrication that survived the
+            # comparative tie-break, because an anagram with no
+            # competitor wins unopposed. Two-token origins are exempt -
+            # a single-word subject has no order to check.
+            if len(_TOKEN_RE.findall(origin_key.lower())) >= 3                     and order_score < 1:
+                continue
+            candidate = (order_score,
+                          min(combined.values()), -len(entry["path"]),
+                          node, entry)
+            contenders.append(candidate)
+            if best is None or candidate[:3] > best[:3]:
+                best = candidate
     if best is None:
         return None
+    # Anagram ambiguity: two origins with DIFFERENT subjects but the same
+    # rank cannot be told apart, and guessing between them is the pun the
+    # whole rule stack exists to refuse.
+    top = [c for c in contenders if c[:3] == best[:3]]
+    if len({c[4]["path"][0][0] for c in top}) > 1:
+        return None
+    _order, _strength, _neg, node, entry = best
 
-    premises = best.path + [(best.key, best.record.get("value", ""))]
+    premises = entry["path"] + [(node.key, node.record.get("value", ""))]
     seen_keys = [p_key for p_key, _v in premises]
     confidences = [float(facts[p_key].get("confidence", 0.0))
                    if p_key in facts else
-                   float(memory.recall_fact(p_key).get("confidence", 0.0))
+                   float((memory.recall_fact(p_key) or {}).get(
+                       "confidence", 0.0))
                    for p_key in seen_keys]
     subject_key = premises[0][0]
     subject = " ".join(tok for tok in _TOKEN_RE.findall(subject_key.lower())
@@ -228,13 +347,13 @@ def _spread(question_tokens: set[str], memory) -> Inference | None:
     via = ", ".join(str(v) for _k, v in premises[:-1])
     return Inference(
         answer=(f"the {subject} {asked} is "
-                f"{best.record.get('value', '')}, via {via}"),
+                f"{node.record.get('value', '')}, via {via}"),
         premises=premises,
         confidence=min(confidences) if confidences else 0.0,
         kind="chain",
-        conclusion=(f"{subject} {asked}", str(best.record.get("value", ""))),
+        conclusion=(f"{subject} {asked}",
+                    str(node.record.get("value", ""))),
     )
-
 
 def _numeric(value: str) -> float | None:
     match = _NUMBER_RE.search(str(value))
@@ -382,6 +501,12 @@ def missing_premise(text: str, memory) -> dict | None:
         value_tokens = _fold(value)
         if not value_tokens or len(value_tokens) > 2:
             continue
+        # The same origin-coverage rule the spread enforces: a via-fact
+        # with two tokens the question never said names a more specific
+        # subject than asked, and asking for ITS continuation manufactures
+        # curiosity about somebody else's property.
+        if len(key_tokens - covered) > 1:
+            continue
         candidate = (len(covered), -len(value_tokens), key)
         if best is None or candidate > best[0]:
             ordered_remainder, seen_folds = [], set()
@@ -426,7 +551,8 @@ def infer(text: str, memory) -> Inference | None:
     combined = _combine(question_tokens, text, memory)
     if combined is not None:
         return combined
-    direct = _spread(question_tokens, memory)
+    ordered = _ordered_fold(text)
+    direct = _spread(question_tokens, memory, ordered=ordered)
     if direct is not None:
         return direct
 
@@ -443,7 +569,9 @@ def infer(text: str, memory) -> Inference | None:
                if _library_unknown(tok, memory)]
     if len(unknown) == 1 and len(question_tokens) >= 3:
         residual = question_tokens - set(unknown)
-        tolerated = _spread(residual, memory)
+        tolerated = _spread(residual, memory,
+                            ordered=[tok for tok in ordered
+                                     if tok not in unknown])
         if tolerated is not None:
             tolerated.answer += f" (reading '{unknown[0]}' as a modifier)"
             return tolerated
