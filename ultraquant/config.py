@@ -119,6 +119,10 @@ DEFAULTS: dict[str, Any] = {
         "ttl": 900,
         "gpu": "",                    # "" = let LM Studio decide
         "quarantine": True,
+        # The §11.39 embedding suggester on the live question path. On by
+        # default for the surfaces; sessions built in code default OFF so
+        # tests and gates stay deterministic without LM Studio.
+        "semantic_suggest": True,
     },
 }
 

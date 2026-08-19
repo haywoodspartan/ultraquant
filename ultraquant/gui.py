@@ -1205,7 +1205,9 @@ class UltraQuantGUI:
         from ultraquant.interpreter.chat import ChatCLI
         from ultraquant.interpreter.thoughts import build_session
 
-        self.session = build_session(self.home, budget_bytes=1024 * 1024, seed=0)
+        semantic = bool(self.settings.get("lmstudio.semantic_suggest", True))
+        self.session = build_session(self.home, budget_bytes=1024 * 1024,
+                                     seed=0, semantic=semantic)
         self.cli = ChatCLI(self.session, out=_QueueStream(self.events, "out"))
 
         try:

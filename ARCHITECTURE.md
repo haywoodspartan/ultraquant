@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.20 · 1343 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.21 · 1355 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         73 modules, 1343 tests
+tests/         74 modules, 1355 tests
 ```
 
 ---
@@ -3409,6 +3409,43 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.39 The suggester goes live: the boundary translates, the core still refuses
+
+§11.37's remedy, wired and adopted. When the lexical core cannot assert
+on a question, the embedding suggester (`reason/semantic.py`) proposes a
+reading over the library's OWN candidate set — the same phrase probes
+the spread uses, a few dozen keys embedded in one batched call — and
+the lexical core verifies twice before a word is said: the measured
+cosine floor (0.75; §11.37 put 0.833 fabrication at 0.65), and §11.36's
+positional rule made transitive — every question token the key does not
+cover must precede a covered one, because a synonym modifies what
+follows it and a trailing unknown is a subject that is never read away.
+The reply names both the reading and the match ("Reading that as
+'tower height': ... embedding match 0.88") so the reader can veto it.
+Sessions default OFF (tests and gates stay deterministic without LM
+Studio); the chat, GUI and TUI enable it from
+``lmstudio.semantic_suggest``; absence costs one cached availability
+probe a minute.
+
+**The adoption gate caught one more fabrication shape before passing**:
+"what is the HEIGHT of the obelisk?" anchors on the attribute word
+alone and attribute-plus-attribute cosine clears any floor — the
+wrong-metal fabrication wearing an embedding; the positional rule is
+what killed it. Then, live-pipeline ON vs OFF:
+
+| arm | synonym asserted | canonical+reorder | decoy falls |
+|---|---:|---:|---:|
+| off | 0.000 | 1.000 | 0.000 |
+| on | **0.833** | 1.000 | 0.000 |
+
+**+0.833 at 2.04x seed sd**, zero decoy falls in either arm, the
+lexical families byte-identical between arms. The 0.167 miss is the
+chained-synonym ceiling, included in the metric at ~35% of worlds on
+purpose: it is the half §11.37 measured the embedding cannot buy,
+because the answer is not a held key — that half belongs to the
+spread, and the division of labor now runs live: **the boundary
+translates, the core chains and refuses.**
+
 ### 11.38 The density gate: convergence survives three orders of magnitude
 
 The make-or-break measurement from the "could this whole system work"
@@ -4267,6 +4304,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | adjective tolerance | **PASSED** (§11.36) — one unknown token reads as a modifier on the inference path only (+0.667 at 1.35x sd), named in every answer, zero unknown-entity fabrications in either arm; the bridge requirement is the safety proof |
 | the paraphrase gate | **PASSED** (§11.37) — reorder and verbose forms hold at 1.000 with zero fabrications; the synonym wall measured at 0.000-asserted (right value still delivered hedged); embeddings buy exactly the direct half at cosine>0.75 with zero falls, and fabricate 0.833 at 0.65 |
 | the density gate | **PASSED** (§11.38) — chains 1.000, fabrication 0.000, recall 1.000 from 100 to 10,000 colliding-token facts, after four failures became architecture: subject consistency, origin coverage, subject-prefix addressed buckets, order as evidence |
+| the live suggester | **PASSED** (§11.39) — the synonym wall moves 0.000 -> 0.833 on the live path at 2.04x sd with zero decoy falls in either arm; the positional rule killed the attribute-anchor fabrication; the chained ceiling stays the spread's job |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

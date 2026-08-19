@@ -113,6 +113,11 @@ class Session:
     last_trace: list[dict] = field(default_factory=list)
     #: The backend the shard library lives on, if one was configured.
     storage: Any | None = None
+    #: The embedding suggester (reason/semantic.py), or None. Sessions
+    #: default to None so behavior is deterministic without LM Studio;
+    #: the live surfaces enable it from settings, and the gate measured
+    #: it against the OFF arm before it counted (§11.39).
+    semantic: Any | None = None
     #: Grounded gaps from refused inferences: each entry names the premise
     #: that would have let a question converge. The learn queue drains
     #: these - the system asking to be taught exactly what it needs.
@@ -143,6 +148,7 @@ def build_session(
     storage_uri: str | None = None,
     cache: str | int | None = None,
     prefetch: bool = True,
+    semantic: bool = False,
 ) -> Session:
     """Construct a full interpreter session rooted at ``root``.
 
@@ -159,6 +165,9 @@ def build_session(
             only decides how much of it may be resident.
         prefetch: Let the Route thought pull the shards it expects to need into
             the RAM tier before Reason asks for them.
+        semantic: Enable the embedding suggester for questions the lexical
+            core cannot assert on. Off by default: without it, behavior is
+            byte-identical whether or not LM Studio exists.
 
     Returns:
         A ready :class:`Session`.
@@ -212,6 +221,10 @@ def build_session(
         working_set=working_set,
         context=ContextWindow(root / "context"),
     )
+    if semantic:
+        from ultraquant.reason.semantic import SemanticSuggester
+
+        session.semantic = SemanticSuggester()
     return session
 
 
@@ -889,6 +902,22 @@ class Reason(Thought):
                         f"(confidence {fact['confidence']:.2f}).")
                 ctx.note(self.name, f"answered from keyword fact {key!r}")
                 return
+            # The embedding suggester gets one shot before the demote:
+            # §11.37 measured the synonym family failing lexically while
+            # cosine>0.75 plus an anchor token reads it correctly with
+            # zero decoy falls. The reading is named so it can be vetoed.
+            suggester = getattr(ctx.session, "semantic", None)
+            if suggester is not None:
+                reading = suggester.suggest(ctx.text, memory)
+                if reading is not None:
+                    ctx.say(f"Reading that as '{reading.key}': "
+                            f"{reading.key} is {reading.value} "
+                            f"(confidence {reading.confidence:.2f}, "
+                            f"embedding match {reading.similarity:.2f}).")
+                    ctx.note(self.name,
+                             f"semantic reading {reading.key!r} at "
+                             f"{reading.similarity:.2f}")
+                    return
             ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
                     f"{fact['value']} (confidence "
                     f"{fact['confidence']:.2f})." + hint)

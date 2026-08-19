@@ -699,11 +699,15 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, OSError):  # pragma: no cover - stream without reconfigure
         pass
 
+    from ultraquant.config import Settings
+
+    semantic = bool(Settings.load().get("lmstudio.semantic_suggest", True))
     session = build_session(
         Path(args.root),
         budget_bytes=args.budget_kb * 1024,
         online=args.online,
         seed=args.seed,
+        semantic=semantic,
     )
     cli = ChatCLI(session)
 

@@ -180,7 +180,10 @@ class UltraQuantTUI:
         if self.session is None:
             from ultraquant.interpreter.thoughts import build_session
 
-            self.session = build_session(self.home, seed=0)
+            semantic = bool(self.settings.get("lmstudio.semantic_suggest",
+                                              True))
+            self.session = build_session(self.home, seed=0,
+                                         semantic=semantic)
             self._apply_settings()
         return self.session
 
