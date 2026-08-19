@@ -327,6 +327,13 @@ def missing_premise(text: str, memory) -> dict | None:
         ``{"premise_key", "via_key", "via_value", "original"}`` for the
         best grounded gap, or None when nothing held points anywhere.
     """
+    # A combination question's gaps belong to its PARTS: "the sum of the
+    # tower height and the bridge height" with both facts missing needs
+    # two separate premises, and one minted key ("steel sum height bridge
+    # height", then "steel height bridge height" after word-stripping)
+    # answers neither. Combines re-derive from parts; the parts ask.
+    if any(tok in _COMBINE_WORDS for tok in _TOKEN_RE.findall(text.lower())):
+        return None
     question_tokens = _fold(text)
     if len(question_tokens) < 2:
         return None
@@ -339,6 +346,13 @@ def missing_premise(text: str, memory) -> dict | None:
         remainder = question_tokens - key_tokens
         if not covered or not remainder:
             continue
+        # A remainder wider than two tokens is a clause, not a fact key:
+        # the compound question "the tower melting point and the bridge
+        # length" once minted "steel melting point bridge length" - a
+        # question no fact could ever answer. Decomposition owns
+        # compounds; curiosity owns single gaps.
+        if len(remainder) > 2:
+            continue
         value = str(record.get("value", ""))
         if _numeric(value) is not None:
             continue
@@ -347,9 +361,12 @@ def missing_premise(text: str, memory) -> dict | None:
             continue
         candidate = (len(covered), -len(value_tokens), key)
         if best is None or candidate > best[0]:
-            ordered_remainder = [tok for tok in
-                                 _TOKEN_RE.findall(text.lower())
-                                 if normalize_token(tok) in remainder]
+            ordered_remainder, seen_folds = [], set()
+            for tok in _TOKEN_RE.findall(text.lower()):
+                folded = normalize_token(tok)
+                if folded in remainder and folded not in seen_folds:
+                    ordered_remainder.append(tok)
+                    seen_folds.add(folded)
             premise_key = " ".join([value.strip().lower()]
                                    + ordered_remainder)
             best = (candidate, {

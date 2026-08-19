@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.17 · 1302 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.18 · 1317 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         69 modules, 1302 tests
+tests/         70 modules, 1317 tests
 ```
 
 ---
@@ -3409,6 +3409,42 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.35 Compound questions: sequential attention, honest halves, hygienic asks
+
+"What is the tower melting point and the bridge length?" used to demote
+to one nearest-held fact and mint a malformed curiosity — "steel melting
+point bridge length", a clause wearing a fact key. The decomposition
+path splits a genuine conjunction and runs each part through the FULL
+single-question machinery — exact recall, the spread, an honest unknown
+with its own well-formed ask — then composes the reply: recall beside
+inference beside a named gap. A half-known compound answers the half it
+holds and says which half it does not, and the unknown part's curiosity
+is the PART's ("steel conductivity"), not the clause's.
+
+The decoy that matters is arithmetic: "the sum of A and B" contains
+" and " and is one question about two facts, so combination words veto
+the split — and now veto curiosity minting too, killing the second junk
+key the probe exposed ("steel sum height bridge height").
+
+**The gate PASSED — after breaking its own decoy twice** (a reused
+entity made a third fact match the combine's content, so the exactly-two
+rule refused every decoy in BOTH arms: a broken decoy, not a held one;
+and unknown-part worlds were double-counted as dilution when their own
+criterion already owned them; the adjective share was then set by power
+arithmetic, because a Bernoulli contrast at 50% share cannot clear one
+sd whatever the mechanism does):
+
+| arm | full answers | honest halves | combines held |
+|---|---:|---:|---:|
+| baseline | 0.000 | 0.000 | 1.000 |
+| compound | **0.778** | **1.000** | 1.000 |
+
+**+0.778 at 1.76x seed sd**, zero malformed curiosity keys. The 0.222
+miss is the adjective worlds — "the weathered tower conductivity"
+defeats the coverage rules that keep pun-rejection honest — recorded as
+a real limit: the next representational claim on this path is adjective
+tolerance, and it will need its own gate.
+
 ### 11.34 The ladder: the system's own hints steer its teaching, at exactly minimal cost
 
 §11.31 left "stepwise confirmation of longer chains" unmeasured, and
@@ -4142,6 +4178,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | validator tightening | **FAILED** (§11.32) — margin-and-floor recalls 0.050 of the reader's rejections at an unstable operating point; the reader judges shape gestalt, blind reading becomes the permanent admission protocol, and the built-but-not-adopted shelf gains strict_contradiction |
 | curiosity from failed inference | **PASSED** (§11.33) — a refused convergence asks for its missing premise through the learn queue; the fail->ask->learn->infer loop closes in 0.750 of worlds at 1.62x sd with 1.000 premise precision, zero spam, zero ungrounded asks |
 | the ladder | **PASSED narrowly** (§11.34) — hint-guided climbing closes depth-4/5 questions at +0.625 (1.21x sd) using exactly the depth-minimal confirmations (1.80 vs 1.80); bottom revision retracts the whole ladder, zero stale |
+| compound questions | **PASSED** (§11.35) — conjunctions decompose through the full single-question machinery: +0.778 full answers at 1.76x sd, missing halves named at 1.000, arithmetic decoys held, zero malformed curiosity keys; adjective brittleness recorded as the next claim |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

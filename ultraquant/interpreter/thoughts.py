@@ -782,6 +782,10 @@ class Reason(Thought):
                             f"actions, explored {plan.explored} states")
 
     def _question(self, ctx: ThoughtContext) -> None:
+        compound = self._compound_parts(ctx.text)
+        if compound is not None:
+            self._answer_compound(ctx, compound)
+            return
         facts = ctx.data.get("facts", [])
         if facts:
             key, fact = facts[0]
@@ -972,6 +976,91 @@ class Reason(Thought):
                 "is ever revised.")
         ctx.note(self.name, f"consolidated {key!r} from "
                             f"{len(pending.get('premises', []))} premises")
+
+    @staticmethod
+    def _compound_parts(text: str) -> list[str] | None:
+        """Split a conjunction question into part phrases, or None.
+
+        Only a real conjunction decomposes: an " and " with substantive
+        content on both sides and NO combination word - "the sum of A and
+        B" is one arithmetic question about two facts, and decomposing it
+        would break the combine path that already answers it.
+        """
+        from ultraquant.reason.inference import _COMBINE_WORDS
+        from ultraquant.shards.router import _informative, normalize_token
+
+        lowered = text.lower().strip().rstrip("?")
+        if " and " not in lowered:
+            return None
+        if any(word in _TOKEN_RE.findall(lowered)
+               for word in _COMBINE_WORDS):
+            return None
+        head = re.sub(r"^(what|which|who|where|when|how)"
+                      r"\s+(is|are|was|were)\s+", "", lowered)
+        parts = [seg.strip() for seg in head.split(" and ") if seg.strip()]
+        if len(parts) < 2:
+            return None
+        for part in parts:
+            tokens = {normalize_token(tok) for tok in
+                      _TOKEN_RE.findall(part) if _informative(tok)}
+            if len(tokens) < 2:
+                return None
+        return parts
+
+    def _answer_compound(self, ctx: ThoughtContext, parts: list[str]) -> None:
+        """Answer each part of a conjunction through the full single path.
+
+        Sequential attention over sub-questions: each part re-enters the
+        machinery a single question gets - exact recall, then the spread,
+        then an honest unknown WITH its own well-formed curiosity - and
+        the reply names each part's answer beside its part. A half-known
+        compound answers the half it can and says which half it cannot,
+        instead of demoting the whole question to one nearest-held fact.
+        """
+        from ultraquant.reason.inference import infer, missing_premise
+        from ultraquant.shards.router import _informative, normalize_token
+
+        memory = ctx.session.memory
+        pieces, unknown_parts = [], []
+        for part in parts:
+            sub_question = f"what is the {part}?"
+            part_tokens = {normalize_token(tok) for tok in
+                           _TOKEN_RE.findall(part) if _informative(tok)}
+            answered = False
+            for key in memory.find_facts(part, top_k=3):
+                key_tokens = {normalize_token(tok) for tok in
+                              _TOKEN_RE.findall(key.lower())
+                              if _informative(tok)}
+                if part_tokens <= key_tokens:
+                    record = memory.recall_fact(key)
+                    if record is not None:
+                        pieces.append(f"{key} is {record['value']}")
+                        answered = True
+                        break
+            if answered:
+                continue
+            derived = infer(sub_question, memory)
+            if derived is not None:
+                pieces.append(f"{derived.answer} (inferred)")
+                continue
+            gap = missing_premise(sub_question, memory)
+            if gap is not None:
+                known = {c["premise_key"]
+                         for c in ctx.session.curiosities}
+                if gap["premise_key"] not in known:
+                    ctx.session.curiosities.append(gap)
+                unknown_parts.append(
+                    f"{part} (unknown - ':learn' will ask for the "
+                    f"{gap['premise_key']})")
+            else:
+                unknown_parts.append(f"{part} (unknown)")
+        summary = "; ".join(pieces) if pieces else "none of it is held"
+        if unknown_parts:
+            summary += ". Still missing: " + "; ".join(unknown_parts)
+        ctx.say(summary + ".")
+        ctx.note(self.name,
+                 f"compound: {len(parts)} part(s), {len(pieces)} answered, "
+                 f"{len(unknown_parts)} unknown")
 
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)
