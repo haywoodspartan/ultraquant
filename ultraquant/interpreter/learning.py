@@ -163,6 +163,29 @@ class LearningSession:
             ))
         return out
 
+    def _missing_premises(self) -> list[Question]:
+        """Gaps a refused inference named itself.
+
+        These outrank every surveyed gap: a surveyed gap is a statistical
+        guess about what might matter, where a curiosity is a question a
+        USER actually asked that one held bridge nearly answered. The
+        prompt shows the whole chain so the human sees why it is asked.
+        """
+        out = []
+        for gap in getattr(self.session, "curiosities", []):
+            out.append(self._new(
+                "missing-premise",
+                f"I was asked {gap['original']!r} and could not connect "
+                f"it. I hold that {gap['via_key']} is {gap['via_value']}; "
+                f"the missing piece is the {gap['premise_key']}. What is "
+                f"the {gap['premise_key']}?",
+                subject=gap["premise_key"],
+                score=3.0,
+                context=dict(gap),
+                expects="text",
+            ))
+        return out
+
     def _stash_gaps(self) -> list[Question]:
         """Disputed and unclassifiable web claims."""
         stash = getattr(self.session, "stash", None)
@@ -618,6 +641,7 @@ class LearningSession:
         """
         found: list[Question] = []
         for finder in (
+            self._missing_premises,
             self._stash_gaps,
             self._unknown_patterns,
             self._proposed_concepts,
@@ -667,6 +691,7 @@ class LearningSession:
             return Answer(question, False, "skipped (no answer given)")
 
         handler = {
+            "missing-premise": self._answer_missing_premise,
             "shaky": self._answer_shaky,
             "disputed": self._answer_disputed,
             "unclassified": self._answer_unclassified,
@@ -758,6 +783,27 @@ class LearningSession:
                           {"stash": entry_id})
         stash.reject(entry_id, "dropped by the user")
         return Answer(question, True, "dropped", {"stash": entry_id})
+
+    def _answer_missing_premise(self, question: Question,
+                                reply: str) -> Answer:
+        """Store the premise a refused inference asked for, and clear it.
+
+        The loop closes here: the fact lands with the confidence a direct
+        human answer earns, the curiosity is drained so ':learn' does not
+        ask twice, and the next time the ORIGINAL question is asked the
+        spread converges through what was just taught.
+        """
+        self.session.memory.remember_fact(question.subject, reply,
+                                          confidence=0.8)
+        remaining = [c for c in getattr(self.session, "curiosities", [])
+                     if c["premise_key"] != question.subject]
+        self.session.curiosities = remaining
+        return Answer(
+            question, True,
+            f"learned '{question.subject}' = {reply!r}; "
+            f"{question.context.get('original', 'the blocked question')!r} "
+            "should now be answerable",
+            {"fact": question.subject})
 
     def _answer_unknown_term(self, question: Question, reply: str) -> Answer:
         """Store what a repeatedly-seen term means."""

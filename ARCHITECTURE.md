@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.15 · 1282 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.16 · 1294 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         67 modules, 1282 tests
+tests/         68 modules, 1294 tests
 ```
 
 ---
@@ -3409,6 +3409,48 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.33 Curiosity: a refused inference asks for exactly what it was missing
+
+"Teach it so that it can learn." The learn queue could survey for
+statistical gaps — terms seen often, categories without experts — but a
+refused inference was a dead end, even though the partial activations
+knew precisely which premise was missing. `missing_premise` turns that
+knowledge into the ask: the held bridge's value plus the uncovered
+remainder. Asked "what is the tower conductivity?" while holding only
+``tower material -> steel``, the refusal now says "If I knew the steel
+conductivity, I could work this out — ':learn' will ask", the learn
+queue ranks that question first (a gap a USER's question actually hit
+outranks every surveyed guess), and the prompt shows the whole chain so
+the human sees why it is asked. Answering it drains the curiosity and
+the re-asked question converges through what was just taught. The loop:
+**fail -> ask -> learn -> infer.**
+
+The failure mode is question spam — §11.16's noise wearing a curious
+face — and the guard is groundedness: curiosity flows only forward along
+a held bridge whose value names a thing (non-numeric, at most two
+informative tokens). "What is the obelisk melting point?" touches
+``steel melting point`` through its attribute tokens, but 1370 degrees
+is a quantity, not a subject, and no question is generated.
+
+**The gate** (live pipeline + real LearningSession, baseline arm with
+`missing_premise` disabled): its first run measured +1.000 at sd 0.000
+and was refused by the zero-variance rule — the fourth deterministic
+mechanism this session to ace a protocol built only of worlds it could
+win. The conservative correction, again: score the unwinnable worlds
+(~30% hold no bridge at all) as part of closure for both arms. Then:
+
+| arm | loop closed | ghost spam | ungrounded asks |
+|---|---:|---:|---:|
+| baseline | 0.000 | 0.000 | 0.000 |
+| curiosity | **0.750** | 0.000 | 0.000 |
+
+**+0.750 at 1.62x seed sd, premise precision 1.000**, zero spam, zero
+asks where nothing held pointed anywhere. The 0.250 miss is the
+no-bridge worlds, and that is the honest reading of the mechanism:
+curiosity cannot outrun the library's groundedness — it converts one
+held bridge plus one human answer into one new reach, which is exactly
+what "teach it so that it can learn" asks the machinery to do.
+
 ### 11.32 The validator cannot be tightened into the reader, and the shelf gains a resident
 
 §11.28 registered one open mechanism: tighten the shift-Jaccard validator
@@ -4062,6 +4104,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | spreading-activation inference | **PASSED** (§11.30) — self-initiated derivation answers 0.938 of chain/combination questions at 8.10x sd with zero decoy falls and recall untouched; convergence, not completion, and the trail is the answer |
 | consolidation + truth maintenance | **PASSED narrowly** (§11.31) — a confirmed derivation extends reach past the activation floor (+0.625 at 1.21x sd) with zero stale answers and zero repetition leaks; the flush-resurrection defect found and fixed on the way |
 | validator tightening | **FAILED** (§11.32) — margin-and-floor recalls 0.050 of the reader's rejections at an unstable operating point; the reader judges shape gestalt, blind reading becomes the permanent admission protocol, and the built-but-not-adopted shelf gains strict_contradiction |
+| curiosity from failed inference | **PASSED** (§11.33) — a refused convergence asks for its missing premise through the learn queue; the fail->ask->learn->infer loop closes in 0.750 of worlds at 1.62x sd with 1.000 premise precision, zero spam, zero ungrounded asks |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

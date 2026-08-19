@@ -113,6 +113,10 @@ class Session:
     last_trace: list[dict] = field(default_factory=list)
     #: The backend the shard library lives on, if one was configured.
     storage: Any | None = None
+    #: Grounded gaps from refused inferences: each entry names the premise
+    #: that would have let a question converge. The learn queue drains
+    #: these - the system asking to be taught exactly what it needs.
+    curiosities: list = field(default_factory=list)
     #: A chain inference from the IMMEDIATELY previous turn, waiting for
     #: the user to confirm it. One turn of freshness only: Perceive clears
     #: it at the start of every run, so repetition can never consolidate -
@@ -836,6 +840,25 @@ class Reason(Thought):
                      + ", ".join(repr(k) for k, _v in derived.premises))
             return
 
+        # The metacognitive step the refusal earns: a failed convergence
+        # knows which premise was missing, and a grounded gap becomes a
+        # learn-queue question instead of a dead end - whatever reply the
+        # fallbacks below settle on carries the hint. Fail -> ask -> learn
+        # -> infer is the loop; this is the ask.
+        from ultraquant.reason.inference import missing_premise
+
+        gap = missing_premise(ctx.text, memory)
+        hint = ""
+        if gap is not None:
+            known = {c["premise_key"] for c in ctx.session.curiosities}
+            if gap["premise_key"] not in known:
+                ctx.session.curiosities.append(gap)
+            hint = (f" If I knew the {gap['premise_key']}, I could work "
+                    "this out - ':learn' will ask.")
+            ctx.note(self.name,
+                     f"curiosity registered: {gap['premise_key']!r} via "
+                     f"{gap['via_key']!r}")
+
         candidates = list(memory.find_facts(ctx.text, top_k=3))
         folded_query = " ".join(sorted(question_tokens))
         for key in memory.find_facts(folded_query, top_k=3):
@@ -864,7 +887,7 @@ class Reason(Thought):
                 return
             ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
                     f"{fact['value']} (confidence "
-                    f"{fact['confidence']:.2f}).")
+                    f"{fact['confidence']:.2f})." + hint)
             ctx.note(self.name,
                      f"nearest-held {key!r}; question content "
                      "not fully covered")
@@ -911,7 +934,7 @@ class Reason(Thought):
                 f"Nothing believed on that yet, but {staged} staged "
                 "claim(s) in quarantine mention it - ':stash' lists "
                 "them, ':analyze' weighs them, ':promote <id>' "
-                "believes one."
+                "believes one." + hint
             )
             ctx.note(self.name,
                      f"no fact; {staged} staged claim(s) surfaced")
@@ -919,6 +942,7 @@ class Reason(Thought):
         ctx.say(
             "I don't hold anything on that yet. Tell me directly ('X is Y'), "
             "or give me a URL and I'll stash what it claims for analysis."
+            + hint
         )
         ctx.note(self.name, "no matching fact")
 

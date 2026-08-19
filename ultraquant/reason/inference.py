@@ -300,6 +300,67 @@ def _combine(question_tokens: set[str], text: str,
                      confidence=confidence, kind="combine")
 
 
+def missing_premise(text: str, memory) -> dict | None:
+    """The fact that would let a refused question converge, or None.
+
+    The metacognitive half of the spread: when convergence fails, the
+    partial activations say exactly what was missing. Asked "what is the
+    tower conductivity?" while holding only ``tower material -> steel``,
+    the tower half activates and the conductivity half reaches nothing —
+    so the question worth ASKING is "what is the steel conductivity?":
+    the held bridge's value plus the uncovered remainder.
+
+    Curiosity only flows FORWARD along a held bridge, and that constraint
+    is the spam guard: the bridging value must name a thing (non-numeric,
+    at most two informative tokens). "What is the obelisk melting point?"
+    touches ``steel melting point`` through its attribute tokens, but that
+    fact's value is "1370 degrees" — a quantity, not a subject — so no
+    question is generated. A system that asks about everything it fails
+    to answer is §11.16's noise wearing a curious face; a system that
+    asks only what a held fact points at is doing what a reader does.
+
+    Args:
+        text: The question that failed to converge.
+        memory: The session's :class:`SystematicMemory`.
+
+    Returns:
+        ``{"premise_key", "via_key", "via_value", "original"}`` for the
+        best grounded gap, or None when nothing held points anywhere.
+    """
+    question_tokens = _fold(text)
+    if len(question_tokens) < 2:
+        return None
+    probes = [" ".join(sorted(question_tokens))] + sorted(question_tokens)
+    facts = _reachable_facts(memory, probes)
+    best: tuple | None = None
+    for key, record in facts.items():
+        key_tokens = _fold(key)
+        covered = key_tokens & question_tokens
+        remainder = question_tokens - key_tokens
+        if not covered or not remainder:
+            continue
+        value = str(record.get("value", ""))
+        if _numeric(value) is not None:
+            continue
+        value_tokens = _fold(value)
+        if not value_tokens or len(value_tokens) > 2:
+            continue
+        candidate = (len(covered), -len(value_tokens), key)
+        if best is None or candidate > best[0]:
+            ordered_remainder = [tok for tok in
+                                 _TOKEN_RE.findall(text.lower())
+                                 if normalize_token(tok) in remainder]
+            premise_key = " ".join([value.strip().lower()]
+                                   + ordered_remainder)
+            best = (candidate, {
+                "premise_key": premise_key,
+                "via_key": key,
+                "via_value": value,
+                "original": text,
+            })
+    return best[1] if best is not None else None
+
+
 def infer(text: str, memory) -> Inference | None:
     """Derive an answer from stored facts, or None.
 
