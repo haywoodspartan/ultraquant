@@ -110,6 +110,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -697,7 +698,13 @@ class TeacherPanel:
             try:
                 answers[card.id] = self.client.complete(
                     asked, model=card.id, system=instruction,
-                    max_tokens=max_tokens, temperature=0.0)
+                    max_tokens=max_tokens, temperature=0.0,
+                    # The one measured remedy for runaway reasoners
+                    # (see NO_REASONING above). The distillation path has
+                    # always passed it; this path forgot, and gemma spent
+                    # all 400 tokens thinking on every panel question in
+                    # the first library-training run.
+                    reasoning_effort=NO_REASONING)
             except LMStudioUnavailable as exc:
                 errors[card.id] = str(exc)
         return self._tally(question, answers, errors)
@@ -970,7 +977,18 @@ def _position(text: str, question: str = "") -> str:
     Returns:
         A normalised position string, empty if nothing survived.
     """
-    first = text.strip().split(". ")[0].strip()
+    # Chat-template artifacts are not words: command-r closes every reply
+    # with <|END_OF_TURN_TOKEN|>, which lowercase-and-despace turned into
+    # the position suffix "end turn token" - the SS11.19 leak in a second
+    # pipeline, and it broke exact-match corroboration ("earth round end
+    # turn token" can never equal another voice's "earth round").
+    text = re.sub(r"<\|[^|>]{1,64}\|>", " ", text)
+    stripped = text.strip()
+    # A numbered-list reply ("1. Paramiko is ...") must not have its list
+    # marker read as the sentence: the first training run recorded a
+    # model's entire position as "1".
+    stripped = re.sub(r"^\s*\d{1,3}[.)]\s*", "", stripped)
+    first = stripped.split(". ")[0].strip()
     cleaned = "".join(c.lower() if c.isalnum() or c.isspace() else " "
                       for c in first)
     echo = {word for word in

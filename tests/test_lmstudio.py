@@ -901,5 +901,53 @@ class QuarantineTests(unittest.TestCase):
         self.assertEqual(len(urls), 1, "same model must collapse to one source")
 
 
+class PanelHygieneTests(unittest.TestCase):
+    """The three defects the first library-training run surfaced.
+
+    Zero corroborations in that run were partly honest disagreement and
+    partly these: a list marker read as a position, a chat-template token
+    read as words, and the panel path never passing the reasoning remedy.
+    """
+
+    def test_a_list_marker_is_not_a_position(self):
+        """mistralrp answered '1. ...' and its whole position became '1',
+        which can never corroborate anything."""
+        from ultraquant.interpreter.llmls import _position
+
+        self.assertEqual(
+            _position("1. Paramiko is a python ssh library.",
+                      "what is paramiko?"),
+            "python ssh library")
+
+    def test_template_tokens_are_stripped_before_normalising(self):
+        """command-r's <|END_OF_TURN_TOKEN|> became 'end turn token' glued
+        to every position - the SS11.19 leak in a second pipeline, and it
+        broke exact-match corroboration."""
+        from ultraquant.interpreter.llmls import _position
+
+        self.assertEqual(
+            _position("The Earth is round.<|END_OF_TURN_TOKEN|>",
+                      "tell me about world"),
+            "earth round")
+
+    def test_a_bare_numeral_answer_is_still_a_position(self):
+        """'2' is a legitimate answer to a count question; the list-marker
+        rule must strip '1.' prefixes, never numeric answers."""
+        from ultraquant.interpreter.llmls import _position
+
+        self.assertEqual(
+            _position("2", "how many moons does mars have?"), "2")
+
+    def test_the_panel_path_passes_the_reasoning_remedy(self):
+        """ask() must send reasoning_effort=none: gemma spent all 400
+        tokens thinking on every panel question until it did."""
+        import inspect
+
+        from ultraquant.interpreter.llmls import TeacherPanel
+
+        source = inspect.getsource(TeacherPanel.ask)
+        self.assertIn("reasoning_effort=NO_REASONING", source)
+
+
 if __name__ == "__main__":
     unittest.main()

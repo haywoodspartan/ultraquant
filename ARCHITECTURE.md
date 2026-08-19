@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.21 · 1355 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.22 · 1359 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         74 modules, 1355 tests
+tests/         74 modules, 1359 tests
 ```
 
 ---
@@ -3409,6 +3409,44 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.40 The first library-training run, three panel defects, and an honest zero
+
+"Continue training" with the voice queue exhausted means the mature
+channel: the library's own learn-queue questions put to the panel, one
+model per independent voice, answers quarantined, only corroboration
+applied. The first run returned zero corroborations — and its
+transcript convicted three defects rather than the design:
+
+1. **The panel path never passed the reasoning remedy.** gemma spent
+   all 400 completion tokens thinking on every question; the
+   distillation path had always sent ``reasoning_effort="none"``, and
+   ``TeacherPanel.ask`` had not.
+2. **Template tokens read as words.** command-r's
+   ``<|END_OF_TURN_TOKEN|>`` normalised into the position suffix "end
+   turn token" — the §11.19 leak in a second pipeline — so "earth round
+   end turn token" could never exact-match another voice's "earth
+   round".
+3. **List markers read as positions.** "1. Paramiko is a python ssh
+   library" split at the first ". " and filed the position "1".
+
+All three fixed and pinned (`tests/test_lmstudio.py`). The re-run's
+zero is the honest kind: four voices give four DIFFERENT true
+elaborations ("system communication using symbols" / "communication" /
+"evolves through usage" / "system communication"), and exact-match
+corroboration refuses to equate them — the docstring's own line, that
+judging two different words to mean the same thing would manufacture
+consensus. ~50 claims sit quarantined for independent evidence (LLM
+sources are excluded from corroborating each other in the stash by
+§11.12's rule, so they wait for the web or the human).
+
+The near-agreement pattern registers the successor question:
+**containment corroboration** — three of four positions above contain
+"communication", and counting token-subset cores as agreement might be
+orthography-class rather than meaning-class. It needs its own gate
+with negation decoys before it touches consensus ("the earth round
+story is a hoax" contains "earth round" and denies it), and until that
+gate runs, the bar stays exact.
+
 ### 11.39 The suggester goes live: the boundary translates, the core still refuses
 
 §11.37's remedy, wired and adopted. When the lexical core cannot assert
@@ -4305,6 +4343,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | the paraphrase gate | **PASSED** (§11.37) — reorder and verbose forms hold at 1.000 with zero fabrications; the synonym wall measured at 0.000-asserted (right value still delivered hedged); embeddings buy exactly the direct half at cosine>0.75 with zero falls, and fabricate 0.833 at 0.65 |
 | the density gate | **PASSED** (§11.38) — chains 1.000, fabrication 0.000, recall 1.000 from 100 to 10,000 colliding-token facts, after four failures became architecture: subject consistency, origin coverage, subject-prefix addressed buckets, order as evidence |
 | the live suggester | **PASSED** (§11.39) — the synonym wall moves 0.000 -> 0.833 on the live path at 2.04x sd with zero decoy falls in either arm; the positional rule killed the attribute-anchor fabrication; the chained ceiling stays the spread's job |
+| panel training run | **run, and honest** (§11.40) — three panel defects fixed (missing reasoning remedy, template-token positions, list-marker positions); the re-run's zero corroborations is exact-match integrity, ~50 claims quarantined awaiting independent evidence; containment corroboration registered for its own gate |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
