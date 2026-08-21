@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.86 · 1912 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.88 · 1935 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -214,7 +214,7 @@ ultraquant/
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
-  convert/     gguf · ternary · pack · library                 a trained transformer,
+  convert/     gguf · ternary · pack · library · glyph · load   a trained transformer,
                                                               packed into the vault
   hybrid/      expert · pool                                  quantum vs classical experts
   storage/     base · local · blockdev · ceph · ram ·          pluggable byte-range storage
@@ -225,7 +225,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         130 modules, 1912 tests
+tests/         132 modules, 1935 tests
 ```
 
 ---
@@ -3411,6 +3411,123 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.99 A glyph for every imported tensor (failed, kept)
+
+Every packed tensor now renders a 5x5 glyph from its own trits -
+each cell the density of surviving weights in its block, set when
+that block is denser than the tensor's own mean, so overall sparsity
+drops out and structure stays. The system already had a recognizer
+for exactly that shape, so the glyph is NAMED by it and the name is
+written as an association: `convert/glyph.py` renders,
+`pack_checkpoint(..., recognizer=...)` names, and asking the catalog
+for "stripes_v" returns real Qwen tensors.
+
+**It failed criterion 2, and it took three passes to find out how
+badly.** The headline moved twice, both times because the harness
+was measuring something other than what the criterion asked.
+
+**Pass one rigged the comparison.** The library already has a
+content signature - `shards/sketch.py`, 64 bits of sign-random
+projection - and the gate was built to measure against it. But the
+sketch was handed 64 truncated row means while the glyph saw the
+whole sampled block, and the glyph duly won by 1.5x (+0.179 against
++0.117). Given the same 25 block densities, with the sketch holding
+strictly more of them, the result reversed: 1.32 sds against 0.85. A
+comparison against a standard option is only worth running if the
+standard option is allowed to win.
+
+**Pass two was confounded by dimensionality, and that is the real
+finding.** 26 of 40 tensors are 1-D, and those 26 render only **six
+distinct glyphs** - a bias has one row, so four of five row-blocks
+are empty and it renders a bar. 1-D tensors sit ~0.03 apart, 2-D
+tensors ~0.48, and kinds are almost perfectly
+dimensionality-homogeneous, so "within kind" was mostly measuring
+"within dimensionality". On the 2-D pool alone:
+
+| 2-D tensors only | margin | sd | margin/sd |
+|---|---:|---:|---:|
+| glyph (25 bits) | +0.020 | 0.103 | **0.19** |
+| sketch (64 bits) | **-0.001** | 0.021 | **-0.04** |
+
+**Neither signature separates tensor kind.** The glyph reaches 0.19
+of the one-sd bar; the sketch separates nothing at all. That is not
+a glyph problem but a summary problem - block density over a ternary
+matrix does not tell an attention projection from a feed-forward
+one. The mixed-pool number is kept in the report so the confound
+stays visible rather than being corrected away quietly.
+
+What passed is worth having and is smaller than the ambition. Zero
+drift on a second render and through JSON, zlib and sha256; zero
+tensors unreachable by shape; and on the 2-D pool same-kind pairs
+share a label 0.222 against 0.143 for any pair - a real lift over a
+baseline that already absorbs the skew, across 18 pairs. So the
+glyph keeps the job it does: rendered once, looked at, named,
+retrieved by that name. **Nothing routes by glyph distance, and
+nothing should route by sketch distance over these summaries
+either** - the more useful half of the result, and the half only the
+standard option could have supplied.
+
+This is the third time 1-D tensors have contaminated a measurement
+here. §11.95 read 2.41 relative error by pushing a vector through a
+1xN dot product; §11.96 compared small tensors against a baseline
+carrying no metadata; §11.99 measured dimensionality and called it
+kind. In a real checkpoint most tensors are 1-D and they behave
+nothing like the matrices, so any aggregate that mixes them is
+measuring the mix.
+
+### 11.98 Weights that come back out and still recognise
+
+§11.96 proved tensors go IN. That is a claim about BYTES, and it
+says nothing about whether a network built from those bytes computes
+what the original computed - "the weights are imported" is not true
+until something runs on them. `convert/load.py` closes the loop: a
+shard becomes a `TernaryLinear`, a set of shards becomes an
+`UltraQuantNet`, and the glyph recognizer is the instrument, because
+it is the system's one existing consumer of ternary weights and
+small enough that every logit can be compared rather than sampled.
+
+**The bar is exactness, for §11.96's reason one level up.** The
+conversion above this layer is already lossy at 0.467 per layer; if
+the import were lossy too, the two would be indistinguishable and no
+future measurement of the quantiser could be trusted.
+
+**Run one FAILED, and found a real defect.** All 128 glyphs differed
+in their logits, 26 in their label, and accuracy fell **0.900 ->
+0.792**. One layer caused it: `UltraQuantNet`'s head is full
+precision by default, and the packer pushed it through the trit
+codec like everything else - a 0.151 error in the layer that
+produces the logits. **Trits are how you store a ternary matrix, not
+how you store a matrix.** A layer that is not ternary now travels as
+exact floats and says so in the payload; a converted transformer is
+ternary by construction and never takes that path. That is the same
+rule the bias decision rests on, and finding it twice in one module
+is the useful part: it is not "biases are special", it is that a
+lossy codec may only carry what is already in its alphabet.
+
+**A mis-aimed measurement was corrected on the way.** The idempotence
+check first ran on the ORIGINAL layers, whose master weights are
+full precision and were never expected to survive requantisation. It
+reported 0/2, which reads as a refuted claim and was a question
+asked of the wrong object. Idempotence is a property of what
+ARRIVES - and there it holds, which is what lets an imported layer
+be handed back still flagged quantized.
+
+**PASS: 128 glyphs, zero differing logits, zero differing labels,
+accuracy 0.9000 -> 0.9000, zero bias elements changed, zero
+unreachable layers, 1/1 ternary layers idempotent.**
+
+**The cost, which is not a flattering number.** 1,216 weights in
+3,606 bytes is 23.7 bits/weight, and the blend hides the trade:
+ternary weights cost **6.208** bits each, exactly-stored floats
+**86.500**. The head is 21% of the weights and 77% of the bytes -
+that is what exactness costs, paid deliberately and named rather
+than averaged away. The ternary rate is itself 3.4x §11.96's 1.820,
+for a reason that is not the codec: at 960 weights the per-shard
+metadata is most of the shard, and §11.96's number came from
+1,018,016 weights. Neither is optimised here, and 86.5 bits/weight
+is plainly JSON writing decimal digits - a spelling problem, kept as
+the next question rather than left as an achievement.
 
 ### 11.97 The yes/no family, natively
 

@@ -36,10 +36,10 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ultraquant.convert import gguf, pack, ternary
+from ultraquant.convert import gguf, glyph, pack, ternary
 
 __all__ = ["PackReport", "pack_checkpoint", "category_of",
-           "associations_of"]
+           "associations_of", "shape_label"]
 
 _LAYER = re.compile(r"(?:blk|layers?)\.(\d+)")
 _SPLIT = re.compile(r"[^a-z0-9]+")
@@ -73,12 +73,28 @@ def associations_of(name: str) -> dict:
     return weights
 
 
+def shape_label(rows: list, recognizer) -> str:
+    """The recognizer's name for a tensor's glyph, or "" without one.
+
+    Kept out of :func:`pack_checkpoint`'s required path on purpose.
+    Rendering a glyph is integer arithmetic over trits and needs
+    nothing; NAMING one needs a trained classifier, and a converter
+    that could not run without a model would be the wrong shape of
+    dependency for a file reader.
+    """
+    if recognizer is None:
+        return ""
+    label, _confidence = recognizer.recognize(rows)
+    return str(label)
+
+
 @dataclass
 class PackReport:
     """What a packing run stored, skipped, and cost.
 
     Attributes:
         shards: Tensors written as shards.
+        labels: Glyph shape label -> how many tensors carry it.
         weights: Ternary weights stored.
         stored_bytes: Bytes the vault's shard files occupy.
         skipped: Tensor type -> count refused by the reader.
@@ -91,6 +107,7 @@ class PackReport:
     stored_bytes: int = 0
     skipped: dict = field(default_factory=dict)
     categories: dict = field(default_factory=dict)
+    labels: dict = field(default_factory=dict)
 
     @property
     def bits_per_weight(self) -> float:
@@ -100,8 +117,16 @@ class PackReport:
 
 
 def pack_checkpoint(model: str | Path, vault, limit: int | None = None,
-                    rows_each: int | None = None) -> PackReport:
+                    rows_each: int | None = None,
+                    recognizer=None) -> PackReport:
     """Convert a checkpoint's tensors into shards in ``vault``.
+
+    Every shard carries a 5x5 glyph rendered from its own trits - a
+    fourth address, and the only one that says anything about what is
+    IN the tensor rather than what it was called. With a recognizer
+    the glyph is also NAMED, and the name is written as an
+    association, so "which tensors look like stripes" becomes a
+    catalog question like any other.
 
     Args:
         model: Path to a GGUF checkpoint.
@@ -109,6 +134,10 @@ def pack_checkpoint(model: str | Path, vault, limit: int | None = None,
         limit: Convert at most this many tensors (whole file if None).
         rows_each: Convert at most this many rows per tensor, for
             sampling a large model without reading all of it.
+        recognizer: Optional
+            :class:`~ultraquant.pattern.recognition.PatternRecognizer`
+            used to name each glyph. Without one the glyph is still
+            stored - rendering needs nothing, naming needs a model.
 
     Returns:
         A :class:`PackReport`.
@@ -131,13 +160,24 @@ def pack_checkpoint(model: str | Path, vault, limit: int | None = None,
         quantised, scales, _rule = ternary.choose_rules(rows)
         payload = pack.to_payload(quantised, scales, info.name,
                                   info.type_name)
+        drawn = glyph.glyph_of(quantised)
+        payload["glyph"] = list(drawn)
         category = category_of(info.name)
+        associations = associations_of(info.name)
+        label = shape_label(drawn, recognizer)
+        if label:
+            # The shape is an address, so it is weighted like one -
+            # the same 1.0 a name token carries, because a tensor is
+            # no less "that stripey one" than it is "that attn_q one".
+            payload["shape"] = label
+            associations[label] = associations.get(label, 0.0) + 1.0
+            report.labels[label] = report.labels.get(label, 0) + 1
         vault.add_shard(
             shard_id=f"tensor:{info.name}",
             category=category,
             payload=payload,
             kind="ternary-tensor",
-            associations=associations_of(info.name),
+            associations=associations,
         )
         written += 1
         report.shards += 1

@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ultraquant.convert import gguf, ternary
+from ultraquant.convert import gguf, glyph, ternary
 
 
 def main(argv: list | None = None) -> int:
@@ -47,7 +47,8 @@ def main(argv: list | None = None) -> int:
         return 1
 
     print()
-    print(f"{'tensor':<38}{'error':>8}{'cosine':>8}{'rule':>18}")
+    print(f"{'tensor':<38}{'error':>8}{'cosine':>8}{'rule':>18}"
+          f"{'glyph':>8}")
     total_error = 0.0
     total_cosine = 0.0
     measured = 0
@@ -62,8 +63,12 @@ def main(argv: list | None = None) -> int:
         total_error += error
         total_cosine += cosine
         measured += 1
+        # The glyph's top row, so the census shows that every tensor
+        # carries one. The whole 5x5 lives on the shard; a table is
+        # the wrong place to draw pictures.
+        drawn = glyph.glyph_of(quantised)
         print(f"{info.name[:37]:<38}{error:8.4f}{cosine:8.4f}"
-              f"{picked:>18}")
+              f"{picked:>18}{drawn[0]:>8}")
     if not measured:
         return 1
     print()
@@ -74,6 +79,14 @@ def main(argv: list | None = None) -> int:
     print("this cosine to the trained one is not a drop-in replacement;")
     print("the error compounds through a stack. Conversion is a starting")
     print("point for retraining, not a substitute for it.")
+    print()
+    print("Every tensor also renders a 5x5 glyph from its own trits,")
+    print("stored on the shard and named by the pattern recognizer, so")
+    print("a converted tensor is addressable by what is in it and not")
+    print("only by what it was called. Measured: that name carries")
+    print("information about a tensor's kind, but the glyph does NOT")
+    print("separate kinds by distance - and neither does the library's")
+    print("64-bit sketch. Use it to look at and retrieve, not to route.")
     return 0
 
 

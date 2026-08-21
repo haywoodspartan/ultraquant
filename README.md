@@ -59,6 +59,8 @@ failures are documented next to the passes
 | **Transformer conversion kit** | reads a real GGUF checkpoint with the standard library (F32/F16/BF16/Q8_0, every other quantisation refused BY NAME rather than guessed at) and reports what ternary conversion would cost it: `python -m ultraquant.convert model.gguf`. Measured on 24 real tensors, the best rule leaves **0.467 relative output error at cosine 0.884 per layer** — the gate FAILS its own gain criterion, because the choice of threshold rule is second-order and the loss is first-order. Conversion is a starting point for retraining, not a substitute for it, and the tool says so |
 | **Tensors packed into the library** | a converted checkpoint goes INTO the shard vault as catalogued, addressable, paged shards - one shard per tensor, because a matmul needs the whole matrix - rather than a pile of files beside it. Four spellings were measured: base-243 packing (five trits to a byte) and two-bit packing tie after zlib, because density and compressibility cancel, so base-243 wins on the other axis at **118M weights/s decode against two-bit's 34M**. PASS: 20 tensors, 1,018,016 weights, **1.820 bits/weight against the naive spelling's 2.298** (+0.477 at 0.300 tensor sd), **zero trit and zero scale differences** through JSON/base64/zlib/sha256, zero unreachable shards, 11.6M weights/s end to end. A 1-D-tensor finding from run one is retracted in the book: the baseline was unfair |
 | **The yes/no family, natively** | claims, choices, comparisons and derived subjects ported to the C++ tier, gated on the sentence rather than the structure. **1,624 turns across 24 conversations, zero unexplained differences, zero intent differences, zero stores differing, and zero fabricated verdicts over 109 questions about subjects neither tier holds** - absence is never No, checked separately from parity because two tiers agreeing on a confident wrong answer would pass a parity gate happily. The one unported case (a comparison side that is an expression over beliefs) is provoked freely and counted: 74 of 89. With the branch disabled and the tier rebuilt, 80 of 180 turns differ - a gate that cannot fail has measured nothing |
+| **Weights that come back out and still recognise** | the import loop closed: a shard becomes a ternary layer, a set of shards becomes a network, and the glyph recognizer says whether the arithmetic survived. **128 glyphs, zero differing logits, zero differing labels, accuracy 0.9000 → 0.9000, zero bias elements changed.** Run one FAILED and found the defect worth having: the net's full-precision head was being pushed through the trit codec, costing 0.151 in the weights and dropping accuracy to 0.792 — trits are how you store a ternary matrix, not how you store a matrix. The cost is named rather than averaged: ternary weights 6.208 bits each, exactly-stored floats 86.500 |
+| **A glyph for every imported tensor** (failed, kept) | each packed tensor renders a 5×5 glyph from its own trits, named by the existing recognizer and retrievable by that name — ask the catalog for "stripes_v" and get real Qwen tensors back. It FAILED its separation criterion, and took three passes to find out how badly: the first comparison handed the library's own 64-bit sketch truncated input (reversing the result once fixed), and the second confounded tensor kind with dimensionality — 26 of 40 tensors are 1-D and render only **six distinct glyphs**. Controlled, **neither signature separates kind**: glyph 0.19 sds, sketch −0.04. Use it to look at and retrieve, never to route |
 
 Where a mechanism failed its gate, that is in the book too: the shared-encoder
 stage failed twice, honestly, and reordered the roadmap; hypervector retrieval
@@ -82,7 +84,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1912 tests, ~4 min
+python -m unittest discover -s tests      # 1935 tests, ~4 min
 ```
 
 In the chat, try:
@@ -112,12 +114,13 @@ ultraquant/
                inference (chains) - calculate (exact arithmetic)
   memory/      episodic/semantic stores - facts as bucket shards
   interpreter/ thought pipeline - chat CLI - stash quarantine - learning mode
-  convert/     GGUF reader - ternary conversion - trit packing - shard writer
+  convert/     GGUF reader - ternary conversion - trit packing - shard
+               writer - tensor glyphs - the loader back into a network
   forge/       build libraries from scratch - deployment languages - seed facts
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1912 tests across 130 modules
+tests/         1935 tests across 132 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
