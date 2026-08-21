@@ -70,6 +70,15 @@ class _NotArithmetic(Exception):
     """This text is not an arithmetic question after all."""
 
 
+class _Irrational(Exception):
+    """A root with no exact value, carrying what to bound."""
+
+    def __init__(self, value, degree: int) -> None:
+        super().__init__("irrational")
+        self.value = value
+        self.degree = degree
+
+
 @dataclass(frozen=True)
 class Quantity:
     """A number, and the unit it is a number OF ("" for a pure one).
@@ -157,6 +166,112 @@ def _mul(left: Quantity, right: Quantity) -> Quantity:
     return Quantity(left.value * right.value, left.unit or right.unit)
 
 
+def _iroot(number: int, degree: int) -> int:
+    """The integer part of ``number ** (1/degree)``, exactly.
+
+    Integer arithmetic throughout - the point of this module is that
+    a float never touches a value, and a root is exactly where a
+    float would be most tempting and least honest.
+    """
+    if number < 0:
+        raise ValueError("negative radicand")
+    if number < 2:
+        return number
+    if degree == 2:
+        import math
+
+        return math.isqrt(number)
+    low, high = 0, 1
+    while high ** degree <= number:
+        high *= 2
+    while low < high:
+        middle = (low + high + 1) // 2
+        if middle ** degree <= number:
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def _exact_root(value: Fraction, degree: int) -> Fraction | None:
+    """The root as a rational, or None if it is irrational."""
+    negative = value < 0
+    if negative and degree % 2 == 0:
+        raise Undefined(
+            f"no real number raised to the power {degree} gives "
+            f"{render_exact(value)}")
+    top = _iroot(abs(value.numerator), degree)
+    bottom = _iroot(value.denominator, degree)
+    if (top ** degree != abs(value.numerator)
+            or bottom ** degree != value.denominator):
+        return None
+    root = Fraction(top, bottom)
+    return -root if negative else root
+
+
+def _enclose(value: Fraction, degree: int, places: int = 9):
+    """Exact decimal bounds for an irrational root.
+
+    A root that has no exact value still has an exact PLACE: it lies
+    between two decimals that can be proved, by integer arithmetic,
+    to sit on either side of it. Naming that interval is honest in a
+    way that naming 1.4142135623730951 is not - that number is not
+    the square root of two, it is merely near it, and a system that
+    says "absence is never no" about beliefs should not quietly
+    round about numbers.
+    """
+    scale = 10 ** places
+    low = Fraction(_iroot(abs(value.numerator) * scale ** degree
+                          * value.denominator ** (degree - 1),
+                          degree),
+                   scale * value.denominator)
+    # Prove the bracket rather than trusting the scaling: the floor
+    # above can land a step low, and an unproved bound is a guess.
+    while low ** degree > value:
+        low -= Fraction(1, scale)
+    while (low + Fraction(1, scale)) ** degree <= value:
+        low += Fraction(1, scale)
+    return low, low + Fraction(1, scale)
+
+
+def _power(left: Quantity, right: Quantity) -> Quantity:
+    """``left ** right`` where the exponent is a whole number."""
+    if right.unit:
+        raise Undefined(
+            f"an exponent in {right.unit}s is not a number of times")
+    exponent = right.value
+    if isinstance(exponent, Fraction):
+        if exponent.denominator != 1:
+            raise Undefined(
+                "an exponent that is not a whole number asks for a "
+                "root - ask me for the root itself and I will bound "
+                "it exactly")
+        exponent = exponent.numerator
+    elif exponent != int(exponent):
+        raise Undefined(
+            "an exponent that is not a whole number asks for a root "
+            "- ask me for the root itself and I will bound it "
+            "exactly")
+    else:
+        exponent = int(exponent)
+    if abs(exponent) > _MAX_EXPONENT:
+        raise Undefined(
+            f"an exponent past {_MAX_EXPONENT} names a number with "
+            "more digits than an answer has")
+    if left.value == 0 and exponent == 0:
+        raise Undefined(
+            "zero to the power zero is a convention, not a value - "
+            "different fields choose differently, and I will not "
+            "choose for you")
+    if left.value == 0 and exponent < 0:
+        raise ZeroDivisionError
+    if left.unit and exponent != 1:
+        raise Undefined(
+            f"raising {left.unit}s to a power would name a unit no "
+            "definition I hold covers")
+    return Quantity(left.value ** exponent, left.unit)
+
+
 def _div(left: Quantity, right: Quantity) -> Quantity:
     if right.value == 0:
         raise ZeroDivisionError
@@ -191,11 +306,40 @@ _PREFIXES = (
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _SIGNED_RE = re.compile(r"-?\d+(?:\.\d+)?")
-_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/%]|[a-z']+")
+_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/%^]|[a-z']+")
+
+#: Root words, mapped to their degree. Prefix functions in the
+#: grammar, so "sqrt 16" and "sqrt(16)" are the same reading.
+_ROOT_DEGREES = {"sqrt": 2, "cbrt": 3}
+
+#: Spoken forms rewritten to the symbols the grammar already has, so
+#: "5 squared" and "5 ^ 2" are one reading and not two code paths.
+_SPOKEN_POWERS = (
+    (re.compile(r"\b(?:the\s+)?square\s+roots?\s+of\b"), "sqrt"),
+    (re.compile(r"\b(?:the\s+)?(?:cube|cubic)\s+roots?\s+of\b"),
+     "cbrt"),
+    (re.compile(r"\bsquare\s+roots?\b"), "sqrt"),
+    (re.compile(r"\b(?:cube|cubic)\s+roots?\b"), "cbrt"),
+    (re.compile(r"\bsqrt\s+of\b"), "sqrt"),
+    (re.compile(r"\bcbrt\s+of\b"), "cbrt"),
+    (re.compile(r"\bto\s+the\s+power\s+of\b"), "^"),
+    (re.compile(r"\braised\s+to\b"), "^"),
+    (re.compile(r"\bsquared\b"), "^ 2"),
+    (re.compile(r"\bcubed\b"), "^ 3"),
+)
+
+#: Past this, the answer has more digits than an answer has.
+_MAX_EXPONENT = 1000
 
 #: When False the module evaluates in binary floating point - the
 #: standard option, implemented honestly, and the gate's baseline arm.
 _EXACT_RATIONALS = True
+
+#: The §11.81 rung: powers and roots. Whole exponents are exact;
+#: a root that IS rational is given exactly; a root that is not is
+#: given as a proved decimal enclosure rather than a point value,
+#: because 1.4142135623730951 is not the square root of two.
+_POWERS_ON = True
 
 #: The §11.80 rung: percentages. "20% of 300" is a hundredth part
 #: taken 20 times and then multiplied, both halves structural; a
@@ -234,10 +378,12 @@ class MathResult:
     fractional: bool = False
     premises: list = field(default_factory=list)
     confidence: float | None = None
+    bounds: tuple | None = None
 
     @property
     def answered(self) -> bool:
-        return not self.refusal and self.shown != ""
+        return not self.refusal and (self.shown != "" 
+                                     or self.bounds is not None)
 
 
 def strip_question(text: str) -> str:
@@ -252,7 +398,10 @@ def strip_question(text: str) -> str:
                 changed = True
             elif low == prefix:
                 return ""
-    return low
+    if _POWERS_ON:
+        for pattern, symbol in _SPOKEN_POWERS:
+            low = pattern.sub(symbol, low)
+    return low.strip()
 
 
 def _is_unit(word: str) -> bool:
@@ -322,6 +471,18 @@ def _read_structure(text: str, allow_words: bool):
             # take it - a sign with no number in front of it is not
             # arithmetic, and with the rung off it never is.
             return None
+        elif token in _ROOT_DEGREES and _POWERS_ON:
+            if words:
+                items.append(("words", words))
+                words = []
+            items.append(("root", token))
+        elif token == "^":
+            if not _POWERS_ON:
+                return None
+            if words:
+                items.append(("words", words))
+                words = []
+            items.append(("op", "^"))
         elif token in "()+-*/":
             if words:
                 items.append(("words", words))
@@ -343,7 +504,8 @@ def _read_structure(text: str, allow_words: bool):
     if words:
         items.append(("words", words))
     operators = [item for item in items
-                 if item[0] == "op" and item[1] in "+-*/"]
+                 if (item[0] == "op" and item[1] in "+-*/^")
+                 or item[0] == "root"]
     operands = [item for item in items
                 if item[0] in ("number", "words", "percent")]
     if not operators or not operands:
@@ -443,6 +605,9 @@ def _tokenize(text: str, memory=None):
         if item[0] == "op":
             tokens.append(item[1])
             echoes.append(item[2] if len(item) > 2 else item[1])
+        elif item[0] == "root":
+            tokens.append(item[1])
+            echoes.append(item[1])
         elif item[0] == "percent":
             hundredths = (Fraction(item[1]) / 100 if _EXACT_RATIONALS
                           else float(item[1]) / 100)
@@ -523,7 +688,21 @@ class _Reader:
             value = self.unary()
             return (Quantity(-value.value, value.unit) if op == "-"
                     else value)
-        return self.atom()
+        return self.power()
+
+    def power(self) -> Quantity:
+        """``atom ^ unary``, right-associative - §11.81.
+
+        The sign sits OUTSIDE the power, which is what "-2^2 = -4"
+        means, and the right operand is a unary so "2^-3" reads. The
+        exponent binds tighter than multiplication because that is
+        what everyone writing "3 * 2^4" means.
+        """
+        value = self.atom()
+        if self.peek() == "^":
+            self.take()
+            return _power(value, self.unary())
+        return value
 
     def atom(self) -> Quantity:
         token = self.peek()
@@ -532,6 +711,36 @@ class _Reader:
         if isinstance(token, Quantity):
             self.take()
             return token
+        if token in _ROOT_DEGREES:
+            self.take()
+            degree = _ROOT_DEGREES[token]
+            # A unary, not an atom: "sqrt -4" must reach the root to
+            # be refused there, rather than dying as a syntax error
+            # and falling through as though it were not arithmetic.
+            inner = self.unary()
+            if inner.unit:
+                raise Undefined(
+                    f"the root of a length in {inner.unit}s would "
+                    "name a unit no definition I hold covers")
+            if not isinstance(inner.value, Fraction):
+                # The float arm: the standard option, which answers
+                # with a number that is not the root. Its domain
+                # error is kept honest rather than allowed to return
+                # a complex number, which is Python's answer to
+                # (-4) ** 0.5 and nobody's answer to the question.
+                if inner.value < 0:
+                    if degree % 2 == 0:
+                        raise Undefined(
+                            f"no real number raised to the power "
+                            f"{degree} gives "
+                            f"{render_exact(inner.value)}")
+                    return Quantity(-((-inner.value)
+                                      ** (1.0 / degree)), "")
+                return Quantity(inner.value ** (1.0 / degree), "")
+            exact = _exact_root(inner.value, degree)
+            if exact is not None:
+                return Quantity(exact, "")
+            raise _Irrational(inner.value, degree)
         if token == "(":
             self.take()
             value = self.expr()
@@ -596,7 +805,8 @@ def _is_unary_at(tokens: list[str], index: int) -> bool:
     """Whether the operator at ``index`` is a sign, not a joiner."""
     if index < 0 or tokens[index] not in ("+", "-"):
         return False
-    return index == 0 or tokens[index - 1] in "(+-*/"
+    return (index == 0 or tokens[index - 1] in "(+-*/^"
+            or tokens[index - 1] in _ROOT_DEGREES)
 
 
 def evaluate(text: str, memory=None) -> MathResult | None:
@@ -623,8 +833,8 @@ def evaluate(text: str, memory=None) -> MathResult | None:
     if read is None:
         return None
     tokens, echoes, premises, confidence = read
-    if not any(tok in "+-*/" for tok in tokens
-               if isinstance(tok, str)):
+    if not any(tok in "+-*/^" or tok in _ROOT_DEGREES
+               for tok in tokens if isinstance(tok, str)):
         # A bare number is not a calculation, and answering "5" to
         # "what is 5?" would be a parlour trick, not arithmetic.
         return None
@@ -637,6 +847,12 @@ def evaluate(text: str, memory=None) -> MathResult | None:
                     "number to give you",
             expression=_echo(echoes), premises=premises,
             confidence=confidence)
+    except _Irrational as irrational:
+        low, high = _enclose(irrational.value, irrational.degree)
+        return MathResult(expression=_echo(echoes),
+                          bounds=(render_exact(low),
+                                  render_exact(high)),
+                          premises=premises, confidence=confidence)
     except Undefined as refusal:
         return MathResult(refusal=str(refusal),
                           expression=_echo(echoes),

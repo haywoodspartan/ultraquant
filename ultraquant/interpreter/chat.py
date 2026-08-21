@@ -98,6 +98,11 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  powers       "what is 2 ^ 10?" / "what is 5 squared?" / "what is
+               the square root of 16?" - whole powers exact, rational
+               roots exact, and an irrational root given as proved
+               bounds ("sqrt 2 is between 1.414213562 and
+               1.414213563") rather than a value it does not have
   percentages  "what is 20% of 300?" / "what is 15% of the tower
                height?" - a hundredth part taken, composing with units
                and chains; "300 + 20%" refuses, because that shape is a

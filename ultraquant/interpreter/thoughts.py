@@ -1721,6 +1721,14 @@ class Reason(Thought):
             ctx.say(f"I can't compute that: {result.refusal}.")
             ctx.note(self.name, f"arithmetic refused; {result.refusal}")
             return True
+        if result.bounds:
+            low, high = result.bounds
+            ctx.say(f"{result.expression} is between {low} and "
+                    f"{high} - that value is irrational, so those "
+                    "are proved bounds, not the number.")
+            ctx.note(self.name,
+                     f"arithmetic enclosed {result.expression!r}")
+            return True
         exact = (" (exact - that value has no decimal form)"
                  if result.fractional else "")
         ctx.say(f"{result.expression} = {result.shown}{exact} - "
@@ -1748,6 +1756,18 @@ class Reason(Thought):
             ctx.say(f"I can't compute that: {result.refusal}.")
             ctx.note(self.name,
                      f"quantity arithmetic refused; {result.refusal}")
+            return True
+        if result.bounds:
+            low, high = result.bounds
+            trail = "; ".join(f"{key} is {shown}"
+                              for key, shown in result.premises)
+            source = f" ({trail})" if trail else ""
+            ctx.say(f"{result.expression} is between {low} and "
+                    f"{high}{source} - that value is irrational, so "
+                    "those are proved bounds, not the number.")
+            ctx.note(self.name,
+                     f"quantity arithmetic enclosed "
+                     f"{result.expression!r}")
             return True
         if not result.premises:
             # Nothing was recalled, so nothing is being derived: this

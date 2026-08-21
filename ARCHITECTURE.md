@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.69 · 1740 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.70 · 1752 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         113 modules, 1740 tests
+tests/         114 modules, 1752 tests
 ```
 
 ---
@@ -3409,6 +3409,48 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.81 A root that has no value still has a place
+
+Powers and roots are where "say exactly what is true" stops being a
+style and starts costing something. A whole power is easy and exact:
+2^10 is 1024, 2^-3 is one eighth, the sign sits outside the power so
+-2^2 is -4, and the exponent binds tighter than multiplication
+because that is what everyone writing "3 * 2^4" means. A root is not
+easy. **The square root of two has no exact value** — not as a
+decimal, not as a fraction — and the standard option answers it
+anyway, with 1.4142135623730951, whose square is 2.0000000000000004.
+
+So this rung refuses to name it and says where it is instead:
+
+```
+> what is the square root of 2?
+  sqrt 2 is between 1.414213562 and 1.414213563 - that value is
+  irrational, so those are proved bounds, not the number.
+```
+
+The bounds are *proved*: computed by integer arithmetic
+(`math.isqrt` and an integer nth root, never a float) and then
+verified as rationals — the low bound raised to the degree is
+checked to be at most the radicand, the next step up checked to
+exceed it. A root that IS rational is given exactly (sqrt 16 is 4,
+sqrt 0.25 is 0.5, cbrt -8 is -2), so the enclosure is reserved for
+numbers that need it. Three shapes refuse with their reasons: a
+negative radicand under an even root, zero to the power zero ("a
+convention, not a value — different fields choose differently, and I
+will not choose for you"), and an exponent past a thousand. Units
+refuse by the rule §11.78 already held — raising meters to a power
+would name a unit no definition covers.
+
+The gate (`experiments/power_gate.py`) measures against the standard
+option honestly built (same grammar, same refusals, `**` and float
+roots). **PASS on the first run: 0.702 -> 1.000, +0.298 at 3.56x
+seed sd, zero wrong values, zero irrationals named, zero false
+bounds, zero refusals missed.** The false-bounds line is what keeps
+this from being a worse answer dressed as a better one: the gate
+checked every enclosure itself in exact rational arithmetic, because
+a wrong bracket would be a firmer lie than the float it replaces.
+The enclosure is shorter than 1.4142135623730951, and it is true.
 
 ### 11.80 A hundredth part, taken
 
