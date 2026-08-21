@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.22 · 1359 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.23 · 1369 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         74 modules, 1359 tests
+tests/         75 modules, 1369 tests
 ```
 
 ---
@@ -3409,6 +3409,41 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.41 Containment corroboration: the bounded exception, and the first learned facts
+
+§11.40 registered the question its honest zero raised: three of four
+voices' positions contained one another, and the consensus machinery's
+own line — overlap is reported, "never credited" — met a case where
+refusing to credit looked like the error. The gate decided it. The
+mechanism (`_containment_core`): a core is an EXISTING position whose
+tokens are a subset of its backers'; no word is ever equated with a
+different word; a backing position carrying any negation token backs
+nothing; the credited answer is the core — the least claim all merged
+voices back — and the CONTAINMENT flag that turns it all off again is
+one constant.
+
+**The gate PASSED — narrowly on margin, absolutely on the controls**:
+elaboration-world corroboration 0.000 -> 0.600 at 1.16x seed sd, with
+**zero negation falls** ("earth round hoax" never backs "earth round"),
+**zero paraphrase falls** (different words never merge), and exact
+behavior identical between arms. The 0.400 miss is
+overlap-without-nesting — the live run's "evolves through usage"
+beside "system communication" — containment's honest ceiling, and what
+keeps it orthography-class. The module's "never credited" is amended
+to "credited only through this gate's rules".
+
+**The re-run then taught the library its first panel facts.**
+'language is communication' — three independent voices through the
+containment core, applied through the normal answer path, recalling
+live at 0.70. The run also caught its own driver counting corroboration
+as application while a handler silently refused a bare-word answer
+(fixed: application is `outcome.accepted`, and untrained-category
+answers are formatted as statements). And it stored one flagged fact
+for the human's veto: 'pixels' = '25' — grounded in this library's own
+usage (the 5x5 grid's 25 cells) and corroborated under the rules, but
+a count wearing a definition; one revision statement replaces it, and
+truth maintenance handles the rest.
+
 ### 11.40 The first library-training run, three panel defects, and an honest zero
 
 "Continue training" with the voice queue exhausted means the mature
@@ -4344,6 +4379,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | the density gate | **PASSED** (§11.38) — chains 1.000, fabrication 0.000, recall 1.000 from 100 to 10,000 colliding-token facts, after four failures became architecture: subject consistency, origin coverage, subject-prefix addressed buckets, order as evidence |
 | the live suggester | **PASSED** (§11.39) — the synonym wall moves 0.000 -> 0.833 on the live path at 2.04x sd with zero decoy falls in either arm; the positional rule killed the attribute-anchor fabrication; the chained ceiling stays the spread's job |
 | panel training run | **run, and honest** (§11.40) — three panel defects fixed (missing reasoning remedy, template-token positions, list-marker positions); the re-run's zero corroborations is exact-match integrity, ~50 claims quarantined awaiting independent evidence; containment corroboration registered for its own gate |
+| containment corroboration | **PASSED** (§11.41) — elaborations jointly back their shared core (+0.600 at 1.16x sd) with zero negation falls and zero paraphrase falls; the library learned its first panel facts ('language is communication', 3 voices), with one stored fact flagged for human veto |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

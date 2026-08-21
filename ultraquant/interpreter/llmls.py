@@ -742,6 +742,20 @@ class TeacherPanel:
             if count > best_voices:
                 best_voices, best_position = count, position
 
+        # Containment corroboration (§11.41), gated: elaborated positions
+        # may jointly back their shared core, negations never do, and the
+        # credited core enters the split so every surface that reads "the
+        # most-backed position" applies the LEAST claim all voices back.
+        if CONTAINMENT and best_voices < 2:
+            contained = _containment_core(split)
+            if contained is not None:
+                core, merged = contained
+                cards = [by_card[m] for m in merged if m in by_card]
+                core_voices = len(independent_groups(cards)) if cards else 0
+                if core_voices >= 2:
+                    split[core] = sorted(set(merged))
+                    best_voices, best_position = core_voices, core
+
         agreed = bool(best_position) and len(split) == 1
         corroborated = best_voices >= 2
         caveat = (
@@ -948,6 +962,69 @@ _FILLER = frozenset({
     "there", "has", "have", "had", "answer", "about", "approximately",
     "roughly", "around", "exactly",
 })
+
+
+#: Containment corroboration (§11.41): credit token-subset cores across
+#: elaborated positions. Gated ON only after the containment gate measured
+#: the negation and paraphrase controls holding; setting this False
+#: restores the exact-match-only bar everywhere.
+CONTAINMENT = True
+
+#: Function words that flip or suspend a claim. A position carrying one
+#: never backs a core: "the earth round story is a hoax" CONTAINS "earth
+#: round" and denies it. Blunt and orthographic on purpose - this list
+#: judges no synonyms, it only refuses to read agreement through a
+#: negation.
+_NEGATIONS = frozenset((
+    "not", "no", "never", "none", "hoax", "false", "myth", "fake",
+    "wrong", "isnt", "arent", "dont", "doesnt", "didnt", "cannot",
+    "cant", "wont", "without", "neither", "nor", "deny", "denies",
+    "denied", "untrue", "disproven", "debunked", "except", "unlike",
+))
+
+
+def _containment_core(split: dict) -> tuple[str, list[str]] | None:
+    """The largest position every non-negated superset also backs, or None.
+
+    Exact matching under-reports agreement on open questions - "system
+    communication" and "system communication using symbols" are one
+    position elaborated, not two positions. Crediting that containment is
+    confined to what orthography can defend: a core is an EXISTING
+    position whose token set is a subset of its backers' token sets, no
+    word is ever equated with a different word, and a backing position
+    containing any negation token backs nothing.
+
+    Returns:
+        ``(core_position, merged_model_ids)`` for the best core by
+        (backer count, token count), only when it merges more than one
+        exact position; None otherwise.
+    """
+    tokenised = {}
+    for position, backers in split.items():
+        tokens = frozenset(position.split())
+        if tokens:
+            tokenised[position] = (tokens, backers)
+    best: tuple[tuple[int, int], str, list[str]] | None = None
+    for core, (core_tokens, _core_backers) in tokenised.items():
+        if core_tokens & _NEGATIONS:
+            continue
+        merged: list[str] = []
+        merged_positions = 0
+        for position, (tokens, backers) in tokenised.items():
+            if not core_tokens <= tokens:
+                continue
+            if position != core and tokens & _NEGATIONS:
+                continue
+            merged.extend(backers)
+            merged_positions += 1
+        if merged_positions < 2:
+            continue
+        rank = (len(merged), len(core_tokens))
+        if best is None or rank > best[0]:
+            best = (rank, core, merged)
+    if best is None:
+        return None
+    return best[1], best[2]
 
 
 def _position(text: str, question: str = "") -> str:
