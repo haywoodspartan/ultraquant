@@ -81,11 +81,14 @@ understands - among others - these forms:
   why          "why is the tower hardness 490 units?" - answered from
                provenance; a false premise is corrected, never
                explained
-  compare      "is the tower height taller than the bridge height?"
-               (units convert; missing operands refuse aloud; operands
-               the store lacks are derived and marked)
-  which        "which height is the tallest?" - ranked over every held
-               fact, scope named, ties named, denials never counted
+  compare      "is the tower taller than the bridge?" - taller/heavier/
+               longer name their attribute themselves (units convert;
+               missing operands refuse aloud; operands the store lacks
+               are derived and marked)
+  which        "which is the tallest?" or "which height is the tallest?"
+               - ranked over every held fact, scope named, ties named,
+               denials never counted; vague words (biggest) ask you to
+               name the attribute
   aggregates   "how many height facts do you hold?" / "what is the
                total height?" / "what is the average height?"
   arithmetic   "what is the sum of the tower height and the bridge

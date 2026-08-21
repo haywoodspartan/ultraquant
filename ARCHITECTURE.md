@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.63 · 1672 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.64 · 1681 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         107 modules, 1672 tests
+tests/         108 modules, 1681 tests
 ```
 
 ---
@@ -3408,6 +3408,36 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.75 The comparative word carries its attribute
+
+"is the west tower taller than the south tower?" refused with "I
+hold nothing for 'south tower'" — while the store held "south tower
+height is 450 meters" — and "which is the tallest?" answered nothing
+over three stored heights. The word "taller" NAMES the attribute and
+nobody read it: both branches required "height" spelled out, a shape
+nobody speaks. Now taller/tallest say height, heavier/heaviest and
+lighter/lightest say weight, longer/longest say length — and only
+those: the polysemous words (bigger, larger, smaller, highest,
+lowest) name no single family ("highest price"), so implication
+there would fabricate specificity, and they keep requiring the named
+attribute. The same test excluded one of our own candidates before
+any run: "shorter" spans height and length ("the shorter rope") and
+was dropped from the map. Exact bare keys still win first; the
+appended key is tried only when the bare one misses; §11.55's derive
+runs on the appended key, where the attribute's chain actually
+lives; the refusal names the key that was tried.
+
+The gate (`experiments/impliedattr_gate.py`) ran `_IMPLIED_ATTRS`
+off against on. **PASS on the first run: 0.000 -> 0.700, +0.700 at
+9.48x seed sd** — the baseline answered NO natural shape at all, the
+treatment answered every winnable one (0.700 is exactly the winnable
+share; unwinnables score zero for both arms by §11.35's arithmetic)
+— **zero ambiguous words answered, zero unwinnables answered, zero
+named-form mismatches, zero bare pairs shadowed.** The derive trail
+rode through: "Yes — west tower height is 900 meters (derived via
+spirekind), south tower height is 450 meters" — implication, chain,
+and comparison composing in one verdict.
 
 ### 11.74 Two statements joined are two statements
 

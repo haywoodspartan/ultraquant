@@ -1709,6 +1709,12 @@ class Reason(Thought):
         word = found[0]
         direction = _SUPERLATIVES[word]
         attrs = [tok for tok in tokens if tok != word]
+        if (not attrs and _IMPLIED_ATTRS_ON
+                and word in _IMPLIED_ATTRS):
+            # §11.75: "which is the tallest?" - the word itself names
+            # the attribute where plain English does; polysemous words
+            # (biggest) imply nothing and refuse rather than guess.
+            attrs = [_IMPLIED_ATTRS[word]]
         if len(attrs) != 1:
             return False
         attr = attrs[0]
@@ -1899,6 +1905,17 @@ class Reason(Thought):
         trails = {}
         for name, key in (("left", left_key), ("right", right_key)):
             record = memory.recall_fact(key)
+            if record is None and _IMPLIED_ATTRS_ON:
+                # §11.75: "is A taller than B?" - the comparative word
+                # names its attribute, so a bare operand tries the
+                # appended key before refusing. The exact key won
+                # above; polysemous words (bigger, higher) imply
+                # nothing; the derive below then runs on the appended
+                # key, where the attribute's chain actually lives.
+                implied = _IMPLIED_ATTRS.get(words[comp_at])
+                if implied and not key.endswith(" " + implied):
+                    key = f"{key} {implied}"
+                    record = memory.recall_fact(key)
             if record is None and _COMPARE_DERIVES:
                 # §11.55: an operand the store does not hold may be
                 # derived - with §11.50's split discipline (no
@@ -2255,6 +2272,27 @@ _SUPERLATIVES = {
     "highest": "larger", "largest": "larger", "heaviest": "larger",
     "shortest": "smaller", "smallest": "smaller", "lowest": "smaller",
     "lightest": "smaller",
+}
+
+#: The §11.75 rung: the comparative word CARRIES its attribute -
+#: "is A taller than B?" and "which is the tallest?" read height out
+#: of "taller"/"tallest" instead of refusing until someone spells it.
+#: Only words attribute-specific in plain English imply; the
+#: polysemous ones (bigger, larger, smaller, highest, lowest - and
+#: shorter, which spans height and length: "the shorter rope") name
+#: no single family - "highest price", "lower cost" - so implication
+#: there would fabricate specificity, and they keep requiring the
+#: named attribute. Exact bare keys still win first; the appended key
+#: is tried only when the bare one misses. The implied-attr gate's
+#: baseline arm turns it off.
+_IMPLIED_ATTRS_ON = True
+
+#: Comparative/superlative word -> the attribute it names.
+_IMPLIED_ATTRS = {
+    "taller": "height", "tallest": "height",
+    "heavier": "weight", "heaviest": "weight",
+    "lighter": "weight", "lightest": "weight",
+    "longer": "length", "longest": "length",
 }
 
 
