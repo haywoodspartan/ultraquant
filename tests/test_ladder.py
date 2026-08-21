@@ -70,11 +70,12 @@ class ClimbDriverTests(unittest.TestCase):
 class LiveLadderTests(unittest.TestCase):
     """The ladder end to end: climb, close, retract - one level up.
 
-    §11.52 moved the hop cap to three, so depth-4 chains converge
-    DIRECTLY and the ladder's territory starts at depth 5. The economy
-    pins moved with the capability: what needed one confirmation now
-    needs zero, and the one-confirmation protocol holds exactly one
-    rung higher.
+    §11.52 moved the hop cap to three and §11.61 to four, so chains
+    through depth 5 converge DIRECTLY and the ladder's territory
+    starts at depth 6. The economy pins moved with the capability both
+    times: what needed one confirmation now needs zero, and the
+    one-confirmation protocol holds exactly one rung higher - which is
+    what a protocol built on rungs is for.
     """
 
     def setUp(self) -> None:
@@ -86,22 +87,24 @@ class LiveLadderTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def _world(self, depth5: bool = False) -> None:
+    def _world(self, depth6: bool = False) -> None:
         from ultraquant.interpreter.thoughts import run_pipeline
 
         statements = ["the tower material is bronzite",
                       "the bronzite base is bronzoid",
-                      "the bronzoid base is bronze",
+                      "the bronzoid base is bronzine",
+                      "the bronzine base is bronze",
                       "the bronze melting point is 913 degrees"]
-        if depth5:
-            statements[2:3] = ["the bronzoid base is bronzine",
-                               "the bronzine base is bronze"]
+        if depth6:
+            statements[3:4] = ["the bronzine base is bronzium",
+                               "the bronzium base is bronze"]
         for statement in statements:
             run_pipeline(statement, self.session)
 
-    def test_depth_four_needs_no_ladder_now(self) -> None:
-        """§11.33 pinned this at exactly one confirmation; §11.52's
-        third hop converges it directly, and the ladder stays folded."""
+    def test_depth_five_needs_no_ladder_now(self) -> None:
+        """§11.33 pinned depth-4 at one confirmation; §11.52 folded
+        that rung and §11.61 folded depth-5's - four hops converge it
+        directly."""
         from ultraquant.interpreter.thoughts import run_pipeline
 
         self._world()
@@ -109,24 +112,24 @@ class LiveLadderTests(unittest.TestCase):
                                     "what is the tower melting point?")
         self.assertTrue(ok)
         self.assertIn("913", response)
-        self.assertEqual(used, 0, "depth-4 converges without a rung")
+        self.assertEqual(used, 0, "depth-5 converges without a rung")
 
-    def test_the_climb_closes_depth_five(self) -> None:
+    def test_the_climb_closes_depth_six(self) -> None:
         from ultraquant.interpreter.thoughts import run_pipeline
 
-        self._world(depth5=True)
+        self._world(depth6=True)
         ok, used, response = _climb(run_pipeline, self.session,
                                     "what is the tower melting point?")
         self.assertTrue(ok)
         self.assertIn("913", response)
-        self.assertEqual(used, 1, "depth-5 needs exactly one confirmation")
+        self.assertEqual(used, 1, "depth-6 needs exactly one confirmation")
 
     def test_bottom_revision_takes_the_ladder_down(self) -> None:
         """The consolidated rung rests on the bottom fact; revising the
-        bottom must retract it - at depth 5 now, where a rung exists."""
+        bottom must retract it - at depth 6 now, where a rung exists."""
         from ultraquant.interpreter.thoughts import run_pipeline
 
-        self._world(depth5=True)
+        self._world(depth6=True)
         ok, _used, _resp = _climb(run_pipeline, self.session,
                                   "what is the tower melting point?")
         self.assertTrue(ok)

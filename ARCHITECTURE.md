@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.42 · 1550 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.43 · 1557 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         93 modules, 1550 tests
+tests/         94 modules, 1557 tests
 ```
 
 ---
@@ -3408,6 +3408,31 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.61 The fifth fact: the second limit moved by measurement
+
+§11.52 closed with the fifth fact "a measurement away from moving,
+never a promise", and the open question was real in both directions:
+either the structural rules carry a FOURTH bridge, or that is the
+depth where §11.31's warning finally binds — and a FAIL would have
+been the binding measured, recorded exactly the way a pass would be.
+The depth-five gate (`experiments/depth5_gate.py`) asked it with the
+candidate constants (`_MAX_HOPS = 4`, `_FLOOR = 0.05`) monkeypatched
+per arm: entity -> agent -> place -> region -> realm -> attribute
+worlds (five facts, four bridges), ~25% broken middles as the
+unwinnable share, the full decoy family at the new depth, and four-,
+three-, and two-fact chains plus recall as regression floors.
+
+**PASS on the first run: five-fact chains 0.000 -> 0.896 at 6.96x
+seed sd, zero decoy assertions at four bridges, every shallower floor
+identical in both arms.** The constants shipped; the sixth fact
+arrives at 0.03125 and stays structurally refused, a measurement away
+like the two limits before it. The ladder protocol moved up with the
+capability a second time — depth-5 converges without a rung, depth-6
+closes with exactly one confirmation, and a bottom revision still
+takes the rung down. Two limits moved by measurement in one session:
+the § of record is not the constant but the method — pre-register the
+risk, arm the candidate, and let the decoys decide.
 
 ### 11.60 The drowned bridge that wasn't: a negative result, recorded
 

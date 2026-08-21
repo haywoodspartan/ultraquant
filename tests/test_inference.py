@@ -78,15 +78,17 @@ class ChainInferenceTests(unittest.TestCase):
         self.assertIn("inferred, not stored", text)
         self.assertIn("tower material is steel", text)
 
-    def test_depth_three_reaches_and_depth_four_stops(self) -> None:
-        """Activation decays 0.5 per bridge over a 0.1 floor: three
-        bridges arrive at 0.125 and answer (§11.52 measured the §11.31
-        pun warning no longer binding under the full rule stack); four
-        would arrive at 0.0625 and honestly refuse. The floor is the
-        architecture's stated limit, re-measured, not erased."""
+    def test_depth_four_reaches_and_depth_five_stops(self) -> None:
+        """Activation decays 0.5 per bridge over a 0.05 floor: four
+        bridges arrive at 0.0625 and answer (§11.52 measured the
+        §11.31 pun warning unbound at three bridges, §11.61 at four);
+        five would arrive at 0.03125 and honestly refuse. The floor is
+        the architecture's stated limit, re-measured each time it
+        moves, never erased."""
         deep = _memory({"tower material": "bronzite",
                         "bronzite base": "bronzoid",
-                        "bronzoid base": "bronze",
+                        "bronzoid base": "bronzine",
+                        "bronzine base": "bronze",
                         "bronze melting point": "913 degrees"})
         result = infer("what is the tower melting point?", deep)
         self.assertIsNotNone(result)
@@ -95,7 +97,8 @@ class ChainInferenceTests(unittest.TestCase):
         deeper = _memory({"tower material": "bronzite",
                           "bronzite base": "bronzoid",
                           "bronzoid base": "bronzine",
-                          "bronzine base": "bronze",
+                          "bronzine base": "bronzium",
+                          "bronzium base": "bronze",
                           "bronze melting point": "913 degrees"})
         self.assertIsNone(infer("what is the tower melting point?", deeper))
 
