@@ -886,6 +886,7 @@ class Reason(Thought):
                     "key": key, "value": value,
                     "confidence": derived.confidence,
                     "premises": list(derived.premises),
+                    "negated": bool(getattr(derived, "negated", False)),
                 }
             ctx.note(self.name,
                      f"inferred ({derived.kind}) from "
@@ -1031,12 +1032,15 @@ class Reason(Thought):
             ctx.say("Nothing is pending confirmation.")
             ctx.note(self.name, "affirmation with nothing pending")
             return
+        negated = bool(pending.get("negated"))
         ctx.session.memory.consolidate_fact(
             key, value,
             confidence=float(pending.get("confidence", 0.0)),
             premises=pending.get("premises", []),
+            negated=negated,
         )
-        ctx.say(f"Consolidated: {key} is {value} - derived and confirmed, "
+        spoken = f"not {value}" if negated else value
+        ctx.say(f"Consolidated: {key} is {spoken} - derived and confirmed, "
                 "now recallable, and retracted automatically if a premise "
                 "is ever revised.")
         ctx.note(self.name, f"consolidated {key!r} from "

@@ -293,7 +293,7 @@ class SystematicMemory:
     # ------------------------------------------------------------------
 
     def consolidate_fact(self, key: str, value: Any, confidence: float,
-                         premises: list) -> None:
+                         premises: list, negated: bool = False) -> None:
         """Store a *derived* fact with the premises it rests on.
 
         The brain-shaped move (ARCHITECTURE §11.30's registered successor):
@@ -309,7 +309,7 @@ class SystematicMemory:
         outlives its premises is that error with a memory.
         """
         now = _utc_now()
-        self._put_fact(key, {
+        record = {
             "value": value,
             "confidence": float(confidence),
             "reinforcements": 0,
@@ -317,7 +317,13 @@ class SystematicMemory:
             "last_seen": now,
             "derived_from": [[str(p_key), str(p_value)]
                              for p_key, p_value in premises],
-        })
+        }
+        if negated:
+            # A consolidated denial ("believed not temperate", earned
+            # through a chain and confirmed) carries its polarity, so it
+            # is inert as a bridge exactly like a stated one (§11.48).
+            record["negated"] = True
+        self._put_fact(key, record)
 
     def _retract_derivatives(self, revised_key: str) -> list[str]:
         """Drop every derived fact resting on ``revised_key``, recursively.

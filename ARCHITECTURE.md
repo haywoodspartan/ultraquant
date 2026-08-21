@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.29 · 1446 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.30 · 1456 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         82 modules, 1446 tests
+tests/         83 modules, 1456 tests
 ```
 
 ---
@@ -3408,6 +3408,36 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.49 Denials speak at terminals, and only at terminals
+
+§11.48 made negation inhibitory everywhere and deliberately left
+negative knowledge silent at depth: "the dome city is york" plus "the
+york climate is not temperate" refused, though together they honestly
+entail "believed not temperate". This unit opens exactly one door — a
+negated fact may be reached as a chain TERMINAL and answer, polarity
+spoken and trail named ("the dome city climate is believed not
+temperate, via york"), the premise line reading the denial as a denial
+("york climate is not temperate") — and it still never seeds, never
+relays, never bridges. Structurally: negated facts stay out of round-0
+seeding, join the spread only as bridge targets, and a relay guard
+stops every lineage at them; `_NEGATED_TERMINALS` is the gate's
+baseline switch. Affirming a negative conclusion consolidates it WITH
+its polarity, so a derived denial is inert as a bridge forever after,
+exactly like a stated one — and negative knowledge composes with
+§11.47's depth ("believed not temperate, via wren, york").
+
+The gate (`experiments/negchain_gate.py`) ran door-closed against
+door-open over shared worlds — negative-terminal chains (~25% with the
+terminal never stored, the unwinnable share), negated-middle questions
+as the §11.48 inertness control re-asserted under the open door,
+positive chains and recalls as the floor. **PASS on the first run:
+0.000 -> 0.694, +0.694 at 2.09x seed sd**, every delivered answer
+named its polarity and trail, negated middles derived ZERO times in
+either arm — the door measured at exactly its stated width — and
+neither chains nor recall moved. The remaining rung of the §11.48
+family (polar questions answered THROUGH chains: "is the dome city
+climate temperate?" derived rather than recalled) stays registered.
 
 ### 11.48 Polarity: belief-of-absence, inhibitory everywhere, honest aloud
 

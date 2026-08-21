@@ -71,6 +71,11 @@ _DECAY = 0.5
 _FLOOR = 0.2
 _MAX_HOPS = 2
 
+#: §11.49's door: a negated fact may be reached as a chain TERMINAL and
+#: answer "believed not X". False restores §11.48's phase one (denials
+#: fully inert) - the negchain gate's baseline arm.
+_NEGATED_TERMINALS = True
+
 
 @dataclass
 class Inference:
@@ -90,6 +95,9 @@ class Inference:
     #: ``(key, value)`` a chain's conclusion would be stored under if it
     #: earns consolidation. Combines carry None: arithmetic re-derives.
     conclusion: tuple | None = None
+    #: True when the conclusion is belief-of-absence ("believed not X"):
+    #: the terminal premise was a negation, reached but never bridged.
+    negated: bool = False
 
     def describe(self) -> str:
         """The answer with its premises named - inferred, never asserted."""
@@ -224,6 +232,12 @@ def _spread(question_tokens: set[str], memory,
         # a round is a frontier, not a free-for-all.
         pending: list[tuple[str, dict, str, dict, list]] = []
         for node in list(nodes.values()):
+            # §11.49: a negated fact may be reached and ANSWER ("believed
+            # not temperate", via the chain that reached it) but its value
+            # names what is NOT believed - it never relays. The denial
+            # stays inert as a bridge, exactly as §11.48 measured.
+            if node.record.get("negated"):
+                continue
             # A node relays each origin lineage separately. Its own direct
             # contact starts a lineage rooted at itself; every inherited
             # lineage keeps its root.
@@ -249,7 +263,7 @@ def _spread(question_tokens: set[str], memory,
             for t_key, t_record in targets.items():
                 if t_key == node.key:
                     continue
-                if t_record.get("negated"):
+                if t_record.get("negated") and not _NEGATED_TERMINALS:
                     continue
                 t_tokens = _fold(t_key)
                 # Whole-value bridging, both directions. A bridge that
@@ -382,14 +396,20 @@ def _spread(question_tokens: set[str], memory,
                        if normalize_token(tok) in question_tokens)
     asked = " ".join(sorted(question_tokens - _fold(subject_key)))
     via = ", ".join(str(v) for _k, v in premises[:-1])
+    negated = bool(node.record.get("negated"))
+    value = str(node.record.get("value", ""))
+    if negated:
+        # The terminal is a denial: the chain earned "believed not X",
+        # and the premise line reads the polarity too.
+        premises[-1] = (node.key, f"not {value}")
+    spoken = f"believed not {value}" if negated else value
     return Inference(
-        answer=(f"the {subject} {asked} is "
-                f"{node.record.get('value', '')}, via {via}"),
+        answer=f"the {subject} {asked} is {spoken}, via {via}",
         premises=premises,
         confidence=min(confidences) if confidences else 0.0,
         kind="chain",
-        conclusion=(f"{subject} {asked}",
-                    str(node.record.get("value", ""))),
+        conclusion=(f"{subject} {asked}", value),
+        negated=negated,
     )
 
 def _numeric(value: str) -> float | None:
