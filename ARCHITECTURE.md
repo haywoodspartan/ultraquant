@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.66 · 1707 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.67 · 1721 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         110 modules, 1707 tests
+tests/         111 modules, 1721 tests
 ```
 
 ---
@@ -3409,6 +3409,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.78 Arithmetic over what is believed
+
+§11.76 could evaluate what the speaker wrote; it could not use what
+the system knows. "what is the tower height times 3?" answered
+"tower height is 300 meters" — a recall of one operand offered as
+the answer to an expression, which is §11.29's coverage failure
+wearing an operator: the question's tokens were covered, the
+question was not.
+
+An operand is now any of three things — a written number, a written
+quantity ("300 meters"), or a held belief — and units ride the
+operators. Addition needs one unit, reached through §11.42's
+definitions, and reads in the LARGER of the two (the rule the
+combine path already answers by); multiplication takes at most one,
+because meters times meters would name a unit no definition covers;
+division of two quantities in one family gives a plain ratio, which
+is the useful and honest answer. Conversions apply the definitions
+EXACTLY: §11.42 stores its factors as floats, and a float is the
+wrong shape for a definition — 0.3048 is what a foot is in meters,
+the double nearest 0.3048 is not — so they are read back through
+their decimal spelling. A result resting on a belief is a
+derivation, marked inferred, naming its premises, carrying the least
+confident of them.
+
+**Placement is the safety argument.** §11.76's literal reader is
+provably safe anywhere, because an expression of nothing but numbers
+cannot be another branch's question. This one reads WORDS, and words
+are what every other branch is made of — so it runs after every
+word-reading question form and before recall: late enough to steal
+nothing, early enough that an expression is never answered by one of
+its own operands. An expression where nothing resolves is not
+arithmetic at all: "what is the plus size?" reads "plus" as an
+operator and must fall through untouched, so a refusal is spoken
+only when something else in the expression did resolve.
+
+The gate (`experiments/quantity_gate.py`) took two runs, and the
+first was the harness's fault: it drew "cross-family" refusal cases
+by picking a different ATTRIBUTE, and height and length are both
+measured in meters, so two same-family sums computed correctly and
+were scored as inventions. An attribute is not a family. **Run two:
+0.000 -> 0.800, +0.800 at 18.46x seed sd, zero wrong values, zero
+undefined answers, zero voice splits against the combine path, zero
+ordinary questions moved.** The 0.200 is the derive ceiling, scored
+in rather than excused — §11.55 derives a comparative operand the
+store does not hold, this rung does not, so "the west tower height *
+2" refuses by naming the key it looked for, and both arms score zero
+there.
+
+**One matrix, one voice** is now a measured line rather than a
+lesson: every two-belief sum was asked twice, once through this rung
+("X + Y") and once through §11.42's combine path ("the sum of X and
+Y"), and required to agree on the number and the unit. §11.75 was
+caught because two branches answered one question differently; this
+makes that class of bug measurable instead of noticeable.
 
 ### 11.77 The unit that fell off
 

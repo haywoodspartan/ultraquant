@@ -873,6 +873,16 @@ class Reason(Thought):
             return
         if _NEGATION_AWARE and self._polar_answer(ctx):
             return
+        # §11.78: arithmetic whose operands are quantities and held
+        # beliefs - "what is the tower height times 3?". It runs
+        # after every branch that reads a WORD question form, and
+        # before recall, because a recall of one operand is not an
+        # answer to an expression: "the mill material * 2" was being
+        # answered "mill material is oak", which is §11.29's
+        # coverage failure wearing an operator - the tokens of the
+        # question are covered while the question is not.
+        if _QUANTITY_ARITHMETIC and self._quantity_answer(ctx):
+            return
         facts = ctx.data.get("facts", [])
         if facts:
             key, fact = facts[0]
@@ -953,6 +963,7 @@ class Reason(Thought):
                      f"{len(derived.premises)} facts: "
                      + ", ".join(repr(k) for k, _v in derived.premises))
             return
+
 
         # The metacognitive step the refusal earns: a failed convergence
         # knows which premise was missing, and a grounded gap becomes a
@@ -1718,6 +1729,50 @@ class Reason(Thought):
                  f"arithmetic over {result.expression!r}")
         return True
 
+    def _quantity_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "what is the tower height times 3?" - §11.78.
+
+        An operand may be a written quantity ("300 meters") or a held
+        belief, and the two compose. A result resting on a belief is
+        a DERIVATION, so it is marked inferred rather than computed,
+        names its premises, and carries the least confident of them -
+        the same accounting §11.42's combine path keeps, because it
+        is the same kind of claim.
+        """
+        from ultraquant.reason import calculate
+
+        result = calculate.evaluate(ctx.text, ctx.session.memory)
+        if result is None:
+            return False
+        if result.refusal:
+            ctx.say(f"I can't compute that: {result.refusal}.")
+            ctx.note(self.name,
+                     f"quantity arithmetic refused; {result.refusal}")
+            return True
+        if not result.premises:
+            # Nothing was recalled, so nothing is being derived: this
+            # is §11.76's answer, reached through a unit.
+            ctx.say(f"{result.expression} = {result.shown} - "
+                    "computed, not stored.")
+            ctx.note(self.name,
+                     f"quantity arithmetic over {result.expression!r}")
+            return True
+        trail = "; ".join(f"{key} is {shown}"
+                          for key, shown in result.premises)
+        ctx.say(f"{result.expression} = {result.shown} - inferred, "
+                f"not stored: {trail} "
+                f"(confidence {result.confidence:.2f}).")
+        ctx.session.pending_inference = {
+            "key": result.expression, "value": result.shown,
+            "confidence": result.confidence,
+            "premises": list(result.premises), "negated": False,
+        }
+        ctx.note(self.name,
+                 f"quantity arithmetic over {len(result.premises)} "
+                 f"fact(s): "
+                 + ", ".join(repr(k) for k, _v in result.premises))
+        return True
+
     def _superlative_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "which {attr} is the {tallest}?" over the whole
         attribute family - §11.56.
@@ -2333,6 +2388,15 @@ _IMPLIED_ATTRS_ON = True
 #: the same expressions in binary floating point - the standard
 #: option, honestly implemented.
 _ARITHMETIC_ON = True
+
+#: The §11.78 rung: arithmetic whose operands may be quantities
+#: ("300 meters") or held beliefs ("the tower height"), units riding
+#: the operators - same-family conversions applied through exact
+#: definitions, unit times unit refused, quantity over quantity
+#: giving a plain ratio - and a belief-backed result marked inferred
+#: with its premises named. The quantity gate's baseline arm turns it
+#: off, leaving §11.76's literal reader in place.
+_QUANTITY_ARITHMETIC = True
 
 #: Comparative/superlative word -> the attribute it names.
 _IMPLIED_ATTRS = {

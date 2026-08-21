@@ -98,6 +98,11 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  quantities   "what is the tower height times 3?" / "what is 300
+               meters + 2 kilometers?" - an operand may be a number, a
+               quantity, or a belief; units convert by definition, a
+               length over a length is a ratio, and meters times meters
+               refuses rather than invent a unit
   choices      "is the tower material steel or iron?" - the held
                disjunct answers by name; "Neither" names the actual; a
                denial rules out without electing; an unheld subject
