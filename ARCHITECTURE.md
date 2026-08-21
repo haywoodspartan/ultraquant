@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.32 · 1479 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.33 · 1487 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         85 modules, 1479 tests
+tests/         86 modules, 1487 tests
 ```
 
 ---
@@ -3408,6 +3408,46 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.52 The fourth fact: a stated limit moved by measurement
+
+§11.31 bounded the spread at two bridge hops with a warning — "longer
+chains multiply pun risk faster than they add reach" — and §11.47
+re-recorded the limit after measuring three-fact chains: the fourth
+fact refused by the decay floor, "the architecture's stated limit, not
+a promise". But the warning predates the rules that carry the pun
+resistance now: single-origin lineages (§11.37), origin coverage,
+order-as-evidence, whole-value bridging with accounted tokens
+(§11.47), synchronous frontiers (§11.47). Whether it still bound was a
+question for a measurement, and the depth-four gate
+(`experiments/depth4_gate.py`) asked it: entity -> agent -> place ->
+region -> attribute worlds (four facts, three bridges), ~25%
+broken-middle chains as the unwinnable share, the full §11.47 decoy
+family at the new depth, three-chains, two-chains, and recall as
+regression floors — the candidate constants (`_MAX_HOPS = 3`,
+`_FLOOR = 0.1`) monkeypatched per arm so the source would move only on
+a pass.
+
+**PASS on the first run: four-fact chains 0.000 -> 0.708 at 2.37x
+seed sd, with ZERO decoy assertions at depth** — epithet agents and
+ghosts refused through three bridges — and every shallower floor
+identical in both arms. The warning was right when written: the pun
+resistance lived in the decay floor then, and depth multiplied risk.
+It lives in the structural rules now, and under them the third bridge
+adds reach without adding puns. The constants shipped: a four-fact
+chain's origin arrives at 0.125 over the 0.1 floor and answers with
+its whole trail ("temperate, via wren, york, norland"); a fifth fact
+arrives at 0.0625 and stays structurally refused — recorded the way
+this limit was, a measurement away from moving, never a promise.
+
+The full suite then surfaced the one downstream consequence: §11.33's
+ladder economy pin. Depth-4 questions used to climb with exactly one
+confirmation; they converge directly now, zero confirmations, and the
+ladder's territory starts at depth 5 — where the one-confirmation
+protocol holds exactly one rung higher (measured: a five-fact chain
+closes with one consolidated rung, and revising the bottom fact takes
+the rung down with it). The protocol did not break; it moved up with
+the capability, which is what a protocol built on rungs is for.
 
 ### 11.51 Why: the trail is the answer, askable — and never invented
 

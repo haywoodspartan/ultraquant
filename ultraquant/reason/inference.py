@@ -65,11 +65,17 @@ _COMBINE_WORDS = {
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 #: Activation lost per bridge hop. Direct token contact is 1.0; one hop
-#: through a fact's value arrives at 0.5; a second hop at 0.25. Below the
-#: floor, activation is noise and stops spreading.
+#: through a fact's value arrives at 0.5, a second at 0.25, a third at
+#: 0.125. Below the floor, activation is noise and stops spreading — a
+#: fourth bridge would arrive at 0.0625 and is structurally refused.
+#: §11.31 capped this at two hops with a pun warning; §11.52 measured
+#: the warning against the rule stack that now exists (single-origin,
+#: origin coverage, order-as-evidence, whole-value bridging, synchronous
+#: frontiers) and it no longer binds: zero decoy assertions at depth
+#: three, shallower chains intact.
 _DECAY = 0.5
-_FLOOR = 0.2
-_MAX_HOPS = 2
+_FLOOR = 0.1
+_MAX_HOPS = 3
 
 #: §11.49's door: a negated fact may be reached as a chain TERMINAL and
 #: answer "believed not X". False restores §11.48's phase one (denials
