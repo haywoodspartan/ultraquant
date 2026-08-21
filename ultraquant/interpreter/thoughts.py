@@ -2105,6 +2105,15 @@ _REVISION_ALOUD = True
 #: baseline arm turns it off.
 _CONJUNCTIVE_STATEMENTS = True
 
+#: The §11.72 rung, cashing §11.71's ceiling: "the tower and the
+#: bridge material are iron" states the relation ONCE and ellipsis
+#: distributes it - the final part's trailing relation word completes
+#: every short part. Nothing is guessed: the relation is explicitly
+#: present, just stated once, and a conjunction where NO part names a
+#: relation still refuses. The ellipsis gate's baseline arm turns it
+#: off.
+_ELLIPSIS_DISTRIBUTES = True
+
 #: The §11.70 rung: "no" after a DERIVED answer declines the
 #: consolidation and names the premises so the wrong one can be
 #: corrected - nothing lowers, because a bare no cannot say WHICH
@@ -2278,16 +2287,34 @@ def _parse_conjunction(text: str) -> list[tuple[str, str]] | None:
         return None
     if " and " not in subjects.lower() or not value:
         return None
-    parts = []
+    keys = []
     for raw in subjects.split(" and "):
         key = raw.strip().lower()
         for article in ("the ", "a ", "an "):
             if key.startswith(article):
                 key = key[len(article):]
-        if len(key.split()) < 2:
+        if not key:
             return None
-        parts.append((key, value))
-    return parts if len(parts) >= 2 else None
+        keys.append(key)
+    if len(keys) < 2:
+        return None
+    short = [k for k in keys if len(k.split()) < 2]
+    if short:
+        # §11.72: ellipsis distribution. The FINAL part's trailing
+        # relation word completes every short part - "the tower and
+        # the bridge material" reads as tower material + bridge
+        # material. Only the stated relation distributes: if the final
+        # part is short too, nobody named one, and the conjunction
+        # refuses rather than guess.
+        if not _ELLIPSIS_DISTRIBUTES:
+            return None
+        final_tokens = keys[-1].split()
+        if len(final_tokens) < 2:
+            return None
+        relation = final_tokens[-1]
+        keys = [k if len(k.split()) >= 2 else f"{k} {relation}"
+                for k in keys]
+    return [(k, value) for k in keys]
 
 
 def _parse_statement(text: str) -> tuple[str, str] | None:
@@ -2380,8 +2407,13 @@ class Learn(Thought):
             toks = key.split()
             if len(toks) >= 3:
                 base = " ".join(toks[1:])
+                spoken = ctx.data.setdefault("_adjacency_spoken", set())
                 held = session.memory.recall_fact(base)
-                if held is not None:
+                if held is not None and base not in spoken:
+                    # One note per base per turn: two conjunctive
+                    # parts beside the same base earned an identical
+                    # sentence twice, which reads as a stutter.
+                    spoken.add(base)
                     ctx.say(f"I separately hold: {base} is "
                             f"{_shown_value(held)} (confidence "
                             f"{held['confidence']:.2f}).")

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.55 · 1642 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.56 · 1650 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         104 modules, 1642 tests
+tests/         105 modules, 1650 tests
 ```
 
 ---
@@ -3408,6 +3408,30 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.72 The relation stated once distributes
+
+§11.71's ceiling, cashed for exactly the shape it is honest in: "the
+tower and the bridge material are iron" names the relation once, in
+the final part, and standard ellipsis completes every SINGLE-TOKEN
+conjunct with it — nothing guessed, nothing dropped, negation riding
+the distribution. Two lines stay unmoved: a conjunction where nobody
+names a relation still refuses (there the distribution really would
+be invention), and multi-word entities stay the sharpened ceiling —
+token count cannot say whether "keep" in "the north tower and the
+south keep material" is name or relation, so §11.47's spirit refuses
+the ambiguity while the full-subject path stores multi-word parts
+exactly as their singular equivalents would.
+
+The gate (`experiments/ellipsis_gate.py`) took three runs: its first
+worlds used two-word entities — measuring a claim the mechanism never
+made, and sharpening the ceiling in the process — and its second run
+hit the third slicing-overflow in the book (fixed slots end the
+class). Then: **PASS, 0.333 -> 1.000, +0.667 at 3.83x seed sd, zero
+relation-free conjunctions stored, full-subject conjunctions
+identical in both arms.** A fourth ceiling registered and cashed
+inside one session; the adjacency notes also learned to speak once
+per base per turn along the way.
 
 ### 11.71 Conjunctive statements teach all their facts
 
