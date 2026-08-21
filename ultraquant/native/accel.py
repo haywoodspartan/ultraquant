@@ -173,6 +173,14 @@ def _declare_gpu(dll: ctypes.CDLL) -> None:
         p_i8, c_dbl, p_dbl, p_dbl, c_int, c_int, c_int, p_dbl,
     ]
     dll.uqg_ternary_forward_batch.restype = None
+    dll.uqg_layer_upload.argtypes = [p_i8, c_dbl, p_dbl, c_int, c_int]
+    dll.uqg_layer_upload.restype = c_int
+    dll.uqg_layer_forward.argtypes = [c_int, p_dbl, c_int, p_dbl]
+    dll.uqg_layer_forward.restype = None
+    dll.uqg_layer_free.argtypes = [c_int]
+    dll.uqg_layer_free.restype = None
+    dll.uqg_layer_resident_bytes.argtypes = []
+    dll.uqg_layer_resident_bytes.restype = ctypes.c_longlong
 
 
 def _try_load_cpu() -> ctypes.CDLL | None:
@@ -697,6 +705,47 @@ def ternary_forward_batch_cpu(
 # ---------------------------------------------------------------------------
 # GPU wrappers (ultraquant_cuda.dll)
 # ---------------------------------------------------------------------------
+
+def layer_upload(qw, alpha: float, bias, in_dim: int,
+                 out_dim: int) -> int:
+    """Upload one ternary layer to VRAM; returns a slot id, or -1.
+
+    §11.45's residency: the weights cross the bus once, and every later
+    :func:`layer_forward` moves only activations. -1 means no slot (or
+    no memory) - the caller falls back to the per-call path, never
+    fails.
+    """
+    dll = _require_gpu()
+    w = array("b", [int(v) for row in qw for v in row])
+    b_arr = None if bias is None else _darr(bias)
+    return int(dll.uqg_layer_upload(
+        _c_i8(w), float(alpha),
+        None if b_arr is None else _c_dbl(b_arr),
+        int(in_dim), int(out_dim)))
+
+
+def layer_forward(slot: int, xs, in_dim: int, out_dim: int):
+    """Forward a batch through a resident layer; only activations move."""
+    dll = _require_gpu()
+    flat, n_samples, _w = _flatten2d(xs, "d", "layer_forward xs")
+    out = array("d", bytes(8 * n_samples * out_dim))
+    dll.uqg_layer_forward(int(slot), _c_dbl(flat), int(n_samples),
+                          _c_dbl(out))
+    return [list(out[i * out_dim:(i + 1) * out_dim])
+            for i in range(n_samples)]
+
+
+def layer_free(slot: int) -> None:
+    """Release a resident layer's VRAM."""
+    dll = _require_gpu()
+    dll.uqg_layer_free(int(slot))
+
+
+def layer_resident_bytes() -> int:
+    """Total VRAM currently held by resident layers."""
+    dll = _require_gpu()
+    return int(dll.uqg_layer_resident_bytes())
+
 
 def gpu_available() -> bool:
     """True iff the CUDA DLL loads and reports at least one device. Never raises."""

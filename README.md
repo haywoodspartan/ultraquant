@@ -19,6 +19,7 @@ failures are documented next to the passes
 | capability | the measurement behind it |
 |---|---|
 | **Pageable shard library** | 1:6,200 resident-to-stored at the 1.2T-parameter design point; ships between machines inside `.uql` containers |
+| **Three-tier storage split** | disk holds the library, DRAM holds the working set, VRAM holds the hot layers (weights cross the bus once: 0.061 -> 0.028 ms/query at 3.6e-15 parity on an RTX 4090) |
 | **From-scratch quantum engine** | exact statevector sim, Mottonen encoding, parameter-shift gradients, kernels, ZNE, Grover; IBM QPU / BlueQubit optional |
 | **Content routing** | sketch-screened cosine over stored prototypes: 47x faster than exact scan at 20k categories, exact rerank always |
 | **Composition** (blackboard) | reads compound scenes a monolithic classifier scores 0.000 on (0.539, at 2.4x seed variance) |
@@ -49,7 +50,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1392 tests, ~4 min
+python -m unittest discover -s tests      # 1402 tests, ~4 min
 ```
 
 In the chat, try:
@@ -81,7 +82,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1392 tests across 78 modules
+tests/         1402 tests across 79 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.25 · 1392 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.26 · 1402 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         78 modules, 1392 tests
+tests/         79 modules, 1402 tests
 ```
 
 ---
@@ -3409,6 +3409,30 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.45 The VRAM tier: the storage split completes, at parity first
+
+The vision's storage split — disk as the permanent library, DRAM as
+the working set, VRAM as the hot layer — had two measured tiers and a
+missing third. The DLL now holds resident ternary layers
+(`uqg_layer_upload/forward/free/resident_bytes` in uq_cuda.cu): weights
+cross the bus once, every later query moves only activations, and a
+byte-budgeted LRU cache (`native/vram.py`) decides residency with
+structural fallback — no GPU, no slot, refused upload all return None
+and the tier below runs, bit-identical.
+
+**The gate caught one cache bug and then PASSED on an RTX 4090**: an
+oversized layer was becoming resident over budget (eviction empties
+the cache and then has nothing left to give) — it now refuses, and the
+fallback is the mechanism, not an apology. Then: parity **3.6e-15**
+against the pure-Python reference, per-query 0.061 ms (per-call
+upload) falling to **0.028 ms resident** (+0.033 ms at 3.26x
+repetition sd), 2.7x over pure Python, ledger and device agreeing at
+every step, residency zero after clear.
+
+Rule 1 held the whole way — parity first, the clock second — and the
+architecture's name is now measured at all three tiers: the library on
+disk (§6), the working set in DRAM (§11.14), the hot layers in VRAM.
+
 ### 11.44 Plasticity: attestation earns rank, and nothing more
 
 Rule 3 — "recall reinforces: the catalog reorganises around what is
@@ -4454,6 +4478,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | unit conversion | **PASSED** (§11.42) — definition-table conversion answers 0.643 of cross-unit combinations at 1.29x sd with zero refusal falls; cross-family, unknown-unit, and bare-number combinations refuse exactly as §11.30 required |
 | self-study | **PASSED** (§11.43) — the loop closes 0.667 of its own seeded gaps at 1.29x sd with ZERO invented-term corroborations across two live passes and zero wrong subjects; contested concepts stay open by design; ':study' ships |
 | plasticity | **PASSED** (§11.44) — reinforcement breaks retrieval ties (+0.571 at 1.11x sd) with zero entrenchment falls and better token matches always winning; rule 3 finally reaches the fact layer |
+| the VRAM tier | **PASSED** (§11.45) — resident layers at 3.6e-15 parity, 0.061 -> 0.028 ms per query at 3.26x rep sd on an RTX 4090, accounting balanced; the disk/DRAM/VRAM split is measured at all three tiers |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

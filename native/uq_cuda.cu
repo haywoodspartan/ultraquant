@@ -383,6 +383,122 @@ UQ_API void uqg_feature_map_batch(const double* features, int n_samples,
     if (d_out != nullptr) cudaFree(d_out);
 }
 
+// ---------------------------------------------------------------------------
+// VRAM-resident expert layers (SS11.45): upload once, forward many.
+//
+// uqg_ternary_forward_batch pays four mallocs and three host<->device
+// copies per call; for a HOT expert the weights never change between
+// queries, so residency moves everything but the activations off the
+// per-call path. A fixed slot table, no hidden allocation policy: the
+// Python cache decides what stays resident and evicts by calling free.
+// ---------------------------------------------------------------------------
+
+#define UQ_MAX_RESIDENT 64
+
+typedef struct {
+    signed char* d_qw;
+    double* d_bias;
+    int in_dim;
+    int out_dim;
+    int has_bias;
+    int in_use;
+    double alpha;
+} uq_resident_layer;
+
+static uq_resident_layer uq_residents[UQ_MAX_RESIDENT];
+
+UQ_API int uqg_layer_upload(const signed char* qw, double alpha,
+                            const double* bias, int in_dim, int out_dim)
+{
+    if (qw == nullptr || in_dim <= 0 || out_dim <= 0) return -1;
+    int slot = -1;
+    for (int i = 0; i < UQ_MAX_RESIDENT; ++i)
+        if (!uq_residents[i].in_use) { slot = i; break; }
+    if (slot < 0) return -1;
+
+    uq_resident_layer* r = &uq_residents[slot];
+    const size_t w_count = (size_t)out_dim * (size_t)in_dim;
+    bool ok = uq_ok(cudaMalloc(&r->d_qw, w_count));
+    ok = ok && uq_ok(cudaMemcpy(r->d_qw, qw, w_count,
+                                cudaMemcpyHostToDevice));
+    r->has_bias = (bias != nullptr) ? 1 : 0;
+    r->d_bias = nullptr;
+    if (ok && r->has_bias) {
+        ok = uq_ok(cudaMalloc(&r->d_bias,
+                              (size_t)out_dim * sizeof(double)));
+        ok = ok && uq_ok(cudaMemcpy(r->d_bias, bias,
+                                    (size_t)out_dim * sizeof(double),
+                                    cudaMemcpyHostToDevice));
+    }
+    if (!ok) {
+        if (r->d_qw != nullptr) cudaFree(r->d_qw);
+        if (r->d_bias != nullptr) cudaFree(r->d_bias);
+        r->d_qw = nullptr; r->d_bias = nullptr;
+        return -1;
+    }
+    r->in_dim = in_dim;
+    r->out_dim = out_dim;
+    r->alpha = alpha;
+    r->in_use = 1;
+    return slot;
+}
+
+UQ_API void uqg_layer_forward(int slot, const double* xs, int n_samples,
+                              double* out)
+{
+    if (slot < 0 || slot >= UQ_MAX_RESIDENT || xs == nullptr
+        || out == nullptr || n_samples <= 0)
+        return;
+    uq_resident_layer* r = &uq_residents[slot];
+    if (!r->in_use) return;
+
+    const size_t x_count = (size_t)n_samples * (size_t)r->in_dim;
+    const size_t o_count = (size_t)n_samples * (size_t)r->out_dim;
+    double* d_xs = nullptr;
+    double* d_out = nullptr;
+    bool ok = uq_ok(cudaMalloc(&d_xs, x_count * sizeof(double)));
+    ok = ok && uq_ok(cudaMalloc(&d_out, o_count * sizeof(double)));
+    ok = ok && uq_ok(cudaMemcpy(d_xs, xs, x_count * sizeof(double),
+                                cudaMemcpyHostToDevice));
+    if (ok) {
+        k_ternary_forward<<<uq_blocks_for(o_count), UQ_THREADS>>>(
+            r->d_qw, r->alpha, r->d_bias, r->has_bias, d_xs,
+            (long long)n_samples, r->in_dim, r->out_dim, d_out);
+        ok = uq_ok(cudaDeviceSynchronize());
+        if (ok) ok = uq_ok(cudaGetLastError());
+    }
+    if (ok)
+        uq_ok(cudaMemcpy(out, d_out, o_count * sizeof(double),
+                         cudaMemcpyDeviceToHost));
+    if (d_xs != nullptr) cudaFree(d_xs);
+    if (d_out != nullptr) cudaFree(d_out);
+}
+
+UQ_API void uqg_layer_free(int slot)
+{
+    if (slot < 0 || slot >= UQ_MAX_RESIDENT) return;
+    uq_resident_layer* r = &uq_residents[slot];
+    if (!r->in_use) return;
+    if (r->d_qw != nullptr) cudaFree(r->d_qw);
+    if (r->d_bias != nullptr) cudaFree(r->d_bias);
+    r->d_qw = nullptr;
+    r->d_bias = nullptr;
+    r->in_use = 0;
+}
+
+UQ_API long long uqg_layer_resident_bytes(void)
+{
+    long long total = 0;
+    for (int i = 0; i < UQ_MAX_RESIDENT; ++i) {
+        if (!uq_residents[i].in_use) continue;
+        total += (long long)uq_residents[i].out_dim
+                 * (long long)uq_residents[i].in_dim;
+        if (uq_residents[i].has_bias)
+            total += (long long)uq_residents[i].out_dim * 8LL;
+    }
+    return total;
+}
+
 UQ_API void uqg_ternary_forward_batch(const signed char* qw, double alpha,
                                       const double* bias, const double* xs,
                                       int n_samples, int in_dim, int out_dim,
