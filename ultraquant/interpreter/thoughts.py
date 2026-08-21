@@ -811,6 +811,8 @@ class Reason(Thought):
         if compound is not None:
             self._answer_compound(ctx, compound)
             return
+        if _WHY_ANSWERS and self._why_answer(ctx):
+            return
         if _NEGATION_AWARE and self._polar_answer(ctx):
             return
         facts = ctx.data.get("facts", [])
@@ -1213,6 +1215,127 @@ class Reason(Thought):
         ctx.note(self.name, f"polar question against {key!r}")
         return True
 
+    def _why_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "why is X Y?" from provenance - §11.51.
+
+        The trail IS the answer, finally askable: a consolidated fact
+        cites the premises it rests on, a stated fact cites its
+        statement, and a derivable one derives and shows the trail.
+        The control that matters most: never explain what is not
+        believed - "why is the tower material steel?" when iron is
+        held answers "It isn't - tower material is iron", because
+        rationalising a false premise is the transformer failure this
+        architecture exists to refuse.
+        """
+        from ultraquant.reason.inference import infer
+        from ultraquant.shards.router import _informative, normalize_token
+
+        lowered = ctx.text.lower().strip().strip("?!. ")
+        for lead in ("why is ", "why are ", "why was ", "why were "):
+            if lowered.startswith(lead):
+                rest = lowered[len(lead):].strip()
+                break
+        else:
+            return False
+        for article in ("the ", "a ", "an "):
+            if rest.startswith(article):
+                rest = rest[len(article):]
+        words = rest.split()
+        if len(words) < 2:
+            return False
+
+        memory = ctx.session.memory
+        fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
+                             in _TOKEN_RE.findall(str(text).lower())
+                             if _informative(tok)}
+        _CLAIM_NOISE = ("not", "never", "believed", "a", "an", "the")
+
+        fact = None
+        key = ""
+        derived = None
+        claim_words: list[str] = []
+        for size in range(len(words), 0, -1):
+            candidate_words = words[:size]
+            remainder = words[size:]
+            if len(remainder) <= 2:
+                record = memory.recall_fact(" ".join(candidate_words))
+                if record is not None:
+                    fact, key = record, " ".join(candidate_words)
+                    claim_words = remainder
+                    break
+            if (remainder and len(remainder) <= 2 and size >= 2
+                    and candidate_words[-1] not in ("not", "never")):
+                attempt = infer(
+                    f"what is the {' '.join(candidate_words)}?", memory)
+                if attempt is not None \
+                        and "as a modifier" not in attempt.answer \
+                        and "as modifiers" not in attempt.answer:
+                    derived = attempt
+                    claim_words = remainder
+                    break
+        claim_negated = any(w in ("not", "never") for w in claim_words)
+        claimed = " ".join(w for w in claim_words
+                           if w not in _CLAIM_NOISE)
+
+        if fact is not None:
+            shown = _shown_value(fact)
+            confidence = f"(confidence {fact['confidence']:.2f})"
+            if claimed:
+                agree = (fold(claimed) == fold(str(fact.get("value", "")))
+                         and claim_negated == bool(fact.get("negated")))
+                if not agree:
+                    # The anti-rationalisation line: a why-question
+                    # carrying a claim the library does not believe is
+                    # corrected, never explained.
+                    ctx.say(f"It isn't - {key} is {shown} {confidence}.")
+                    ctx.note(self.name,
+                             f"why-question corrected against {key!r}")
+                    return True
+            provenance = fact.get("derived_from")
+            if provenance:
+                trail = "; ".join(f"{p_key} is {p_value}"
+                                  for p_key, p_value in provenance)
+                ctx.say(f"Because {trail} - consolidated from a "
+                        f"confirmed derivation {confidence}.")
+            else:
+                times = int(fact.get("reinforcements", 0))
+                stated = ("stated directly"
+                          + (f", reinforced {times} time(s)"
+                             if times else ""))
+                ctx.say(f"Because it was {stated} {confidence}.")
+            ctx.note(self.name, f"why-question answered from {key!r}")
+            return True
+
+        if derived is not None:
+            suffix = (f"(derived just now, not stored, confidence "
+                      f"{derived.confidence:.2f})")
+            if claimed:
+                value = str(derived.conclusion[1]
+                            if derived.conclusion else "")
+                agree = (fold(claimed) == fold(value)
+                         and claim_negated == bool(derived.negated))
+                if not agree:
+                    ctx.say(f"It isn't - {derived.answer} {suffix}.")
+                    ctx.note(self.name, "why-question corrected against "
+                                        "a derivation")
+                    return True
+            trail = "; ".join(f"{p_key} is {p_value}"
+                              for p_key, p_value in derived.premises)
+            ctx.say(f"Because {trail} {suffix}.")
+            if derived.conclusion is not None:
+                d_key, d_value = derived.conclusion
+                ctx.session.pending_inference = {
+                    "key": d_key, "value": d_value,
+                    "confidence": derived.confidence,
+                    "premises": list(derived.premises),
+                    "negated": bool(derived.negated),
+                }
+            ctx.note(self.name,
+                     f"why-question derived through "
+                     f"{len(derived.premises)} premise(s)")
+            return True
+        return False
+
     def _polar_derive(self, ctx: ThoughtContext, subject_words: list[str],
                       claim_words: list[str]) -> bool:
         """Answer a polar question by DERIVING the subject - §11.50.
@@ -1319,6 +1442,12 @@ _NEGATION_AWARE = True
 #: their verdict through the chain machinery. The polar-derive gate's
 #: baseline arm turns it off.
 _POLAR_DERIVES = True
+
+#: The §11.51 rung: "why is X Y?" answers from provenance - stated
+#: facts cite their statement, consolidated facts cite their premises,
+#: derivable ones derive and show the trail. The why gate's baseline
+#: arm turns it off.
+_WHY_ANSWERS = True
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:

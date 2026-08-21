@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.31 · 1468 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.32 · 1479 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         84 modules, 1468 tests
+tests/         85 modules, 1479 tests
 ```
 
 ---
@@ -3408,6 +3408,42 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.51 Why: the trail is the answer, askable — and never invented
+
+Since §11.31 the architecture's thesis has been that an answer IS its
+evidence trail, and the provenance has been load-bearing since §11.30
+(`derived_from` on every consolidated fact, premises on every
+inference, confidence and reinforcement on every statement). But
+nothing could ASK for it. "why is X Y?" now answers from provenance,
+each kind in its own voice: a consolidated fact cites its premises
+("Because tower material is iron; iron hardness is 490 units —
+consolidated from a confirmed derivation"), a stated fact cites its
+statement ("Because it was stated directly, reinforced N time(s)"), a
+derivable-but-unstored subject derives and says so ("— derived just
+now, not stored"), polarity included ("Because dome city is york; york
+climate is not temperate").
+
+The two lines that make the answers worth having are zero-tolerance:
+**a false premise is corrected, never rationalised** ("why is the
+tower material steel?" -> "It isn't - tower material is iron"), and
+**an unheld subject is never explained**. Inventing a justification
+for a premise the system does not believe is the transformer failure
+mode this architecture defines itself against — an explanation machine
+that will explain anything explains nothing. The subject ladder reuses
+§11.50's split discipline (derivation tried at each size, stored hits
+only with short claims, no trailing negators, modifier-rescued splits
+refused).
+
+The gate (`experiments/why_gate.py`) ran `_WHY_ANSWERS` off against
+on: five kinds in world-varying mixes — stated, consolidated (derived
+and affirmed through the live §11.33 protocol during world build),
+derived, corrected, unheld — with recall as the floor. **PASS on the
+first run: 0.170 -> 1.000, +0.830 at 19.88x seed sd**, zero false
+premises rationalised, zero unheld subjects explained, recall 1.000 in
+both arms. The silent arm's 0.170 is the unheld share its hedge
+answers by being honest. Interrogative reach now spans what, is, and
+why — recall, verdict, and provenance — all through one belief store.
 
 ### 11.50 Polar questions answered through chains: the family closes
 
