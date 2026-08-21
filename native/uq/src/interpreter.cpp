@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "uq/calculate.hpp"
+#include "uq/forms.hpp"
 #include "uq/inference.hpp"
 
 namespace uq {
@@ -338,6 +339,19 @@ Turn Session::answer_question(const std::string& text) {
             ? " (exact - that value has no decimal form)" : "";
         turn.response = expression.expression + " = " + expression.shown
             + exact + " - computed, not stored.";
+        return turn;
+    }
+
+    // The enumerated-family forms come before recall, in the order
+    // the Python ladder runs them: a question about a SET is not
+    // answered by whichever member happens to match first.
+    std::string said;
+    if (superlative_answer(text, memory_, said)) {
+        turn.response = said;
+        return turn;
+    }
+    if (aggregate_answer(text, memory_, said)) {
+        turn.response = said;
         return turn;
     }
 

@@ -100,9 +100,14 @@ class GateVerdictTests(unittest.TestCase):
     def test_the_unported_forms_are_listed(self) -> None:
         """A scope claimed is a scope that can be checked."""
         for form in ("polar questions", "why", "comparatives",
-                     "superlatives", "aggregates", "history",
-                     "choices", "testimony"):
+                     "history", "choices", "testimony"):
             self.assertIn(form, self.doc)
+
+    def test_forms_that_landed_left_the_unported_list(self) -> None:
+        """A scope statement that goes stale is worse than none: it
+        claims a gap that has been closed."""
+        self.assertIn("Chains left that list with", self.doc)
+        self.assertIn("superlatives and aggregates with", self.doc)
 
     def test_the_closed_debt_is_recorded_as_closed(self) -> None:
         """A gap that was paid should read as paid, not as still

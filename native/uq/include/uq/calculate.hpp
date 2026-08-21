@@ -47,6 +47,15 @@ struct MathResult {
     std::string exact_shown;
 };
 
+// The unit table as the ranking paths see it: a family name, and
+// the FLOAT factor to that family's base. The exact rationals are
+// used where a value is computed; the ranking paths in the Python
+// tier multiply by these floats, so a native tier that used the
+// exact table there could order two facts differently at the last
+// bit and be wrong for a reason nobody could see.
+bool unit_family(const std::string& unit, std::string& family);
+double unit_factor(const std::string& unit);
+
 // The English plural fold the router applies, needed here because a
 // unit word is recognised after folding: "meters" is a meter.
 std::string normalize_token(const std::string& token);

@@ -83,6 +83,26 @@ public:
 
 }  // namespace
 
+bool unit_family(const std::string& unit, std::string& family) {
+    const Family* found = family_of(unit);
+    if (found == nullptr) return false;
+    family = found->name;
+    return true;
+}
+
+double unit_factor(const std::string& unit) {
+    const Family* found = family_of(unit);
+    if (found == nullptr) return 1.0;
+    for (std::size_t i = 0; i < found->count; ++i) {
+        if (unit == found->units[i].name) {
+            const Rational exact = Rational::parse(found->units[i].factor);
+            return std::stod(exact.top().str())
+                 / std::stod(exact.bottom().str());
+        }
+    }
+    return 1.0;
+}
+
 std::string normalize_token(const std::string& token) {
     // The router's plural fold, reproduced exactly - including the
     // three-character floor and the -ss/-us/-is/-os exceptions,

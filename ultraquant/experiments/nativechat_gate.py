@@ -16,9 +16,12 @@ the arithmetic and list readers, the exact recall branch under
 §11.29's coverage rule, nearest-held, and the honest unknown.
 
 **What it does not port**, and therefore does not claim: polar
-questions, why, comparatives, superlatives, aggregates, history,
-choices, testimony, conjunctions, clause splitting, chains, glyphs,
-goals, URLs and learning mode. Those arrive with their own gates.
+questions, why, comparatives, history, choices, testimony,
+conjunctions, clause splitting, glyphs, goals, URLs and learning
+mode. Those arrive with their own gates. Chains left that list with
+§11.92 and superlatives and aggregates with §11.93; this corpus
+provokes all three now, so what was once out of scope is under test
+rather than merely no longer mentioned.
 
 **One known gap is measured rather than avoided.** The Python tier
 appends a curiosity hint to a hedged answer when a failed question
@@ -197,6 +200,19 @@ def _conversation(rng: random.Random, turns: int):
                 "what is the sky colour?",
                 "who is the architect?",
             ]), "question unheld"))
+        elif pick < 0.86:
+            # The enumerated-family forms: a claim about a SET, which
+            # must not be answered by whichever member matched first.
+            attribute = rng.choice(["height", "weight"])
+            plan.append((rng.choice([
+                f"which {attribute} is the tallest?",
+                f"which {attribute} is the shortest?",
+                "which is the tallest?",
+                "which is the biggest?",
+                f"what is the total {attribute}?",
+                f"what is the average {attribute}?",
+                f"how many {attribute} facts do you hold?",
+            ]), "family"))
         elif pick < 0.92:
             plan.append((rng.choice([
                 f"what is {rng.randint(2, 90)} + {rng.randint(2, 40)} * "

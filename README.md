@@ -47,6 +47,7 @@ failures are documented next to the passes
 | **Exact arithmetic** | "what is 3 + 4 * 5?" reads precedence and parentheses structurally and evaluates over exact rationals, not floats: 0.1 + 0.2 is 0.3, one third prints as 1/3 because 0.333… is a different number, and division by zero refuses. Measured against the standard option rather than an absence — the same reader in binary floating point — which printed a number that was not the answer 45 times and answered 8 undefined divisions, once reporting 126,100,789,566,373,888 for an expression whose divisor is zero (0.443 -> 1.000 at 3.69x sd) |
 | **Modifier tolerance** | up to three library-unknown adjectives read away behind one unmoved residual floor, every dropped word named so the reading can be vetoed — three cap moves, the floor untouched, the distinction measured each time |
 | **Revision accountability** | a change of mind is narrated (old belief named, retracted derivations counted), a near-key statement names the held base it sits beside, and agreements are never called revisions (0.000 -> 0.803 at 5.03x sd, zero false notices) |
+| **A claim about a set, twice** | superlatives and aggregates ported with their trailing clauses intact — scope, exclusions by name, ties named, denials accounted (540 set-claims across 60 worlds, zero differences). Run one differed on two answers by ONE digit in the last place, and the cause was not arithmetic: CPython's `sum()` over floats carries a Neumaier compensation term since 3.12, so the native tier sums the way the oracle sums. Widening the comparison to "close enough" was refused — it would have blinded the gate to the next real difference |
 | **Two spreads that converge the same way** | spreading-activation inference ported — the hardest piece, because its correctness lives in ORDER as much as arithmetic, so the port uses insertion-ordered containers wherever Python walks a dict (368 questions across 40 worlds, zero derivations differed, zero curiosity gaps differed). The line that matters is refusal symmetry: zero questions were derived only by the native tier, so every epithet decoy, anagram subject and denial bridge Python refuses, it refuses too — a port that converged MORE would have scored better and been strictly worse |
 | **One conversation, two tiers, the same words** | the thought pipeline ported far enough to hold a session — intent, statements with polarity and revisions named aloud, the recall ladder with its coverage rule, and the arithmetic readers — gated turn by turn on the SENTENCE (1,200 turns, zero unexplained differences, zero intent differences, zero stores differing at the end). The one gap was measured rather than avoided — 71 turns differing only by a curiosity hint — and the inference port paid it: the same gate now runs 1,454 turns with that number at zero and nothing else moved |
 | **Two stores that remember the same way** | the fact store ported and gated on its whole observable surface — whether a statement was new, reinforced or a revision, the spoken form of a replaced belief, what a revised premise took down, and which key retrieval picks (4,800 script steps across 12 sessions, zero differences). It took five runs, and every failure was the native tier being reasonable instead of faithful: none was a wrong value, and one surfaced two steps later as a differently ordered retrieval rather than as a wrong confidence |
@@ -77,7 +78,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1853 tests, ~4 min
+python -m unittest discover -s tests      # 1862 tests, ~4 min
 ```
 
 In the chat, try:
@@ -111,7 +112,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1853 tests across 125 modules
+tests/         1862 tests across 126 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
