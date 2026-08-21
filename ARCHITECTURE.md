@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.39 · 1544 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.40 · 1549 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         92 modules, 1544 tests
+tests/         93 modules, 1549 tests
 ```
 
 ---
@@ -3408,6 +3408,35 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.59 The depth clock: licensed by measurement, held to parity
+
+"Always Complex it before optimization" is a standing rule, and
+§11.58 finally licensed this unit by measuring the price: depth-4
+chains at 726.5 ms/query, the largest number on the capstone's table,
+with the profile putting 92% of it in index-search volume — every
+activated node re-relaying in every synchronous round, recomputing
+identical bridge probes, and shared bridge values re-querying the same
+buckets (~1,627 `find_facts` calls per question). Two structural
+call-eliminations closed it, both provably identical in output:
+**frontier relaying** (after round one, only nodes that gained or
+strengthened an origin last round relay — direct sources never change
+after seeding, and equal-strength re-arrivals were already discarded
+unread by the strict comparison) and a **per-spread probe memo**
+(bridge probes depend only on the value and the fixed question).
+`_FRONTIER_SPREAD` is the gate's arm switch.
+
+The gate (`experiments/clock_gate.py`) runs §11.45's shape one tier
+up: both arms against the SAME session on identical store bytes,
+parity absolute and first — chains at every depth, modifier
+tolerance, negated terminals, every decoy family, byte-identical
+responses required — and the clock second. **PASS: zero divergences
+on the whole battery, 270.3 -> 84.8 ms per depth-4 query (+185.5 ms
+at 20.27x repetition sd)** — and the capstone, re-run under the
+frontier, reads every floor still at 1.000, zero fabrications, and
+**depth-4 at 347.4 ms** at 9,631 facts, down from 726.5. Rule 1 held
+the whole way: a fast wrong answer is not an optimization, and a fast
+differently-worded answer is not parity.
 
 ### 11.58 The density revisit: the session's arc at scale
 

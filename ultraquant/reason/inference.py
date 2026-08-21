@@ -82,6 +82,15 @@ _MAX_HOPS = 3
 #: fully inert) - the negchain gate's baseline arm.
 _NEGATED_TERMINALS = True
 
+#: §11.59's clock: relay only the frontier (nodes whose origins changed
+#: last round - equal-strength re-arrivals are discarded by the strict
+#: comparison anyway) and memoise bridge-probe retrieval within one
+#: spread (the probes depend only on the value and the fixed question).
+#: Both are pure call-elimination: the convergence set is bit-identical,
+#: and the clock gate holds parity absolute before reading the clock.
+#: False restores the every-node-every-round loop - the gate's arm.
+_FRONTIER_SPREAD = True
+
 
 @dataclass
 class Inference:
@@ -227,6 +236,8 @@ def _spread(question_tokens: set[str], memory,
             node.sources[token] = 1.0
         nodes[key] = node
 
+    frontier: set[str] | None = None
+    probe_memo: dict[str, dict] = {}
     for _hop in range(_MAX_HOPS):
         grown = False
         # Synchronous rounds: updates collect during the pass and apply
@@ -237,7 +248,16 @@ def _spread(question_tokens: set[str], memory,
         # iteration order. Cognition must not depend on dict order;
         # a round is a frontier, not a free-for-all.
         pending: list[tuple[str, dict, str, dict, list]] = []
+        changed: set[str] = set()
         for node in list(nodes.values()):
+            # §11.59: after round one, only nodes that gained or
+            # strengthened an origin last round have anything NEW to
+            # relay - a node's own direct sources never change after
+            # seeding, and re-relaying them yields equal-strength
+            # arrivals the strict comparison below discards unread.
+            if (_FRONTIER_SPREAD and frontier is not None
+                    and node.key not in frontier):
+                continue
             # §11.49: a negated fact may be reached and ANSWER ("believed
             # not temperate", via the chain that reached it) but its value
             # names what is NOT believed - it never relays. The denial
@@ -265,7 +285,13 @@ def _spread(question_tokens: set[str], memory,
             # question token addresses the target's own bucket directly.
             bridge_probes = [value] + [f"{value} {tok}"
                                        for tok in sorted(question_tokens)]
-            targets = _reachable_facts(memory, bridge_probes)
+            if _FRONTIER_SPREAD:
+                targets = probe_memo.get(value)
+                if targets is None:
+                    targets = _reachable_facts(memory, bridge_probes)
+                    probe_memo[value] = targets
+            else:
+                targets = _reachable_facts(memory, bridge_probes)
             for t_key, t_record in targets.items():
                 if t_key == node.key:
                     continue
@@ -321,7 +347,9 @@ def _spread(question_tokens: set[str], memory,
                         entry["sources"].values()):
                 target.origins[origin] = {"sources": arriving,
                                           "path": carried_path}
+                changed.add(t_key)
                 grown = True
+        frontier = changed
         if not grown:
             break
 
