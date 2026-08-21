@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.57 · 1657 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.58 · 1664 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         106 modules, 1657 tests
+tests/         107 modules, 1664 tests
 ```
 
 ---
@@ -3408,6 +3408,27 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.74 Two statements joined are two statements
+
+"the tower material is iron and the bridge material is steel" hit the
+first " is " split and stored the ENTIRE second clause inside the
+first value — 'tower material' = "iron and the bridge material is
+steel" — corruption narrated as success, the second fact drowned
+where no question would find it. A clause splits only where BOTH
+sides independently parse as statements, so the fix cannot overreach:
+"the motto is live and learn" never splits (its right side carries no
+verb), and each clause runs the complete statement machinery through
+§11.71's plumbing — polarity per clause, revision notices per clause.
+
+The gate (`experiments/clause_gate.py`) ran `_CLAUSE_CONJUNCTIONS`
+off against on. **PASS on the first run: 0.361 -> 1.000, +0.639 at
+4.59x seed sd, zero statements swallowed, zero and-values split —
+while the baseline swallowed 20**, the shipped corruption measured
+beside the fix. The statement grammar is complete in both directions:
+subjects conjoin (§11.71), relations distribute (§11.72), questions
+mirror (§11.73), clauses split (here) — four forms, one machinery,
+and no shape of "and" left that silently loses or corrupts a fact.
 
 ### 11.73 One grammar for teaching and asking
 

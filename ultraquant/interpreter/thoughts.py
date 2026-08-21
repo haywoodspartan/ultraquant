@@ -2062,6 +2062,17 @@ class Reason(Thought):
         return True
 
     def _fact(self, ctx: ThoughtContext) -> None:
+        if _CLAUSE_CONJUNCTIONS:
+            clauses = _parse_clauses(ctx.text)
+            if clauses:
+                ctx.data["statements"] = clauses
+                ctx.say("Noted: "
+                        + "; ".join(f"{k} is {v}" for k, v in clauses)
+                        + ".")
+                ctx.note(self.name,
+                         f"clause conjunction, {len(clauses)} "
+                         "statement(s)")
+                return
         parsed = _parse_statement(ctx.text)
         if parsed is None and _CONJUNCTIVE_STATEMENTS:
             # §11.71: "the A material and the B material are V" offers
@@ -2129,6 +2140,15 @@ _REVISION_ALOUD = True
 #: key containing " and " is never stored. The conjunction gate's
 #: baseline arm turns it off.
 _CONJUNCTIVE_STATEMENTS = True
+
+#: The §11.74 rung: "the A is X and the B is Y" is TWO statements,
+#: and the first " is " split was storing the whole second clause
+#: inside the first value ("tower material" = "iron and the bridge
+#: material is steel") - corruption narrated as success. A clause
+#: split fires only where BOTH sides parse as statements, so a value
+#: containing "and" ("live and learn") survives whole. The clause
+#: gate's baseline arm turns it off.
+_CLAUSE_CONJUNCTIONS = True
 
 #: The §11.73 rung, §11.72's question-side mirror: "what is the
 #: tower and the bridge material?" completes single-token question
@@ -2297,6 +2317,48 @@ def _shown_value(fact: dict) -> str:
     """A record's value as speech, polarity included."""
     value = fact.get("value", "")
     return f"not {value}" if fact.get("negated") else str(value)
+
+
+def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
+    """Split "the A is X and the B is Y" into its statements.
+
+    A split point is an " and " where BOTH sides independently parse
+    as statements - so "the motto is live and learn" never splits (the
+    right side carries no verb) and a genuine second clause never
+    drowns inside the first value. Greedy left-to-right over 2+
+    clauses; returns None unless at least two clauses parse, leaving
+    single statements to the ordinary path.
+    """
+    cleaned = text.strip().rstrip(".")
+    if " and " not in cleaned.lower():
+        return None
+    clauses: list[tuple[str, str]] = []
+    remainder = cleaned
+    while True:
+        lowered = remainder.lower()
+        split_at = None
+        search = 0
+        while True:
+            idx = lowered.find(" and ", search)
+            if idx < 0:
+                break
+            left, right = remainder[:idx], remainder[idx + 5:]
+            left_parsed = _parse_statement(left)
+            right_lower = right.lower()
+            if (left_parsed is not None
+                    and (" is " in right_lower
+                         or " are " in right_lower)):
+                split_at = (left_parsed, right)
+                break
+            search = idx + 5
+        if split_at is None:
+            final = _parse_statement(remainder)
+            if final is None or not clauses:
+                return None
+            clauses.append(final)
+            return clauses if len(clauses) >= 2 else None
+        clauses.append(split_at[0])
+        remainder = split_at[1]
 
 
 def _parse_conjunction(text: str) -> list[tuple[str, str]] | None:
