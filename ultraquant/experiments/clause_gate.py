@@ -83,6 +83,17 @@ as every idiom, contrast, and list before them — five boundaries,
 one rule, zero vocabulary. A paragraph of facts is a paragraph of
 facts now.
 
+**Run six added the newline** — the shape a paste actually arrives
+in when the source was a list, not prose: "iron\\nthe bridge material
+is steel" swallowed exactly as every boundary before it had. The
+widened worlds (newline in the joiner draw) returned the identical
+verdict: zero swallowed, zero split. The edges came free — blank
+lines between facts, trailing newlines, and CRLF endings all store
+clean values with no carriage-return residue — because the rule
+tests what each side PARSES as, and whitespace parses as nothing.
+Six boundaries, one rule, and both kinds of paste now teach: the
+paragraph and the list.
+
 Run it::
 
     python -m ultraquant.experiments.clause_gate
@@ -225,7 +236,7 @@ def run_gate(seeds: int = 12) -> ClauseReport:
                             clauses.append(
                                 f"the {e} material is {neg}{v}")
                         joiner = rng.choice((" and ", " but ",
-                                             ", ", "; ", ". "))
+                                             ", ", "; ", ". ", "\n"))
                         response, _t = run_pipeline(
                             joiner.join(clauses), session)
                         good = True

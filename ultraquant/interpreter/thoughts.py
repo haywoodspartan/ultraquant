@@ -2343,7 +2343,7 @@ def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
     # most common multi-fact input of all. Decimals are safe (no
     # space after their dot) and abbreviations survive by the same
     # structural guard as every idiom - their right side has no verb.
-    joiners = [j for j in (" and ", " but ", ", ", "; ", ". ")
+    joiners = [j for j in (" and ", " but ", ", ", "; ", ". ", "\n")
                if j in lowered_all]
     if not joiners:
         return None

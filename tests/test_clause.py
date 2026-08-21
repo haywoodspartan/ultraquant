@@ -142,6 +142,31 @@ class ClauseTests(unittest.TestCase):
             value = str(self.session.memory.recall_fact(key)["value"])
             self.assertNotIn(" is ", value)
 
+    def test_newline_paste_each_line_teaches(self) -> None:
+        """Run six: the list-shaped paste, one fact per line."""
+        self._say("the tower material is iron\n"
+                  "the bridge material is steel\n"
+                  "the keep material is oak")
+        for key, value in (("tower material", "iron"),
+                           ("bridge material", "steel"),
+                           ("keep material", "oak")):
+            self.assertEqual(
+                self.session.memory.recall_fact(key)["value"], value)
+
+    def test_paste_edges_store_clean_values(self) -> None:
+        """Blank lines, trailing newlines, and CRLF endings leave no
+        residue - whitespace parses as nothing, so the rule skips it."""
+        self._say("the wall height is 120 meters\r\n"
+                  "the mill height is 80 meters\n")
+        self._say("the gate material is bronze\n\n"
+                  "the hall material is granite")
+        for key, value in (("wall height", "120 meters"),
+                           ("mill height", "80 meters"),
+                           ("gate material", "bronze"),
+                           ("hall material", "granite")):
+            self.assertEqual(
+                self.session.memory.recall_fact(key)["value"], value)
+
 
 class GateVerdictTests(unittest.TestCase):
     """The PASS and the completed statement grammar, pinned."""
