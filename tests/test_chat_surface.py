@@ -202,6 +202,8 @@ class HelpFormsTests(unittest.TestCase):
                        "how many height facts",
                        "average height",
                        "consolidates it",
+                       "direct",
+                       "testimony",
                        "what was the tower material",
                        "none is invented",
                        "names its takedown",

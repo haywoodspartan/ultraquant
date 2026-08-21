@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.51 · 1609 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.52 · 1618 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         100 modules, 1609 tests
+tests/         101 modules, 1618 tests
 ```
 
 ---
@@ -3408,6 +3408,31 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.68 Yes reaches the stored fact: testimony at the surface
+
+`confirm_fact` has argued since it was written that "yes, that is
+correct" is stronger evidence than hearing a value again in passing —
+reinforcement nudges by 0.1, testimony asserts outright — but nothing
+wired the mechanism to the surface: a polar "Yes - tower material is
+iron" followed by the user's "yes" answered "I have nothing on that
+yet". The loop closes: an assertion of a held belief (polar yes,
+choice pick) leaves a one-turn pending confirmation — §11.33's
+freshness discipline, §11.16's trap avoided — and "yes" raises the
+fact to 0.90 as direct testimony, said aloud. The two strengths never
+conflate and they COMPOSE: a confirmation followed by a later passing
+mention reads 1.00, each contribution at its own strength. The
+affirmation word now reaches three pending kinds: a derivation
+consolidates, an assertion confirms, and nothing pending stays
+nothing.
+
+The gate (`experiments/testimony_gate.py`) ran `_CONFIRM_TESTIMONY`
+off against on. **PASS on the first run: 0.442 -> 1.000, +0.558 at
+3.99x seed sd, zero strengths conflated, zero strays moved, the
+§11.33 consolidation floor untouched in both arms** — every
+confirmation at exactly 0.90, every passing restatement at exactly
+0.70, the docstring's eleven-section-old claim finally measured where
+users live.
 
 ### 11.67 Compound disjuncts compare whole
 

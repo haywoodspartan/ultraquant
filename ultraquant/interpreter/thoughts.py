@@ -127,6 +127,10 @@ class Session:
     #: it at the start of every run, so repetition can never consolidate -
     #: that is SS11.16's trap, and only an explicit affirmation promotes.
     pending_inference: dict | None = None
+    #: A STORED fact the previous turn asserted (polar yes, choice
+    #: pick), waiting for "yes" to confirm it as direct testimony
+    #: (§11.68). Same one-turn freshness, same trap avoided.
+    pending_confirmation: dict | None = None
     #: Pattern-driven prefetcher, present when the storage has a RAM tier.
     working_set: Any | None = None
     #: The byte-bounded conversation window (§11.14): recent turns resident in
@@ -301,11 +305,20 @@ class Perceive(Thought):
         # is, the previous turn's derivation is no longer pending after it.
         pending = getattr(ctx.session, "pending_inference", None)
         ctx.session.pending_inference = None
+        confirmable = getattr(ctx.session, "pending_confirmation", None)
+        ctx.session.pending_confirmation = None
         if pending is not None and _AFFIRMATION_RE.fullmatch(lowered.strip()):
             ctx.data["intent"] = "affirmation"
             ctx.data["affirmed_inference"] = pending
             ctx.note(self.name, "intent=affirmation, confirms pending "
                                 "inference", intent="affirmation")
+            return
+        if (confirmable is not None and _CONFIRM_TESTIMONY
+                and _AFFIRMATION_RE.fullmatch(lowered.strip())):
+            ctx.data["intent"] = "confirmation"
+            ctx.data["confirmed_fact"] = confirmable
+            ctx.note(self.name, "intent=confirmation, testimony for a "
+                                "stored fact", intent="confirmation")
             return
         if rows is not None:
             intent = "glyph"
@@ -496,6 +509,7 @@ class Reason(Thought):
             "question": self._question,
             "fact_statement": self._fact,
             "affirmation": self._affirm,
+            "confirmation": self._confirm,
         }.get(intent, self._chat)
         handler(ctx)
 
@@ -1024,6 +1038,32 @@ class Reason(Thought):
         )
         ctx.note(self.name, "no matching fact")
 
+    def _confirm(self, ctx: ThoughtContext) -> None:
+        """Record "yes" after an asserted belief as direct testimony.
+
+        confirm_fact has argued since it was written that "yes, that is
+        correct" is stronger evidence than hearing a value again in
+        passing (which reinforcement nudges by 0.1) - §11.68 wires it
+        to the surface: the fact the previous turn asserted rises to
+        testimony confidence, said aloud so the change is on the table.
+        """
+        confirmed = ctx.data.get("confirmed_fact") or {}
+        key = confirmed.get("key")
+        if not key:
+            ctx.say("Nothing is pending to confirm.")
+            return
+        memory = ctx.session.memory
+        if memory.confirm_fact(key):
+            fact = memory.recall_fact(key)
+            ctx.say(f"Confirmed: {key} is {_shown_value(fact)} - "
+                    f"direct testimony, confidence "
+                    f"{fact['confidence']:.2f}.")
+            ctx.note(self.name, f"testimony confirmed {key!r}")
+        else:
+            ctx.say(f"I no longer hold {key}, so there is nothing to "
+                    "confirm.")
+            ctx.note(self.name, f"confirmation missed {key!r}")
+
     def _affirm(self, ctx: ThoughtContext) -> None:
         """Consolidate the derivation the user just confirmed.
 
@@ -1208,6 +1248,8 @@ class Reason(Thought):
             if matches:
                 verdict = ("No" if claim_negated else "Yes")
                 ctx.say(f"{verdict} - {key} is {held} {confidence}.")
+                if verdict == "Yes":
+                    ctx.session.pending_confirmation = {"key": key}
             elif claim_negated:
                 ctx.say(f"Yes - {key} is {held}, not {claimed} "
                         f"{confidence}.")
@@ -1683,6 +1725,8 @@ class Reason(Thought):
                         f"{value} {confidence}.")
             else:
                 ctx.say(f"Neither - {key} is {value} {confidence}.")
+            if matched is not None:
+                ctx.session.pending_confirmation = {"key": key}
         elif matched is not None:
             # Ruling out is not picking: the other disjunct stays
             # unelected, because a denial of one value affirms nothing
@@ -1954,6 +1998,14 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.68 rung: "yes" after the system asserts a held belief
+#: reaches the stored fact as direct testimony (confirm_fact, 0.9) -
+#: the mechanism whose docstring has argued since it was written that
+#: confirmation is stronger evidence than passing mention, finally
+#: wired to the surface. The testimony gate's baseline arm turns it
+#: off.
+_CONFIRM_TESTIMONY = True
 
 #: The §11.66 rung: "is X steel or iron?" picks the held disjunct by
 #: name, answers "Neither" with the actual, lets a denial rule out its

@@ -97,8 +97,11 @@ understands - among others - these forms:
                no history, none is invented, and a retracted
                conclusion names its takedown and the premise that
                caused it
-  affirmation  "yes" after a derived answer consolidates it - and a
-               revised premise takes its consolidations down
+  affirmation  "yes" after a derived answer consolidates it (and a
+               revised premise takes its consolidations down); "yes"
+               after an asserted belief confirms it as direct
+               testimony (confidence 0.90 - stronger than a passing
+               restatement, which reinforces by 0.1)
 A near-key statement ("the old tower material is ...") also names the
 held base it sits beside: "I separately hold: tower material is
 iron" - information, never a merge."""
