@@ -98,6 +98,9 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  lists        "what is the average of 3, 5 and 10?" - sum, average,
+               largest, smallest over WRITTEN numbers (units convert;
+               a list naming held facts goes to 'aggregates' instead)
   rounding     "what is 100 / 3 to 2 decimal places?" - exactness is
                the default and rounding is a request; the answer says
                it was rounded and names the exact value it came from

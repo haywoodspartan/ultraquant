@@ -378,6 +378,29 @@ _UNSUPPORTED_ROUNDING = re.compile(
     r"|[, ]*(?:rounded\s+)?to\s+the\s+nearest\s+"
     r"(?:ten|hundred|thousand|tenth|hundredth)\s*$")
 
+#: The §11.87 rung: a list of WRITTEN numbers ("the average of 3, 5
+#: and 10"), which is a different question from §11.57's aggregate
+#: over held facts even though the words are the same. Every item
+#: must be written, so a list naming beliefs falls through to the
+#: machinery that owns beliefs. The list gate's baseline arm turns
+#: it off.
+_LISTS_ON = True
+
+#: List words, folded to the four operations they name.
+_LIST_WORDS = {
+    "sum": "sum", "total": "sum",
+    "average": "average", "mean": "average",
+    "largest": "largest", "biggest": "largest",
+    "maximum": "largest", "max": "largest", "greatest": "largest",
+    "smallest": "smallest", "minimum": "smallest", "min": "smallest",
+    "least": "smallest",
+}
+
+_LIST_RE = re.compile(
+    r"^(?:the\s+)?(" + "|".join(sorted(_LIST_WORDS, key=len,
+                                        reverse=True))
+    + r")\s+of\s+(.+)$")
+
 #: Past this, the answer has more digits than an answer has.
 _MAX_EXPONENT = 1000
 
@@ -920,6 +943,69 @@ def _rounded_root(value: Fraction, degree: int, places: int):
         if down == up:
             return down
         extra += 3
+
+
+def read_list(text: str) -> MathResult | None:
+    """Answer "what is the average of 3, 5 and 10?" - §11.87.
+
+    A list of WRITTEN numbers, which is a different question from
+    §11.57's aggregate over held facts even though the words are the
+    same. The boundary is deliberate and it is where the two voices
+    are kept apart: every item must parse as a written number or
+    quantity, so a list naming beliefs falls through untouched to the
+    machinery that owns beliefs. One store, one voice per question.
+
+    Units ride the list the way they ride the operators: same family
+    converts and reads in the LARGEST unit present, a mixed family
+    refuses, and a bare number beside a united one refuses, because
+    assuming its unit would be invention.
+    """
+    if not _LISTS_ON:
+        return None
+    stripped = strip_question(text)
+    match = _LIST_RE.match(stripped)
+    if match is None:
+        return None
+    operation = _LIST_WORDS[match.group(1)]
+    body = match.group(2).strip().rstrip("?.")
+    pieces = [piece.strip()
+              for piece in re.split(r",|\band\b", body)
+              if piece.strip()]
+    if len(pieces) < 2:
+        # "the average of 5" is not a list, and answering it would be
+        # a parlour trick rather than arithmetic.
+        return None
+    items = []
+    for piece in pieces:
+        quantity = read_quantity(piece)
+        if quantity is None:
+            return None
+        items.append(quantity)
+    try:
+        total = items[0]
+        for item in items[1:]:
+            total = _add(total, item, 1)
+        if operation in ("largest", "smallest"):
+            aligned = []
+            for item in items:
+                left, _right, unit = _aligned(item, items[0])
+                aligned.append((left, unit))
+            pick = (max if operation == "largest" else min)(
+                aligned, key=lambda pair: pair[0])
+            value = Quantity(pick[0], pick[1])
+        elif operation == "average":
+            value = Quantity(total.value / len(items), total.unit)
+        else:
+            value = total
+    except Undefined as refusal:
+        return MathResult(refusal=str(refusal))
+    except ZeroDivisionError:                # pragma: no cover
+        return None
+    spoken = ", ".join(_show(item) for item in items[:-1])
+    spoken = f"{spoken} and {_show(items[-1])}"
+    return MathResult(shown=_show(value),
+                      expression=f"the {operation} of {spoken}",
+                      fractional="/" in render_exact(value.value))
 
 
 def read_quantity(text: str) -> Quantity | None:

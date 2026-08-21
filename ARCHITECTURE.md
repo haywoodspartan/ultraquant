@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.75 · 1799 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.76 · 1809 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         119 modules, 1799 tests
+tests/         120 modules, 1809 tests
 ```
 
 ---
@@ -3409,6 +3409,41 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.87 A list of numbers is not a list of beliefs
+
+"what is the average of 3, 5 and 10?" is basic arithmetic and the
+system could not read it. §11.57's aggregate owns those exact words
+over HELD facts — "what is the average height?" ranks the store —
+and a written list looks identical from a distance, which is why
+this rung is mostly a question about a boundary rather than about
+arithmetic.
+
+The boundary is drawn where it can be checked: **every item must
+parse as a written number or quantity.** A list naming beliefs is
+declined outright and falls through to the machinery that owns
+beliefs, so "the sum of the tower height and the keep height" keeps
+§11.42's voice while "the sum of 3, 5 and 10" gets this one. That is
+§11.75's lesson applied *before* the bug rather than after it —
+which is the only real use of a lesson.
+
+Everything else is inherited rather than rebuilt. Units ride the
+list the way they ride the operators: a same-family list converts
+and reads in the largest unit present, a mixed-family list refuses
+by name, and a bare number beside a united one refuses because
+assuming its unit would be invention. Exactness is §11.76's — the
+average of 1, 2 and 4 is 7/3, not 2.3333333333333335.
+
+The gate (`experiments/list_gate.py`) measured nothing on its first
+run (nothing varied) and was fixed §11.35's way. **Run two: 0.000 ->
+0.804, +0.804 at 11.27x seed sd, zero wrong values, zero undefined
+answers, zero boundary answers moved** — the 0.196 being the median
+ceiling, a deliberate omission rather than an oversight (an
+even-length median needs an ordering decision nobody has asked for,
+and inventing one would be the convention §11.80 refused for "300 +
+20%"). Criterion 4 is what the rung exists to protect, and it held:
+belief lists, fact aggregates, and the single item that is not a
+list answered identically in both arms, every time.
 
 ### 11.86 The question that needed no memory (failed, kept)
 

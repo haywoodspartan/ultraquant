@@ -875,6 +875,14 @@ class Reason(Thought):
             return
         if _ARITHMETIC_ON and self._arithmetic_answer(ctx):
             return
+        # §11.87 runs beside §11.76's literal reader, and for the
+        # same reason: every item in the list is written out, so the
+        # question cannot be about anything stored. A list naming
+        # beliefs never reaches here - read_list declines it - and
+        # goes to §11.57's aggregate, which owns those words over
+        # held facts.
+        if _LISTS_ON and self._list_answer(ctx):
+            return
         if _HISTORY_ANSWERS and self._history_answer(ctx):
             return
         if _SUPERLATIVES_ON and self._superlative_answer(ctx):
@@ -1792,6 +1800,31 @@ class Reason(Thought):
                  f"arithmetic over {result.expression!r}")
         return True
 
+    def _list_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "what is the average of 3, 5 and 10?" - §11.87.
+
+        A list of WRITTEN numbers. §11.57's aggregate owns the same
+        words over HELD facts ("what is the average height?"), and
+        the two never meet: every item here must parse as a written
+        number or quantity, so a list naming beliefs falls through
+        untouched. One store, one voice per question.
+        """
+        from ultraquant.reason import calculate
+
+        result = calculate.read_list(ctx.text)
+        if result is None:
+            return False
+        if result.refusal:
+            ctx.say(f"I can't compute that: {result.refusal}.")
+            ctx.note(self.name, f"list refused; {result.refusal}")
+            return True
+        exact = (" (exact - that value has no decimal form)"
+                 if result.fractional else "")
+        ctx.say(f"{result.expression} = {result.shown}{exact} - "
+                "computed, not stored.")
+        ctx.note(self.name, f"list over {result.expression!r}")
+        return True
+
     def _quantity_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "what is the tower height times 3?" - §11.78.
 
@@ -2558,6 +2591,12 @@ _ARITHMETIC_ON = True
 
 #: The equals sign, split out of whatever it was written against.
 _EQUALS_RE = re.compile(r"(=)")
+
+#: The §11.87 rung: lists of written numbers ("the average of 3, 5
+#: and 10"). Distinct from §11.57's aggregate over held facts by the
+#: only boundary that keeps one store to one voice: every item must
+#: be written out. The list gate's baseline arm turns it off.
+_LISTS_ON = True
 
 #: §11.86, MEASURED AND REJECTED, kept off and kept here. A question
 #: that is nothing but numbers and operators cannot be about anything
