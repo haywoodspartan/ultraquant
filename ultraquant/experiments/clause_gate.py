@@ -49,6 +49,13 @@ directions now: subjects conjoin (§11.71), relations distribute
 four forms, one machinery, and no shape of "and" left that silently
 loses or corrupts a fact.
 
+**Run two widened the boundary to "but"** — which swallowed a second
+clause exactly as "and" had — and re-ran the widened worlds (mixed
+and/but chains, "slow but steady" joining the integrity floor):
+identical verdict, zero swallowed, zero split, both idioms whole. One
+boundary set, one rule, and the contrastive conjunction keeps no
+corruption of its own.
+
 Run it::
 
     python -m ultraquant.experiments.clause_gate
@@ -70,7 +77,8 @@ _PREFIXES = ["north", "south", "east", "west", "old", "new", "high",
 _NOUNS = ["tower", "bridge", "spire", "tunnel", "gate", "dome", "mill",
           "keep", "wall", "hall"]
 _MATERIALS = ["steel", "iron", "copper", "granite", "oak", "bronze"]
-_AND_VALUES = ["live and learn", "slow and steady", "safe and sound"]
+_AND_VALUES = ["live and learn", "slow and steady", "safe and sound",
+               "slow but steady", "small but mighty"]
 
 
 @dataclass
@@ -188,8 +196,9 @@ def run_gate(seeds: int = 12) -> ClauseReport:
                             neg = "not " if negate_last and last else ""
                             clauses.append(
                                 f"the {e} material is {neg}{v}")
+                        joiner = rng.choice((" and ", " but "))
                         response, _t = run_pipeline(
-                            " and ".join(clauses), session)
+                            joiner.join(clauses), session)
                         good = True
                         for spot, (e, v) in enumerate(
                                 zip(entities, values)):

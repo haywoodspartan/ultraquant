@@ -65,6 +65,20 @@ class ClauseTests(unittest.TestCase):
         self.assertTrue(self.session.memory.recall_fact(
             "gate material").get("negated"))
 
+    def test_but_splits_and_its_idiom_survives(self) -> None:
+        """Run two's boundary: "but" swallowed exactly as "and" had,
+        and "slow but steady" must survive exactly as "live and
+        learn" does."""
+        self._say("the tower material is iron but the bridge material "
+                  "is steel")
+        self.assertEqual(
+            self.session.memory.recall_fact("bridge material")["value"],
+            "steel")
+        self._say("the motto is slow but steady")
+        self.assertEqual(
+            self.session.memory.recall_fact("motto")["value"],
+            "slow but steady")
+
     def test_an_and_value_survives_whole(self) -> None:
         """A split that fired on any "and" would shred ordinary
         values; it fires only where both sides parse as statements."""

@@ -2330,27 +2330,36 @@ def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
     single statements to the ordinary path.
     """
     cleaned = text.strip().rstrip(".")
-    if " and " not in cleaned.lower():
+    lowered_all = cleaned.lower()
+    # "but" joins statements exactly as "and" does, and swallowed a
+    # second clause exactly as "and" did - one boundary set, one rule.
+    joiners = [j for j in (" and ", " but ") if j in lowered_all]
+    if not joiners:
         return None
     clauses: list[tuple[str, str]] = []
     remainder = cleaned
     while True:
         lowered = remainder.lower()
         split_at = None
-        search = 0
-        while True:
-            idx = lowered.find(" and ", search)
-            if idx < 0:
-                break
-            left, right = remainder[:idx], remainder[idx + 5:]
-            left_parsed = _parse_statement(left)
-            right_lower = right.lower()
-            if (left_parsed is not None
-                    and (" is " in right_lower
-                         or " are " in right_lower)):
-                split_at = (left_parsed, right)
-                break
-            search = idx + 5
+        best_idx = None
+        for joiner in joiners:
+            search = 0
+            while True:
+                idx = lowered.find(joiner, search)
+                if idx < 0:
+                    break
+                left = remainder[:idx]
+                right = remainder[idx + len(joiner):]
+                left_parsed = _parse_statement(left)
+                right_lower = right.lower()
+                if (left_parsed is not None
+                        and (" is " in right_lower
+                             or " are " in right_lower)):
+                    if best_idx is None or idx < best_idx:
+                        best_idx = idx
+                        split_at = (left_parsed, right)
+                    break
+                search = idx + len(joiner)
         if split_at is None:
             final = _parse_statement(remainder)
             if final is None or not clauses:
