@@ -73,6 +73,38 @@ class CombineConversionTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("converted", result.answer)
 
+    def test_same_unit_answers_still_name_the_unit(self) -> None:
+        """§11.77. The pin above asserted only what the answer must
+        NOT say, so it could not notice that the answer had stopped
+        saying what it was an answer IN: "= 420" shipped for two
+        premises that both read in meters.
+        """
+        memory = _memory({"tower height": "300 meters",
+                          "bridge height": "120 meters"})
+        result = infer("what is the sum of the tower height and the "
+                       "bridge height?", memory)
+        self.assertIn("420 meters", result.answer)
+
+    def test_every_combine_shape_names_the_unit(self) -> None:
+        memory = _memory({"tower height": "300 meters",
+                          "bridge height": "120 meters"})
+        difference = infer("what is the difference between the tower "
+                           "height and the bridge height?", memory)
+        self.assertIn("180 meters", difference.answer)
+        larger = infer("which is larger, the tower height or the "
+                       "bridge height?", memory)
+        self.assertIn("300 meters", larger.answer)
+
+    def test_unitless_operands_never_gain_a_unit(self) -> None:
+        """The opposite failure, and the reason the fix reads the
+        operands rather than assuming a default."""
+        memory = _memory({"north count": "30", "south count": "20"})
+        result = infer("what is the sum of the north count and the "
+                       "south count?", memory)
+        self.assertIn("= 50", result.answer)
+        for unit in ("meter", "kilogram", "second"):
+            self.assertNotIn(unit, result.answer)
+
 
 class GateVerdictTests(unittest.TestCase):
     """The PASS and its boundaries, pinned."""

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.65 · 1697 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.66 · 1707 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         109 modules, 1697 tests
+tests/         110 modules, 1707 tests
 ```
 
 ---
@@ -3409,6 +3409,50 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.77 The unit that fell off
+
+Found while building §11.76, by asking the shipped machinery a
+question it had always been able to answer:
+
+```
+> what is the sum of the tower height and the keep height?
+  keep height + tower height = 500 - inferred, not stored:
+  keep height is 200 meters; tower height is 300 meters
+```
+
+500 what. Both premises say meters and the answer says a bare
+number. The cause is one line of §11.42's combine path: the unit
+suffix was attached to the CONVERSION rather than to the result, so
+"300 meters + 1 kilometer" answered "1.3 kilometers" correctly while
+"300 meters + 200 meters" fell through the same branch with an empty
+suffix. All three combine shapes inherited it — sums, differences,
+and the larger/smaller verdict ("tower height (300) is the larger of
+the two") — while the aggregate path (§11.57) had it right all
+along, which is what made the split visible from outside: one store,
+two voices, for the same arithmetic. The result unit is a property
+of the result now; the conversion note stays exactly where it was;
+unitless operands stay unitless, because inventing a unit for
+"300 + 200" is the opposite failure.
+
+The gate (`experiments/unitkeep_gate.py`) ran `_SUM_KEEPS_UNIT` off
+against on. **PASS on the first run: 0.528 -> 1.000, +0.472 at 1.87x
+seed sd, zero numeric values moved, zero units invented, zero
+converted-or-refused answers changed.** The never-moves line is the
+one that matters: every number in every answer was identical across
+arms — this changes what the answer says, not what it computes.
+
+**Why a green suite shipped it.** The same-unit case *was* pinned —
+`test_same_unit_answers_carry_no_conversion_label` — but the pin
+asserted only what the answer must NOT say, because that was the
+claim being made the day it was written, and a test checking for the
+absence of a label cannot notice the absence of a unit. Nothing else
+in 1,697 tests looked at that sentence: **the fix broke no pin,
+which is the tell.** A green suite proves the claims someone thought
+to write down, and "the answer says what it is an answer in" was
+never one of them until the question was asked in plain English and
+the answer read as a reader rather than as its author. The pin has
+been completed rather than replaced.
 
 ### 11.76 Arithmetic that is exactly right
 

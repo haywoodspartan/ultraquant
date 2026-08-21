@@ -474,6 +474,13 @@ _UNIT_FAMILIES: dict[str, dict[str, float]] = {
              "day": 86400.0},
 }
 
+#: The §11.77 rung: a combined answer names its unit whether or not
+#: a conversion happened. Off, the suffix rides the conversion - the
+#: shipped behaviour, where "300 meters + 200 meters" answered "500"
+#: and left the reader to supply the unit. The unit-keeping gate's
+#: baseline arm turns it off.
+_SUM_KEEPS_UNIT = True
+
 _UNIT_TO_FAMILY = {unit: family
                    for family, units in _UNIT_FAMILIES.items()
                    for unit in units}
@@ -548,10 +555,20 @@ def _combine(question_tokens: set[str], text: str,
         na = _convert(na, unit_a, result_unit)
         nb = _convert(nb, unit_b, result_unit)
         converted_note = " (units converted)"
+    elif _SUM_KEEPS_UNIT:
+        # §11.77: the operands already read in the same unit, so no
+        # conversion is needed - but the ANSWER still has that unit,
+        # and "500" is not an answer to a question about meters. The
+        # suffix belonged to the RESULT all along; it had been
+        # attached to the conversion, so every same-unit sum,
+        # difference and larger/smaller verdict shipped a bare
+        # number. Unitless operands stay unitless: inventing a unit
+        # for "300 + 200" would be the opposite failure.
+        result_unit = unit_a
     confidence = min(float(ra.get("confidence", 0.0)),
                      float(rb.get("confidence", 0.0)))
     premises = [(ka, ra.get("value", "")), (kb, rb.get("value", ""))]
-    suffix = f" {result_unit}s" if converted_note else ""
+    suffix = f" {result_unit}s" if result_unit else ""
     if relation == "sum":
         answer = f"{ka} + {kb} = {na + nb:g}{suffix}{converted_note}"
     elif relation == "difference":
