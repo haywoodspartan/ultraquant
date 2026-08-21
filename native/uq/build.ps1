@@ -25,6 +25,7 @@ $sources = @(Get-ChildItem (Join-Path $here "src") -Filter *.cpp |
 $tools = [ordered]@{
     "bigint_probe" = "uq_bigint_probe.exe"
     "calc_probe"   = "uq_calc.exe"
+    "memory_probe" = "uq_memory.exe"
 }
 
 foreach ($name in $tools.Keys) {

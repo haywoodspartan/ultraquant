@@ -36,6 +36,7 @@ accelerator DLLs, nothing degrades without it.
 | arbitrary-precision integers | `src/bigint.cpp` | `nativebigint_gate` |
 | exact rationals | `src/rational.cpp` | (through the reader) |
 | the arithmetic reader | `src/calculate.cpp` | `nativecalc_gate` |
+| the fact store | `src/memory.cpp` | `nativememory_gate` |
 
 Arbitrary precision comes first because C++ has none and the system
 leans on Python's everywhere it matters — `2 ^ 1000` is a 302-digit

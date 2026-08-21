@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.78 · 1825 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.79 · 1834 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         122 modules, 1825 tests
+tests/         123 modules, 1834 tests
 ```
 
 ---
@@ -3409,6 +3409,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.90 Two stores that remember the same way
+
+The native tier's fact store, gated against Python's. Facts are the
+substrate every question form stands on, so parity here is wider
+than "the same value comes back": a store is observed through
+whether a statement was new, reinforced or a revision; what the
+replaced belief was in spoken form with its polarity; what
+confidence a fact carries after being told twice; which conclusions
+a revised premise took down; and which key retrieval picks when
+several overlap.
+
+**What is deliberately not ported.** The Python store can put facts
+in the pageable shard library; the native store keeps them in a map.
+That is a storage decision rather than a semantic one — §11.86
+established that the price at density is the bucket cache rather
+than the lookup — so the gate compares against the store's plain
+mode, which is the mode that defines what a fact IS.
+
+**It took five runs, and every failure was the native tier being
+reasonable instead of being faithful.** That is the finding, and it
+is worth more than the pass, because none of the five was a wrong
+value and each would have survived a gate that only checked what a
+fact recalls to:
+
+1. **Consolidation went through the statement path** — the obvious
+   reuse, which logs a revision episode Python never logs and keeps
+   a reinforcement count Python resets. A consolidation is not a
+   statement.
+2. **Retraction order** — Python walks a stack and appends each
+   casualty as it finds it; the port swept and sorted. Same facts,
+   different order, and the retracted list is spoken aloud when a
+   belief changes.
+3. **Episode order** — `recall_episodes` returns most recent FIRST,
+   because a history answer reads the newest change first. The port
+   returned insertion order: the same information in the wrong
+   sentence.
+4. **The plural fold in retrieval** — the port folded "towers" onto
+   "tower" as the router does, but the store's own retrieval
+   compares RAW tokens. A native tier that folded here would find
+   facts the Python store does not, which is the same kind of wrong
+   as missing them.
+5. **`confirm_fact` raised rather than set** — being told "yes, that
+   is correct" SETS confidence and can lower one, and it bumps the
+   reinforcement count. The port took a maximum and skipped the
+   bump. That count is exactly what §11.44's retrieval tie-break
+   reads, so the mistake surfaced two steps later **not as a wrong
+   confidence but as a differently ordered `find_facts`** — which is
+   why the gate scripts whole sessions instead of checking calls one
+   at a time.
+
+**Final run: 4,800 script steps across twelve sessions, zero records
+differed** — 2,502 statements, 461 recalls, 439 retrievals, 431
+consolidations, 403 confirmations, 286 key enumerations, 278 episode
+reads.
 
 ### 11.89 The same sentence, from a different language
 
