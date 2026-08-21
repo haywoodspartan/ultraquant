@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.88 · 1935 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.89 · 1954 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -214,6 +214,8 @@ ultraquant/
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
+  infer/       ops                                            norms · attention ·
+                                                              activations
   convert/     gguf · ternary · pack · library · glyph · load   a trained transformer,
                                                               packed into the vault
   hybrid/      expert · pool                                  quantum vs classical experts
@@ -225,7 +227,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         132 modules, 1935 tests
+tests/         134 modules, 1954 tests
 ```
 
 ---
@@ -3411,6 +3413,79 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.100 The operations between the matmuls
+
+`model/network.py` never needed these, because an MLP is linear
+layers and a ReLU. A transformer is not. `infer/ops.py` adds what is
+missing and nothing else: LayerNorm and RMSNorm, softmax, the two
+GELUs and SiLU, the contiguous head split, and scaled dot-product
+attention with a causal mask. Deliberately shared - a vision encoder
+and a text decoder differ in tokenizer, cache, mask and position
+encoding, and do NOT differ in what a LayerNorm is.
+
+**The oracle is the interesting design choice.** Every operation
+here has a textbook definition that a WRONG implementation still
+satisfies loosely: a softmax with the wrong denominator still sums
+to one, a LayerNorm dividing by n-1 still centres, a GELU using the
+tanh form where the model trained with erf still looks like a GELU.
+Each is a silent few-per-cent error, in every block, compounding
+over thirty layers into nonsense while every shape stays correct.
+Property tests do not see any of them. So each operation is computed
+independently at **50 significant digits**, straight from its
+definition, with no stabilisation and no float arithmetic - erf by
+its own Taylor series, pi as a literal - and the shipped float
+version has to agree.
+
+**Run one failed four ways, two of them mine and two of them the
+criteria's.**
+
+*A real bug*: a fully masked attention row came out **NaN**, 24 rows
+of it. `softmax` subtracts its maximum, and when every score is
+`-inf` that is `-inf - -inf` before the zero-total guard can fire. A
+NaN row propagates silently through a whole block, and the row still
+had the right length and the right dtype - exactly what a property
+test misses.
+
+*A real harness bug*: criterion 2 requires the naive implementation
+to actually BREAK, and SiLU's unbranched form only overflows past
+|x| ~ 709 while the range tested was [-8, 8]. It broke 0 times in
+60, so the criterion had demonstrated nothing and failed on that
+ground. The by-product is worth keeping: on real activation ranges
+that branch is never needed. It is insurance, not a hot path.
+
+*A bad criterion*: per-element relative error measures float64, not
+the code. GELU at x = -8 is -4.98e-15, reached by adding 1 to
+erf(-5.66) = -0.99999999999999502; the cancellation leaves two
+significant digits, so relative error is 1.8e-2 while absolute error
+is 9.2e-17 - one ULP. **No implementation in this format can pass
+it.** The measure is now error as a share of the output vector's own
+RMS, which is what matters for values about to be added into a
+residual stream.
+
+*A bad criterion*: the deliberately adversarial mean-1e6 stream was
+gated, and no format can pass that either - the mean's own ULP is
+1.16e-10 against centred values of O(1). Now measured and reported
+rather than gated.
+
+**PASS on run two: worst gap 3.80e-15 against a 1e-12 tolerance;
+naive forms broke 15, 15 and 60 times out of 60; zero causal leaks;
+row sums within 1.11e-16 of one; zero masked rows non-zero; zero
+head-split errors; attention at 21.9 M MAC/s in pure Python.**
+
+The reported column earns its place. On a large DC offset every
+operation is untouched except **LayerNorm, which loses five orders
+of magnitude (9.81e-11)** - and that is not a curiosity, it is the
+one op that subtracts a mean, so it is the only one that can care.
+RMSNorm, which deliberately does not centre, is unaffected. Anyone
+debugging a drifting residual stream at layer thirty should have
+that number before they start.
+
+One smaller correction: the two GELUs were documented as differing
+"by up to 0.0003". Measured, it is **0.000473, at x = -2.698**. The
+pin asserts the measured value now, after the first version asserted
+a bound nobody had looked up and failed on a point where the gap
+happens to be 9.8e-5.
 
 ### 11.99 A glyph for every imported tensor (failed, kept)
 
