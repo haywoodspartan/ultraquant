@@ -91,7 +91,7 @@ class VramLayerCache:
         if entry is not None:
             self._slots.move_to_end(key)
             self.hits += 1
-            slot = entry[0]
+            slot, _nbytes, in_dim, out_dim = entry
         else:
             self.misses += 1
             nbytes = self._layer_bytes(in_dim, out_dim, bias is not None)
@@ -110,17 +110,61 @@ class VramLayerCache:
             self._slots[key] = (slot, nbytes, in_dim, out_dim)
         return self.accel.layer_forward(slot, xs, in_dim, out_dim)
 
+    def forward_lazy(self, key: str, provider, xs) -> list | None:
+        """Like :meth:`forward`, materialising weights only on a miss.
+
+        A frozen expert requantises its float masters on every Python
+        forward; on a VRAM hit none of that work is needed - the device
+        already holds (q, alpha, bias). ``provider`` is a zero-argument
+        callable returning ``(qw, alpha, bias)``, called only when the
+        layer is not resident.
+        """
+        try:
+            if not self.accel.gpu_available():
+                return None
+        except Exception:  # noqa: BLE001 - no GPU is a normal state
+            return None
+        entry = self._slots.get(key)
+        if entry is not None:
+            self._slots.move_to_end(key)
+            self.hits += 1
+            slot, _nbytes, in_dim, out_dim = entry
+            return self.accel.layer_forward(slot, xs, in_dim, out_dim)
+        qw, alpha, bias = provider()
+        return self.forward(key, qw, alpha, bias, xs)
+
     def drop(self, key: str) -> None:
         """Release one layer, if resident."""
         entry = self._slots.pop(key, None)
         if entry is not None:
             self.accel.layer_free(entry[0])
 
+    def drop_prefix(self, prefix: str) -> None:
+        """Release every layer whose key starts with ``prefix``.
+
+        The invalidation retraining requires: a device copy is valid
+        only while the expert is frozen, and anything that rewrites an
+        expert's weights must take its resident layers down with it.
+        """
+        for key in [k for k in self._slots if k.startswith(prefix)]:
+            self.drop(key)
+
     def clear(self) -> None:
         """Release everything."""
         for slot, _n, _i, _o in self._slots.values():
             self.accel.layer_free(slot)
         self._slots.clear()
+
+    def __del__(self) -> None:
+        # The slot table is a process-wide resource (64 slots in the
+        # DLL); a cache dying with its session must hand them back, or
+        # the table fills with orphans and every later session falls
+        # back forever. The full suite caught exactly that: hundreds of
+        # sessions, then slot -1 for whoever asked next.
+        try:
+            self.clear()
+        except Exception:  # noqa: BLE001 - interpreter teardown
+            pass
 
     def stats(self) -> dict:
         """Residency accounting, for ':resident' and the gate."""

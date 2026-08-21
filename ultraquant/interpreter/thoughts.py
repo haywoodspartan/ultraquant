@@ -225,6 +225,18 @@ def build_session(
         from ultraquant.reason.semantic import SemanticSuggester
 
         session.semantic = SemanticSuggester()
+    # The hot tier (§11.45): bit-exact against the Python path and
+    # structurally fallback-safe, so it defaults on wherever a CUDA
+    # device exists. Absence costs one probe at build time.
+    try:
+        from ultraquant.native import accel as _accel
+
+        if _accel.gpu_available():
+            from ultraquant.native.vram import VramLayerCache
+
+            session.experts.vram = VramLayerCache()
+    except Exception:  # noqa: BLE001 - no GPU, no tier, no change
+        pass
     return session
 
 

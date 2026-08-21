@@ -100,6 +100,79 @@ class CacheLogicTests(unittest.TestCase):
         self.assertEqual(accel.layer_resident_bytes(), 0)
         self.assertEqual(cache.stats()["resident"], [])
 
+    def test_a_dying_cache_returns_its_slots(self) -> None:
+        """The full suite caught this: hundreds of sessions each left
+        their slots behind, and the 64-slot table filled with orphans
+        until upload returned -1 for whoever asked next."""
+        import gc
+
+        accel = _FakeAccel()
+        cache = VramLayerCache(budget_bytes=1000, accel=accel)
+        qw, alpha, bias, xs = _layer()
+        cache.forward("a", qw, alpha, bias, xs)
+        cache.forward("b", qw, alpha, bias, xs)
+        del cache
+        gc.collect()
+        self.assertEqual(accel.layer_resident_bytes(), 0)
+
+
+class LiveIntegrationTests(unittest.TestCase):
+    """The tier in the recognize path: parity, and invalidation on retrain."""
+
+    def test_predict_vram_matches_predict(self) -> None:
+        import random
+
+        from ultraquant.model.network import UltraQuantNet
+
+        net = UltraQuantNet(input_dim=30, hidden_dims=[16],
+                            num_classes=8, seed=3)
+        rng = random.Random(1)
+        x = [rng.uniform(-1, 1) for _ in range(30)]
+        accel = _FakeAccel(slots=8)
+
+        class _Exact(_FakeAccel):
+            """Fake device that actually computes, so parity is testable."""
+
+            def __init__(self):
+                super().__init__(slots=8)
+                self.layers = {}
+
+            def layer_upload(self, qw, alpha, bias, in_dim, out_dim):
+                slot = super().layer_upload(qw, alpha, bias, in_dim,
+                                            out_dim)
+                if slot >= 0:
+                    self.layers[slot] = (qw, alpha, bias)
+                return slot
+
+            def layer_forward(self, slot, xs, in_dim, out_dim):
+                qw, alpha, bias = self.layers[slot]
+                out = []
+                for sample in xs:
+                    row_out = []
+                    for row, b in zip(qw, bias):
+                        acc = sum(w * v for w, v in zip(row, sample))
+                        row_out.append(alpha * acc + b)
+                    out.append(row_out)
+                return out
+
+        cache = VramLayerCache(budget_bytes=64 * 1024, accel=_Exact())
+        reference = net.predict(x)
+        got = net.predict_vram(x, cache, "expert:test")
+        self.assertIsNotNone(got)
+        self.assertEqual(got[0], reference[0])
+        self.assertLess(abs(got[1] - reference[1]), 1e-9)
+
+    def test_retraining_invalidates_residency(self) -> None:
+        accel = _FakeAccel(slots=8)
+        cache = VramLayerCache(budget_bytes=64 * 1024, accel=accel)
+        qw, alpha, bias, xs = _layer()
+        cache.forward("expert:cat:h0", qw, alpha, bias, xs)
+        cache.forward("expert:cat:head", qw, alpha, bias, xs)
+        cache.forward("expert:other:h0", qw, alpha, bias, xs)
+        cache.drop_prefix("expert:cat")
+        resident = cache.stats()["resident"]
+        self.assertEqual(resident, ["expert:other:h0"])
+
 
 def _gpu_ready() -> bool:
     try:

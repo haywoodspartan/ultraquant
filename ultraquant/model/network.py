@@ -84,6 +84,49 @@ class UltraQuantNet:
             a = fake_quantize_activation(a, bits=self.act_bits)
         return self.head.forward(a)
 
+    def forward_vram(self, x: list[float], cache,
+                     key_prefix: str) -> list[float] | None:
+        """:meth:`forward` with matmuls on resident device layers.
+
+        Inference-only, for FROZEN experts: the device copy is uploaded
+        from the current quantisation and stays valid until the caller
+        drops the keys (which anything that retrains an expert must do).
+        ReLU and activation fake-quantisation stay in Python, identical
+        to :meth:`forward`; the matmul itself is bit-exact on the device
+        (§11.45, parity 3.6e-15). Returns None when any layer cannot run
+        resident - the caller falls back to :meth:`forward`, and the two
+        paths agree to the house tolerance by construction.
+        """
+        from ultraquant.model.quantize import quantize_ternary
+
+        def _provider(layer):
+            def build():
+                # Callers guard: only quantized layers reach a provider.
+                q, alpha = quantize_ternary(layer.w)
+                return q, alpha, list(layer.b)
+            return build
+
+        a = list(x)
+        for index, layer in enumerate(self.hidden):
+            if not layer.quantized:
+                return None
+            out = cache.forward_lazy(f"{key_prefix}:h{index}",
+                                     _provider(layer), [a])
+            if out is None:
+                return None
+            z = out[0]
+            a = [v if v > 0.0 else 0.0 for v in z]
+            a = fake_quantize_activation(a, bits=self.act_bits)
+        if not self.head.quantized:
+            # A full-precision head runs in Python on the device-computed
+            # hidden activation; the resident tier covers the ternary part.
+            return self.head.forward(a)
+        out = cache.forward_lazy(f"{key_prefix}:head",
+                                 _provider(self.head), [a])
+        if out is None:
+            return None
+        return out[0]
+
     def embed(self, x: list[float]) -> list[float]:
         """Return the last hidden activation instead of the logits.
 
@@ -135,6 +178,16 @@ class UltraQuantNet:
             softmax probability.
         """
         probs = self._softmax(self.forward(x))
+        best = max(range(len(probs)), key=lambda k: probs[k])
+        return best, probs[best]
+
+    def predict_vram(self, x: list[float], cache,
+                     key_prefix: str) -> tuple[int, float] | None:
+        """:meth:`predict` over :meth:`forward_vram`, or None to fall back."""
+        logits = self.forward_vram(x, cache, key_prefix)
+        if logits is None:
+            return None
+        probs = self._softmax(logits)
         best = max(range(len(probs)), key=lambda k: probs[k])
         return best, probs[best]
 

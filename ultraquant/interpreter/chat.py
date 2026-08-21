@@ -232,6 +232,14 @@ class ChatCLI:
             f"| peak {stats['peak_bytes']} B"
         )
         self.emit(f"  hits {stats['hits']} misses {stats['misses']} evictions {stats['evictions']}")
+        vram = getattr(self.session.experts, "vram", None)
+        if vram is not None:
+            v = vram.stats()
+            self.emit(
+                f"  vram: {len(v['resident'])} layer(s) resident "
+                f"({v['resident_bytes']} B of {v['budget_bytes']} B), "
+                f"hits {v['hits']} misses {v['misses']} "
+                f"evictions {v['evictions']}")
         window = getattr(self.session, "context", None)
         if window is not None:
             ctx = window.stats()

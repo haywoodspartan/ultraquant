@@ -198,8 +198,23 @@ class ExpertPool:
                 f"expert {category!r} takes {expected} features, got "
                 f"{len(features)}; this pattern belongs to a different modality"
             )
+        vram = getattr(self, "vram", None)
+        if vram is not None:
+            # The hot tier (§11.45): resident layers answer with only
+            # activations crossing the bus, bit-exact against the Python
+            # path, and any refusal falls straight through to it.
+            got = net.predict_vram(list(features), vram, sid)
+            if got is not None:
+                idx, conf = got
+                return labels[idx], conf
         idx, conf = net.predict(list(features))
         return labels[idx], conf
+
+    def _invalidate_vram(self, sid: str) -> None:
+        """Take a rewritten expert's resident layers down with it."""
+        vram = getattr(self, "vram", None)
+        if vram is not None:
+            vram.drop_prefix(sid)
 
     def train_expert(
         self,
@@ -259,6 +274,7 @@ class ExpertPool:
         }
         self.vault.add_shard(sid, category, payload, kind="expert-net")
         self.cache.invalidate(sid)
+        self._invalidate_vram(sid)
         return {"loss": loss, "accuracy": accuracy}
 
     # -- training helpers ------------------------------------------------

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.26 · 1402 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.26 · 1405 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         79 modules, 1402 tests
+tests/         79 modules, 1405 tests
 ```
 
 ---
@@ -3432,6 +3432,27 @@ every step, residency zero after clear.
 Rule 1 held the whole way — parity first, the clock second — and the
 architecture's name is now measured at all three tiers: the library on
 disk (§6), the working set in DRAM (§11.14), the hot layers in VRAM.
+
+**And it runs live**: sessions build the cache wherever a CUDA device
+exists (bit-exact parity is what justifies default-on), the expert
+pool's predict path tries residency first and falls through
+transparently, retraining an expert takes its resident layers down
+with it (`drop_prefix` — a device copy is valid only while the expert
+is frozen), and ':resident' reports the third tier beside the other
+two. A pasted glyph's second recognition in a session answers from
+VRAM.
+
+The full suite then caught what the gate could not: the slot table is a
+process-wide resource (64 slots in the DLL), and a session dying
+without cleanup left its layers resident as orphans. Hundreds of test
+sessions later the table was full, upload returned -1 for whoever asked
+next, and the hardware parity tests — which had passed in isolation —
+failed in company. A cache now returns its slots when it dies
+(`__del__` → `clear`), reproduced at 70 dead caches: 1,408 orphaned
+bytes and slot -1 before the fix, zero bytes and slot 0 after. The
+accounting discipline's second catch in one section, and this one
+needed the whole suite to surface — no gate builds hundreds of
+sessions; the test corpus itself is the only world dense enough.
 
 ### 11.44 Plasticity: attestation earns rank, and nothing more
 
