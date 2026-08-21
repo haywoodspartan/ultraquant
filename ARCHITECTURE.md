@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.44 · 1564 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.45 · 1574 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         95 modules, 1564 tests
+tests/         96 modules, 1574 tests
 ```
 
 ---
@@ -3408,6 +3408,32 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.63 The neighbor named: adjacency spoken, never merged
+
+§11.53 measured revision detection's exact-key ceiling and scored it
+into its own gate: "the old tower material is steel" against a held
+"tower material" stores a NEW fact and narrates nothing — a more
+specific subject is a different belief. But silence about the held
+base invites the reader to assume the two are one. A new fact whose
+leading-stripped base key is held now answers with the neighbor
+spoken — "Noted: old tower material is steel. I separately hold:
+tower material is iron" — polarity included when the base is a denial,
+never as a revision, never a merge: different keys are different
+beliefs, and now both are on the table. The three silences hold at
+zero tolerance: fresh no-base facts, reinforcements, and revisions
+(which keep their §11.53 notice and gain nothing else) carry no note,
+because a note that fires on everything informs about nothing.
+
+The gate (`experiments/nearkey_gate.py`) took three runs: the
+variance rule (ninth "nothing varied"; the single-strip ceiling
+scored in — a base two strips away stays unnamed, multi-qualifier
+adjacency registered), then its own semantics floor caught a
+world-builder slot collision (the near loop and the far kind shared a
+name, and a setup line silently revised a recorded base — the
+revision gate's entity-reuse bug, caught by the same kind of floor),
+then **PASS: 0.000 -> 0.912 at 8.37x seed sd, zero false notes,
+semantics 1.000 in both arms**.
 
 ### 11.62 The third adjective: the cap is policy, the floor is safety
 

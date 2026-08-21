@@ -1800,6 +1800,13 @@ _WHY_ANSWERS = True
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
 
+#: The §11.63 rung: a NEW fact whose leading-stripped base key is
+#: already held gets the adjacency spoken ("Noted ... I separately
+#: hold: tower material is iron") - §11.53's exact-key ceiling made
+#: visible instead of silent. Never a revision, purely information.
+#: The nearkey gate's baseline arm turns it off.
+_NEARKEY_NOTES = True
+
 #: The §11.54 rung: "is A taller than B?" compares the two held
 #: numerics (units converted where a definition connects them) and
 #: answers with both values named. The comparative gate's baseline arm
@@ -1988,6 +1995,25 @@ class Learn(Thought):
                                                   confidence=0.6,
                                                   negated=negated)
             learned.append(f"fact {key!r}")
+            if (_NEARKEY_NOTES and isinstance(result, dict)
+                    and result.get("outcome") == "new"):
+                # §11.63: revision detection is exact-key by design
+                # (§11.53 measured the ceiling); a MORE SPECIFIC
+                # subject stores a new fact - but silence about the
+                # held base invites the reader to assume the two are
+                # one. The adjacency is spoken, never treated as a
+                # conflict: different keys are different beliefs.
+                toks = key.split()
+                if len(toks) >= 3:
+                    base = " ".join(toks[1:])
+                    held = session.memory.recall_fact(base)
+                    if held is not None:
+                        ctx.say(f"I separately hold: {base} is "
+                                f"{_shown_value(held)} (confidence "
+                                f"{held['confidence']:.2f}).")
+                        ctx.data["response"] = " ".join(
+                            part.strip() for part in ctx.response_parts
+                            if part.strip())
             if (_REVISION_ALOUD and isinstance(result, dict)
                     and result.get("outcome") == "revised"):
                 # Honest aloud reaches belief CHANGE: the episode log
