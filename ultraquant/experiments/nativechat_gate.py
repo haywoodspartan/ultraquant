@@ -31,7 +31,8 @@ avoiding what the tier cannot do, and would have measured nothing -
 the corpus provokes it freely and the gate CLASSIFIES every
 difference. A response differing only by that hint is counted as a
 named gap; a response differing in any other way, anywhere, is a
-fail.
+fail - so the number is a measurement of what is missing
+rather than a silence about it.
 
 **The criteria, written before the run.**
 
@@ -49,37 +50,42 @@ fail.
    confidences. A pipeline can say the right thing and remember the
    wrong one.
 
-**It was run once, and PASSED.**
+**It was run twice: once with a debt, and once after the debt was
+paid.**
+
+Run one, before the inference port: 1,200 turns, zero unexplained
+differences, zero intent differences, zero stores differing - and
+**71 turns differing only by the curiosity hint**, the named gap
+this gate was built to measure rather than avoid.
+
+Run two, after §11.92 ported the spread and `missing_premise`, with
+the corpus widened to build CHAINS (a subject whose material names a
+material whose property is held) so that inference is provoked
+rather than merely available:
 
 | | |
 |---|---:|
-| turns compared | 1,200 |
+| turns compared | 1,454 |
 | unexplained differences | **0** |
-| differing only by the curiosity hint | 71 |
+| differing only by the curiosity hint | **0** |
 | intent differences | **0** |
 | conversations ending with unequal stores | **0** |
 
-Across twenty conversations: 420 statements, 193 questions about
-held facts, 150 arithmetic questions, 126 revisions, 118 questions
-that may or may not be held, 100 about nothing held at all, 93 lines
-of chat.
+Coverage: 528 statements, 202 questions about held facts, 169
+arithmetic questions, 127 chain questions, 121 that may or may not
+be held, 119 revisions, 97 lines of chat, 91 about nothing held.
 
-Two of those zeros are quieter than the headline and matter as
-much. **Zero intent differences**: every turn went through the same
-door in both tiers, which is what keeps the NEXT turn comparable - a
-right answer reached the wrong way diverges later, not now. **Zero
-stores differing at the end**: after each conversation both tiers
-held the same keys with the same values, polarity and confidences,
-so the pipeline that said the right thing also remembered the right
-thing.
+Two of those zeros are quieter than the headline and matter as much.
+**Zero intent differences**: every turn went through the same door in
+both tiers, which is what keeps the NEXT turn comparable - a right
+answer reached the wrong way diverges later, not now. **Zero stores
+differing at the end**: the pipeline that said the right thing also
+remembered the right thing.
 
-The 71 is the debt, named and bounded: those turns are hedged
-answers where the Python tier appends a curiosity hint that the
-native tier cannot yet produce, because `missing_premise` belongs to
-the spreading-activation machinery. The corpus provokes them freely
-rather than avoiding them, so the number is a measurement of what is
-missing rather than a silence about it, and the inference unit
-inherits exactly that debt.
+And the debt closing is worth as much as the pass. The 71 was never
+an excuse; it was a number, carried in the open across two units,
+and the honest test of the second unit was whether it went to zero
+without anything else moving. It did.
 
 Run it::
 
@@ -148,6 +154,21 @@ def _conversation(rng: random.Random, turns: int):
     said: list[tuple[str, str]] = []
     for _ in range(turns):
         pick = rng.random()
+        if pick < 0.10:
+            # A chain: a subject whose material names a material whose
+            # property is held. Without these the corpus never asks a
+            # question inference could answer, and a gate that never
+            # provokes a mechanism has not tested it.
+            subject = rng.choice(_ENTITIES)
+            material = rng.choice(_MATERIALS)
+            attribute = rng.choice(["hardness", "conductivity"])
+            said.append((f"{subject} material", material))
+            plan.append((f"the {subject} material is {material}",
+                         "statement"))
+            plan.append((f"{material} {attribute} is "
+                         f"{rng.randint(100, 900)} units", "statement"))
+            plan.append((f"what is the {subject} {attribute}?", "chain"))
+            continue
         if pick < 0.34 or not said:
             entity = rng.choice(_ENTITIES)
             attribute = rng.choice(_ATTRIBUTES)

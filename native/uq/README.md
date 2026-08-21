@@ -38,6 +38,7 @@ accelerator DLLs, nothing degrades without it.
 | the arithmetic reader | `src/calculate.cpp` | `nativecalc_gate` |
 | the fact store | `src/memory.cpp` | `nativememory_gate` |
 | the thought pipeline (spine) | `src/interpreter.cpp` | `nativechat_gate` |
+| spreading-activation inference | `src/inference.cpp` | `nativeinfer_gate` |
 
 Arbitrary precision comes first because C++ has none and the system
 leans on Python's everywhere it matters — `2 ^ 1000` is a 302-digit

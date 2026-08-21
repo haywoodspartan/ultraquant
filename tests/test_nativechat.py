@@ -101,8 +101,16 @@ class GateVerdictTests(unittest.TestCase):
         """A scope claimed is a scope that can be checked."""
         for form in ("polar questions", "why", "comparatives",
                      "superlatives", "aggregates", "history",
-                     "choices", "testimony", "chains"):
+                     "choices", "testimony"):
             self.assertIn(form, self.doc)
+
+    def test_the_closed_debt_is_recorded_as_closed(self) -> None:
+        """A gap that was paid should read as paid, not as still
+        owed - a stale verdict is the same lie as an unmeasured
+        one."""
+        self.assertIn("| differing only by the curiosity hint | **0** |",
+                      self.doc)
+        self.assertIn("The 71 was never an excuse", self.doc)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ $tools = [ordered]@{
     "calc_probe"   = "uq_calc.exe"
     "memory_probe" = "uq_memory.exe"
     "chat_probe"   = "uq_chat.exe"
+    "infer_probe"  = "uq_infer.exe"
 }
 
 foreach ($name in $tools.Keys) {

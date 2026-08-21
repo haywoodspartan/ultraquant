@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "uq/calculate.hpp"
+#include "uq/inference.hpp"
 
 namespace uq {
 namespace {
@@ -370,6 +371,26 @@ Turn Session::answer_question(const std::string& text) {
         break;   // a sub-key hit that does not cover falls through
     }
 
+    // Derivation runs BEFORE the loose keyword fallback: its coverage
+    // rules are strict, so when a chain exists it answers the whole
+    // question - where the keyword fallback would have answered
+    // whichever single premise ranked first and stopped.
+    const Inference derived = infer(text, memory_);
+    if (derived.present) {
+        turn.response = derived.describe();
+        return turn;
+    }
+
+    // A failed convergence knows which premise was missing, and a
+    // grounded gap becomes a question worth asking instead of a dead
+    // end. Whatever the hedges below settle on carries the hint.
+    std::string hint;
+    const MissingPremise gap = missing_premise(text, memory_);
+    if (gap.present) {
+        hint = " If I knew the " + gap.premise_key
+            + ", I could work this out - ':learn' will ask.";
+    }
+
     // Keyword overlap, then the same coverage rule again: nearest-held
     // is worth SAYING, and it is not worth asserting as identity.
     std::vector<std::string> candidates = memory_.find_facts(text, 3);
@@ -397,12 +418,13 @@ Turn Session::answer_question(const std::string& text) {
         }
         turn.response = "I don't hold that exactly. Nearest I hold: " + key
             + " is " + shown_value(*fact) + " (confidence "
-            + confidence_text(fact->confidence) + ").";
+            + confidence_text(fact->confidence) + ")." + hint;
         return turn;
     }
     turn.response =
         "I don't hold anything on that yet. Tell me directly ('X is Y'), "
-        "or give me a URL and I'll stash what it claims for analysis.";
+        "or give me a URL and I'll stash what it claims for analysis."
+        + hint;
     return turn;
 }
 
