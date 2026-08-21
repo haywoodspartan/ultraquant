@@ -52,7 +52,13 @@ failures are documented next to the passes
 Where a mechanism failed its gate, that is in the book too: the shared-encoder
 stage failed twice, honestly, and reordered the roadmap; hypervector retrieval
 passed on structure and failed on similarity; a rehearsal mechanism and an
-escalation heuristic were deleted for measuring nothing.
+escalation heuristic were deleted for measuring nothing. The most recent
+negative result is the most useful one: skipping memory lookup for questions
+that are pure arithmetic made those questions 18x faster at perfect byte
+parity — and made the whole session no faster at all (1497 ms -> 1530 ms),
+because the paging it removed was warming the cache for every question that
+followed. The price is the bucket cache, not the lookup; the mechanism is
+switched off, kept, and explained beside its own switch.
 
 ## Quick start
 
@@ -65,7 +71,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1792 tests, ~4 min
+python -m unittest discover -s tests      # 1799 tests, ~4 min
 ```
 
 In the chat, try:
@@ -99,7 +105,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1792 tests across 118 modules
+tests/         1799 tests across 119 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

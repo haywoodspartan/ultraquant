@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.74 · 1792 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.75 · 1799 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         118 modules, 1792 tests
+tests/         119 modules, 1799 tests
 ```
 
 ---
@@ -3409,6 +3409,58 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.86 The question that needed no memory (failed, kept)
+
+§11.85 registered an opportunity with a number. This section cashes
+it, and the answer is no — which is worth more than a yes would have
+been.
+
+The diagnosis finished first. At 4,000 facts with the store flushed
+as ordinary use leaves it, Recall was forming ~25 candidate keys for
+"what is 12 + 3 * 4?", paging a bucket from disk for each, ~50 ms,
+finding zero facts every time. The candidate ladder builds keys from
+whatever words a question contains, and an expression contains none.
+So Recall was taught to skip the ladder when the input is nothing
+but numbers, operators and parentheses — the predicate being
+§11.76's literal reader with no memory behind it, which is the same
+claim said in code.
+
+**It worked, and it bought nothing.** Parity was perfect — zero
+response differences and zero recalled-fact differences across a
+corpus of expressions, belief arithmetic, chains, polar questions,
+comparisons, superlatives, aggregates, history, statements and chat
+— and expression questions went from 21.20 ms to 1.14 ms, 18.5x. The
+gate failed anyway, on its pre-registered criterion 4: belief
+questions got *slower*. The decisive measurement was one the
+criteria never asked for:
+
+```
+ladder   total corpus    1497.5 ms (sd 21.8)
+skip     total corpus    1530.3 ms (sd 33.9)
+saved per corpus: -32.8 ms (sd 50.4) over 24 questions
+```
+
+The skip makes expression questions 20-60x faster and the whole
+session no faster at all, because **the twenty-five bucket loads it
+removes were warming the bucket cache for every question that
+followed.** The work was not wasted; it was prefetch wearing the
+costume of waste.
+
+That is the finding, and it outlives the optimisation: **the price
+of a question at this density is the bucket cache, not the candidate
+ladder.** A question that pages twenty-five buckets pays for them
+and leaves them warm; a question that pages none pays nothing and
+leaves the next question to pay. Any real win has to be at the
+resident-set level — a larger or smarter cache, or an eviction
+policy that knows what a session keeps asking about — and
+per-question cleverness above it just moves the same milliseconds
+around. Registered for whoever takes that on.
+
+The mechanism is switched off and kept, in §11.60's tradition, with
+the reason written beside the switch so it is not rediscovered as an
+idea; the gate turns it on for its treatment arm, so the result
+stays reproducible.
 
 ### 11.85 The arithmetic capstone
 

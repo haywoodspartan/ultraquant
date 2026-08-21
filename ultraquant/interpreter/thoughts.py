@@ -397,11 +397,23 @@ class Recall(Thought):
         memory = ctx.session.memory
         tokens = ctx.data.get("tokens", [])
         hits: list[tuple[str, dict]] = []
-        for key in _candidate_keys(ctx.text, tokens):
-            fact = memory.recall_fact(key)
-            if fact is not None:
-                hits.append((key, fact))
-        ctx.data["facts"] = hits
+        if _ARITHMETIC_SKIPS_RECALL and _is_arithmetic(ctx.text):
+            # §11.86: "what is 12 + 3 * 4?" is nothing but numbers
+            # and operators, so no key it could form names a belief -
+            # and the candidate ladder was forming about
+            # twenty-five of them, paging a bucket from disk for
+            # each, to find nothing every time. The predicate is the
+            # literal reader with no memory behind it, which is the
+            # same thing said in code: an expression that mentions
+            # no words cannot be about anything stored.
+            ctx.data["facts"] = hits
+            ctx.data["recall_skipped"] = True
+        else:
+            for key in _candidate_keys(ctx.text, tokens):
+                fact = memory.recall_fact(key)
+                if fact is not None:
+                    hits.append((key, fact))
+            ctx.data["facts"] = hits
         episodes = memory.recall_episodes(limit=3)
         ctx.data["episodes"] = episodes
 
@@ -2546,6 +2558,19 @@ _ARITHMETIC_ON = True
 
 #: The equals sign, split out of whatever it was written against.
 _EQUALS_RE = re.compile(r"(=)")
+
+#: §11.86, MEASURED AND REJECTED, kept off and kept here. A question
+#: that is nothing but numbers and operators cannot be about anything
+#: the store holds, and Recall was forming ~25 candidate keys for one
+#: and paging a bucket from disk for each, ~50 ms, to find nothing.
+#: Skipping the ladder made those questions 20-60x faster at perfect
+#: byte parity - and made the whole session no faster at all (1497 ms
+#: -> 1530 ms over a mixed corpus), because the paging it removed was
+#: warming the bucket cache for every question that followed. The
+#: cost is the cache, not the ladder. Left switched off rather than
+#: deleted so the finding stays reproducible: the recall-skip gate
+#: turns it ON for its treatment arm.
+_ARITHMETIC_SKIPS_RECALL = False
 
 #: The §11.83 rung: a comparison side may be an EXPRESSION, and
 #: equality is a comparison. "is 3 * 4 greater than 10?" named
