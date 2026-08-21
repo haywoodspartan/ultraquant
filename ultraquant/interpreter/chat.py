@@ -55,6 +55,8 @@ UltraQuant Chat/Interpreter - commands:
   :learn skip            set the current question aside
   :learn research        try the web first (quarantined; needs ':online on')
   :learn panel <m>...    ask local models; corroborated answers are offered
+  :study [n]             n self-study cycles: survey gaps, ask the panel,
+                         apply only what independent voices corroborate
   :panel                 local LM Studio models, grouped by independent lineage
   :panel <m>.. ? <q>     ask each model in isolation; agreement counted by voice
   :teach <cat> <label>   then 5 glyph rows of [#.]{5}
@@ -516,6 +518,47 @@ class ChatCLI:
         self.emit(f"  reason     : {verdict.reason}")
         for name, score in sorted(verdict.tests.items()):
             self.emit(f"    {name:<28} {score:.3f}")
+
+    def _cmd_study(self, args: list[str], more) -> None:
+        """Run self-study cycles: the library closing its own gaps."""
+        from ultraquant.interpreter.study import StudyCycle
+
+        try:
+            cycles = max(1, int(args[0])) if args else 1
+        except ValueError:
+            self.emit("Usage: :study [n]")
+            return
+        models = self._study_panel_models()
+        if not models:
+            self.emit("No panel models reachable - ':study' needs LM "
+                      "Studio. Gaps stay open; ':learn' still works.")
+            return
+        self.emit(f"studying with panel: {', '.join(models)}")
+        cycle = StudyCycle(self.session, panel_models=models)
+        for index in range(cycles):
+            report = cycle.run()
+            self.emit(report.as_text())
+            if report.errors or not report.asked:
+                break
+
+    @staticmethod
+    def _study_panel_models() -> list[str]:
+        """One model per independent voice, smallest member of each."""
+        try:
+            from ultraquant.forge.train_from_llm import parameter_count
+            from ultraquant.interpreter.llmls import (catalogue,
+                                                      independent_groups)
+
+            cards = [c for c in catalogue() if c.is_chat]
+            groups = independent_groups(cards)
+            chosen = []
+            for group in groups:
+                members = sorted(group, key=lambda c:
+                                 (parameter_count(c.id), c.id))
+                chosen.append(members[0].id)
+            return chosen
+        except Exception:  # noqa: BLE001 - no LM Studio, no panel
+            return []
 
     def _cmd_panel(self, args: list[str], more) -> None:
         """Interrogate a panel of local LM Studio models - the LLMLS.

@@ -49,7 +49,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1369 tests, ~4 min
+python -m unittest discover -s tests      # 1385 tests, ~4 min
 ```
 
 In the chat, try:
@@ -59,6 +59,8 @@ In the chat, try:
 :learn           <- the model surveys its own gaps and asks you questions
 :learn research  <- it tries the web first (':online on'), quarantined
 :learn panel ... <- or asks local models, counted by independent lineage
+:study           <- one self-study cycle: survey, ask the panel, apply only
+                    what independent voices corroborate
 goal: the tower height and the bridge length    <- multi-step planning
 :trace           <- the thought pipeline behind the last answer
 :correct <cat> <text>   <- that query belonged elsewhere; say so
@@ -79,7 +81,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1369 tests across 75 modules
+tests/         1385 tests across 77 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

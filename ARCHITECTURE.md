@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.23 · 1369 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.24 · 1385 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         75 modules, 1369 tests
+tests/         77 modules, 1385 tests
 ```
 
 ---
@@ -3409,6 +3409,52 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.43 Self-study: the loop that closes its own gaps, shipped on a zero
+
+The pieces existed separately; `interpreter/study.py` is the loop — one
+pass that surveys the gap queue, asks the panel (one model per
+independent voice), quarantines everything, applies only what
+independent voices corroborate through §11.41's rules, and reports
+every application for veto. ':study [n]' runs it from the chat CLI.
+
+The gate's whole point was the new risk: **hallucination through
+corroboration** — independent lineages confidently completing the same
+invented thing. Worlds seeded the survey itself (a term mentioned until
+the gap survey minted a question about it): factual terms, contested
+concepts, and invented words. Across two live passes, **zero invented
+terms were corroborated** — "flurbostat" stayed open every time — zero
+applications landed on a wrong subject, and closure ran 0.667 at 1.29x
+seed sd with the two misses being contested concepts ("beauty",
+"justice"-class) staying open: the loop declining to flatten a
+contested idea into one voice's take, scored as misses on purpose.
+
+The pipeline the library now trains itself through, end to end and all
+measured: gaps found by usage, questions asked by curiosity or survey,
+answers quarantined, corroboration counted by voice with containment's
+bounded rules, application gated on acceptance, everything reported,
+truth maintenance standing behind every stored fact.
+
+### 11.42 Unit conversion: the refusal narrowed, nothing widened
+
+§11.30 refused every cross-unit combination and registered conversion
+as future machinery. The machinery is a definition table — three small
+families (length, mass, time), every factor exact, conversion only
+within a family, results expressed in the larger unit and labelled
+"(units converted)" with both premises in the trail. What the table
+cannot connect refuses exactly as before: degrees beside meters,
+florins beside anything, and a bare number beside a united value —
+assuming a missing unit would be invention.
+
+**The gate PASSED**: cross-unit combinations answer correctly
+(numerically checked against the exact factors) in 0.643 of all worlds
+against the baseline's structural zero, **+0.643 at 1.29x seed sd**,
+zero refusal falls in either arm, same-unit behavior byte-identical.
+The 0.357 miss is the bare-number worlds, in the metric per standing
+policy — refusing to assume is the mechanism working. One power
+correction recorded: the first draw put bare worlds at half the
+metric, where a Bernoulli contrast cannot clear one sd whatever the
+mechanism does (§11.35's arithmetic).
+
 ### 11.41 Containment corroboration: the bounded exception, and the first learned facts
 
 §11.40 registered the question its honest zero raised: three of four
@@ -4380,6 +4426,8 @@ wrong one. 0.896, not 1.000, is what that costs.
 | the live suggester | **PASSED** (§11.39) — the synonym wall moves 0.000 -> 0.833 on the live path at 2.04x sd with zero decoy falls in either arm; the positional rule killed the attribute-anchor fabrication; the chained ceiling stays the spread's job |
 | panel training run | **run, and honest** (§11.40) — three panel defects fixed (missing reasoning remedy, template-token positions, list-marker positions); the re-run's zero corroborations is exact-match integrity, ~50 claims quarantined awaiting independent evidence; containment corroboration registered for its own gate |
 | containment corroboration | **PASSED** (§11.41) — elaborations jointly back their shared core (+0.600 at 1.16x sd) with zero negation falls and zero paraphrase falls; the library learned its first panel facts ('language is communication', 3 voices), with one stored fact flagged for human veto |
+| unit conversion | **PASSED** (§11.42) — definition-table conversion answers 0.643 of cross-unit combinations at 1.29x sd with zero refusal falls; cross-family, unknown-unit, and bare-number combinations refuse exactly as §11.30 required |
+| self-study | **PASSED** (§11.43) — the loop closes 0.667 of its own seeded gaps at 1.29x sd with ZERO invented-term corroborations across two live passes and zero wrong subjects; contested concepts stay open by design; ':study' ships |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |

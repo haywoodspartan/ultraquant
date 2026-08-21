@@ -36,8 +36,9 @@ answer somewhere in the book.
 
 Arithmetic combination (sum, difference, larger/smaller over two numeric
 facts) sits beside the spread as a separate operation: convergence finds
-WHICH facts the question relates; it cannot add. Mismatched units refuse —
-300 meters + 2 kilometers is not 302 anything.
+WHICH facts the question relates; it cannot add. Units the definition
+table connects convert (300 meters + 2 kilometers is 2.3 kilometers,
+never 302); units it cannot connect refuse, exactly as they always did.
 """
 
 from __future__ import annotations
@@ -366,6 +367,39 @@ def _unit(value: str) -> str:
     return normalize_token(tokens[-1]) if tokens else ""
 
 
+#: Unit families with exact factors to a family base. Small on purpose:
+#: every factor here is a definition, not an approximation, and a unit
+#: outside the table stays outside the arithmetic - refusing "florins"
+#: is correct, converting them would be invention.
+_UNIT_FAMILIES: dict[str, dict[str, float]] = {
+    "length": {"millimeter": 0.001, "centimeter": 0.01, "meter": 1.0,
+               "kilometer": 1000.0, "foot": 0.3048, "mile": 1609.344},
+    "mass": {"milligram": 1e-6, "gram": 0.001, "kilogram": 1.0,
+             "tonne": 1000.0},
+    "time": {"second": 1.0, "minute": 60.0, "hour": 3600.0,
+             "day": 86400.0},
+}
+
+_UNIT_TO_FAMILY = {unit: family
+                   for family, units in _UNIT_FAMILIES.items()
+                   for unit in units}
+
+
+def _convert(number: float, unit: str, target_unit: str) -> float | None:
+    """``number unit`` expressed in ``target_unit``, or None.
+
+    Only within one family, only through the exact table. 300 meters
+    into kilometers is 0.3; 300 meters into degrees is a refusal, and
+    always was (§11.30's guard) - conversion narrows that refusal to
+    the pairs a definition connects.
+    """
+    family = _UNIT_TO_FAMILY.get(unit)
+    if family is None or _UNIT_TO_FAMILY.get(target_unit) != family:
+        return None
+    factors = _UNIT_FAMILIES[family]
+    return number * factors[unit] / factors[target_unit]
+
+
 def _combine(question_tokens: set[str], text: str,
              memory) -> Inference | None:
     """An arithmetic relation between exactly two held numeric facts."""
@@ -394,27 +428,44 @@ def _combine(question_tokens: set[str], text: str,
     if len(matched) != 2:
         return None
     (ka, ra, na), (kb, rb, nb) = matched
-    # 300 meters + 2 kilometers is not 302 anything: a combination across
-    # different units is wrong, not approximate. Unit conversion is a
-    # mechanism this module does not have, so mismatched units refuse.
+    # 300 meters + 2 kilometers is not 302 anything - but it IS 2.3
+    # kilometers when a definition connects the units (§11.42's table).
+    # Pairs the table cannot connect still refuse, exactly as §11.30
+    # required, and a bare number beside a united one refuses too:
+    # assuming its unit would be invention.
     unit_a, unit_b = _unit(ra.get("value", "")), _unit(rb.get("value", ""))
-    if unit_a and unit_b and unit_a != unit_b:
-        return None
+    converted_note = ""
+    result_unit = ""
+    if unit_a != unit_b or bool(unit_a) != bool(unit_b):
+        if not unit_a or not unit_b:
+            return None
+        family = _UNIT_TO_FAMILY.get(unit_a)
+        if family is None or _UNIT_TO_FAMILY.get(unit_b) != family:
+            return None
+        factors = _UNIT_FAMILIES[family]
+        # The result reads in the larger unit of the two.
+        result_unit = (unit_a if factors[unit_a] >= factors[unit_b]
+                       else unit_b)
+        na = _convert(na, unit_a, result_unit)
+        nb = _convert(nb, unit_b, result_unit)
+        converted_note = " (units converted)"
     confidence = min(float(ra.get("confidence", 0.0)),
                      float(rb.get("confidence", 0.0)))
     premises = [(ka, ra.get("value", "")), (kb, rb.get("value", ""))]
+    suffix = f" {result_unit}s" if converted_note else ""
     if relation == "sum":
-        answer = f"{ka} + {kb} = {na + nb:g}"
+        answer = f"{ka} + {kb} = {na + nb:g}{suffix}{converted_note}"
     elif relation == "difference":
-        answer = f"the difference between {ka} and {kb} is {abs(na - nb):g}"
+        answer = (f"the difference between {ka} and {kb} is "
+                  f"{abs(na - nb):g}{suffix}{converted_note}")
     else:
         bigger = ka if na >= nb else kb
         smaller = kb if na >= nb else ka
         chosen = bigger if relation == "larger" else smaller
-        answer = (f"{chosen} "
-                  f"({max(na, nb) if chosen == bigger else min(na, nb):g}) "
+        shown = max(na, nb) if chosen == bigger else min(na, nb)
+        answer = (f"{chosen} ({shown:g}{suffix}) "
                   f"is the {'larger' if relation == 'larger' else 'smaller'} "
-                  f"of the two")
+                  f"of the two{converted_note}")
     return Inference(answer=answer, premises=premises,
                      confidence=confidence, kind="combine")
 

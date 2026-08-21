@@ -121,12 +121,21 @@ class CombineInferenceTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("420", result.answer)
 
-    def test_mismatched_units_refuse(self) -> None:
-        """300 meters + 2 kilometers is not 302 anything."""
+    def test_related_units_convert_and_unrelated_refuse(self) -> None:
+        """300 meters + 2 kilometers is not 302 anything - it is 2.3
+        kilometers, through SS11.42's definition table; meters plus
+        degrees still refuses, because no definition connects them."""
         memory = _memory({"tower height": "300 meters",
-                          "bridge length": "2 kilometers"})
+                          "bridge length": "2 kilometers",
+                          "oven heat": "200 degrees"})
+        result = infer("what is the sum of the tower height and "
+                       "the bridge length?", memory)
+        self.assertIsNotNone(result)
+        self.assertIn("2.3 kilometers", result.answer)
+        self.assertIn("units converted", result.answer)
+        self.assertNotIn("302", result.answer)
         self.assertIsNone(infer("what is the sum of the tower height and "
-                                "the bridge length?", memory))
+                                "the oven heat?", memory))
 
     def test_larger_names_the_winner(self) -> None:
         memory = _memory({"tower height": "300 meters",
