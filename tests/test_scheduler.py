@@ -228,15 +228,23 @@ class StalenessClockTests(unittest.TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def _trained(self) -> LearnedDispatch:
+        # Timings are DATA here, not measurements: the first form of
+        # this fixture encoded the cost model in busy-loops and timed
+        # them for real, and a loaded machine (a model loading in the
+        # background) could invert the 50-iteration cpp loop against
+        # the 500-iteration cuda loop and flip the runner-up. What
+        # these tests claim is the scheduler's logic over experience -
+        # never the machine's ability to time busy-loops monotonically.
+        # The probe path's own timing stays covered by the recheck and
+        # cold-start tests, which assert no ordering.
         dispatch = LearnedDispatch(self.dir / "d.json",
                                    available=self.available)
+        cost = {"python": 0.01, "cpp": 0.0005, "cuda": 0.005}
         for qubits in range(2, 15, 2):
             dims = {"qubits": qubits, "gates": qubits * 3, "batch": 4}
-            cost = {"python": 0.01, "cpp": 0.0005, "cuda": 0.005}
-            dispatch.probe("quantum", dims, {
-                config: (lambda c=config: sum(range(int(cost[c] * 1e5))))
-                for config in self.available["quantum"]
-            })
+            features = workload_features("quantum", dims)
+            dispatch.experience.add("quantum", features, dict(cost))
+        dispatch._train("quantum")
         return dispatch
 
     def test_every_nth_learned_decision_reports_stale(self) -> None:
