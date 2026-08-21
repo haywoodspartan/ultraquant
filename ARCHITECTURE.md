@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.52 · 1618 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.53 · 1626 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         101 modules, 1618 tests
+tests/         102 modules, 1626 tests
 ```
 
 ---
@@ -3408,6 +3408,28 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.69 No is testimony too: doubt spoken, never absence
+
+§11.68's mirror was still mush — a polar "Yes - tower material is
+iron" answered with the user's "no" fell to the chat fallback, and
+testimony AGAINST a belief vanished. The mirror closes with an honest
+asymmetry: a contest drops the belief to doubt (0.30) but does NOT
+delete it, because a bare "no" names no replacement and deleting on
+it would invent an absence. The drop is said aloud, the correction is
+asked for ("tell me what it is"), and a following statement closes
+into §11.53's narrated revision — doubt, ask, revise, each step
+spoken. The testimony pair is complete: yes raises to 0.90, no lowers
+to 0.30, both aloud, neither deletes, and a bare word with nothing
+pending moves nothing.
+
+The gate (`experiments/disconfirm_gate.py`) ran
+`_DISCONFIRM_TESTIMONY` off against on. **PASS on the first run:
+0.278 -> 1.000, +0.722 at 3.33x seed sd, zero deletions, zero moved
+strays, the §11.68 confirmation floor untouched in both arms** —
+every contest at exactly 0.30, every loop closing into the narrated
+revision. The user's agreement and disagreement finally weigh exactly
+what the epistemics always said they should.
 
 ### 11.68 Yes reaches the stored fact: testimony at the surface
 

@@ -204,6 +204,7 @@ class HelpFormsTests(unittest.TestCase):
                        "consolidates it",
                        "direct",
                        "testimony",
+                       "doubt never deletes",
                        "what was the tower material",
                        "none is invented",
                        "names its takedown",

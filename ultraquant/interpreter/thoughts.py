@@ -54,6 +54,12 @@ _AFFIRMATION_RE = re.compile(
     r"that's (right|correct))[.!]?")
 _GLYPH_ROW = re.compile(r"^[#.]{5}$")
 
+#: A whole-input disagreement. Strict like _AFFIRMATION_RE: anything
+#: longer than a bare contradiction is a new thought (often the
+#: correction itself, which the statement path owns).
+_NEGATION_REPLY_RE = re.compile(
+    r"(no|nope|wrong|incorrect|that is wrong|that's wrong)[.!]?")
+
 #: A text opening with one of these is a question even without a question mark.
 #: Kept to unambiguous leads: "is the shop open" is interrogative, but a bare
 #: "is" prefix also matches "is short for ..." style fragments rarely typed, and
@@ -320,6 +326,14 @@ class Perceive(Thought):
             ctx.note(self.name, "intent=confirmation, testimony for a "
                                 "stored fact", intent="confirmation")
             return
+        if (confirmable is not None and _DISCONFIRM_TESTIMONY
+                and _NEGATION_REPLY_RE.fullmatch(lowered.strip())):
+            ctx.data["intent"] = "disconfirmation"
+            ctx.data["contested_fact"] = confirmable
+            ctx.note(self.name, "intent=disconfirmation, testimony "
+                                "against a stored fact",
+                     intent="disconfirmation")
+            return
         if rows is not None:
             intent = "glyph"
             ctx.data["glyph_rows"] = rows
@@ -510,6 +524,7 @@ class Reason(Thought):
             "fact_statement": self._fact,
             "affirmation": self._affirm,
             "confirmation": self._confirm,
+            "disconfirmation": self._disconfirm,
         }.get(intent, self._chat)
         handler(ctx)
 
@@ -1063,6 +1078,35 @@ class Reason(Thought):
             ctx.say(f"I no longer hold {key}, so there is nothing to "
                     "confirm.")
             ctx.note(self.name, f"confirmation missed {key!r}")
+
+    def _disconfirm(self, ctx: ThoughtContext) -> None:
+        """Record "no" after an asserted belief as testimony against.
+
+        The mirror of §11.68's confirmation: the user contests what
+        was just asserted, so the belief drops to doubt - not deleted
+        (a bare "no" names no replacement, and deleting on it would
+        invent an absence) - the drop is said aloud, and the
+        correction is asked for. A following statement closes into
+        §11.53's narrated revision.
+        """
+        contested = ctx.data.get("contested_fact") or {}
+        key = contested.get("key")
+        if not key:
+            ctx.say("Nothing is pending to contest.")
+            return
+        memory = ctx.session.memory
+        fact = memory.recall_fact(key)
+        if fact is None:
+            ctx.say(f"I no longer hold {key}, so there is nothing to "
+                    "contest.")
+            return
+        shown = _shown_value(fact)
+        memory.confirm_fact(key, confidence=0.3)
+        ctx.say(f"Noted - I held {key} is {shown}, and you say that "
+                f"is wrong. Confidence dropped to 0.30; tell me what "
+                f"it is ('the {key} is ...') and I will revise.")
+        ctx.note(self.name, f"testimony against {key!r}; awaiting "
+                            "correction")
 
     def _affirm(self, ctx: ThoughtContext) -> None:
         """Consolidate the derivation the user just confirmed.
@@ -1998,6 +2042,17 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.69 rung: "no" after the system asserts a held belief is
+#: testimony AGAINST - the belief drops to doubt (0.30), the drop is
+#: said aloud, and the correction is asked for; a following statement
+#: closes into §11.53's narrated revision. The disconfirmation gate's
+#: baseline arm turns it off.
+_DISCONFIRM_TESTIMONY = True
+
+#: A whole-input disconfirmation, as strict as its sibling: only a
+#: bare disagreement contests a pending assertion.
+_DISCONFIRMATION_RE = None  # compiled below, after re is imported
 
 #: The §11.68 rung: "yes" after the system asserts a held belief
 #: reaches the stored fact as direct testimony (confirm_fact, 0.9) -

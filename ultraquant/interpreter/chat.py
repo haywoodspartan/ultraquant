@@ -101,7 +101,9 @@ understands - among others - these forms:
                revised premise takes its consolidations down); "yes"
                after an asserted belief confirms it as direct
                testimony (confidence 0.90 - stronger than a passing
-               restatement, which reinforces by 0.1)
+               restatement, which reinforces by 0.1); "no" contests it
+               - confidence drops to 0.30, the correction is asked
+               for, and doubt never deletes
 A near-key statement ("the old tower material is ...") also names the
 held base it sits beside: "I separately hold: tower material is
 iron" - information, never a merge."""
