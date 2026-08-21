@@ -192,6 +192,7 @@ class HelpFormsTests(unittest.TestCase):
 
         for marker in ("is not steel",
                        "revised aloud",
+                       "teaches every",
                        "hometown region climate",
                        "absence is never no",
                        "why is the tower hardness",

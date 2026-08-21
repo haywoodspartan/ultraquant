@@ -359,12 +359,18 @@ class Perceive(Thought):
             intent = "url"
             ctx.data["url"] = _URL_RE.search(text).group(0)
         elif lowered.startswith("remember") or (
-                " is " in lowered and not text.endswith("?")
+                (" is " in lowered
+                 or (_CONJUNCTIVE_STATEMENTS and " are " in lowered
+                     and " and " in lowered))
+                and not text.endswith("?")
                 and not lowered.startswith(_INTERROGATIVE_LEADS)):
             # An interrogative lead beats the " is " heuristic: "how tall is
             # the tower" contains " is " and was being read as a *statement*,
             # which both refused to answer it and stored junk - the fact
             # "how tall" = "the tower" was really written by this branch.
+            # §11.71 admits " are " only beside " and ": a conjunctive
+            # statement is plural by construction, while a bare " are "
+            # sentence is conversation.
             intent = "fact_statement"
         elif text.endswith("?") or lowered.startswith(_INTERROGATIVE_LEADS):
             intent = "question"
@@ -2032,6 +2038,22 @@ class Reason(Thought):
 
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)
+        if parsed is None and _CONJUNCTIVE_STATEMENTS:
+            # §11.71: "the A material and the B material are V" offers
+            # two facts and used to teach zero, silently. Full-subject
+            # conjunctions split and each part takes the shared value;
+            # the elided form ("the tower and bridge material") stays
+            # the registered ceiling - a part without its own relation
+            # word refuses rather than guess the distribution.
+            parts = _parse_conjunction(ctx.text)
+            if parts:
+                ctx.data["statements"] = parts
+                ctx.say("Noted: "
+                        + "; ".join(f"{k} is {v}" for k, v in parts)
+                        + ".")
+                ctx.note(self.name,
+                         f"conjunctive statement, {len(parts)} part(s)")
+                return
         if parsed is None:
             ctx.say("I couldn't find a clear 'X is Y' in that.")
             ctx.note(self.name, "unparsed statement")
@@ -2075,6 +2097,13 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.71 rung: "the A material and the B material are V"
+#: teaches BOTH facts - each part through the full statement machinery
+#: (polarity, revision notices, adjacency), narrated together, and a
+#: key containing " and " is never stored. The conjunction gate's
+#: baseline arm turns it off.
+_CONJUNCTIVE_STATEMENTS = True
 
 #: The §11.70 rung: "no" after a DERIVED answer declines the
 #: consolidation and names the premises so the wrong one can be
@@ -2229,6 +2258,38 @@ def _shown_value(fact: dict) -> str:
     return f"not {value}" if fact.get("negated") else str(value)
 
 
+def _parse_conjunction(text: str) -> list[tuple[str, str]] | None:
+    """Split "the A ... and the B ... are V" into per-part facts.
+
+    Full-subject parts only: every part must carry at least two
+    informative tokens of its own (its subject AND its relation word) -
+    the elided form distributes an attribute the parts do not name,
+    and guessing that distribution is §11.71's registered ceiling.
+    """
+    cleaned = text.strip().rstrip(".")
+    lowered = cleaned.lower()
+    for verb in (" are ", " is "):
+        idx = lowered.find(verb)
+        if idx > 0:
+            subjects = cleaned[:idx]
+            value = cleaned[idx + len(verb):].strip()
+            break
+    else:
+        return None
+    if " and " not in subjects.lower() or not value:
+        return None
+    parts = []
+    for raw in subjects.split(" and "):
+        key = raw.strip().lower()
+        for article in ("the ", "a ", "an "):
+            if key.startswith(article):
+                key = key[len(article):]
+        if len(key.split()) < 2:
+            return None
+        parts.append((key, value))
+    return parts if len(parts) >= 2 else None
+
+
 def _parse_statement(text: str) -> tuple[str, str] | None:
     """Parse a user statement into ``(key, value)``."""
     cleaned = text.strip().rstrip(".")
@@ -2305,12 +2366,50 @@ class Learn(Thought):
 
     name = "Learn"
 
+    def _learn_statement(self, ctx, session, key: str,
+                         raw_value: str) -> None:
+        """One statement through the full learning path - §11.71 uses
+        this per conjunctive part so revisions narrate and adjacency
+        notes fire exactly as they would for the part stated alone."""
+        value, negated = _split_polarity(raw_value)
+        result = session.memory.remember_fact(key, value,
+                                              confidence=0.6,
+                                              negated=negated)
+        if (_NEARKEY_NOTES and isinstance(result, dict)
+                and result.get("outcome") == "new"):
+            toks = key.split()
+            if len(toks) >= 3:
+                base = " ".join(toks[1:])
+                held = session.memory.recall_fact(base)
+                if held is not None:
+                    ctx.say(f"I separately hold: {base} is "
+                            f"{_shown_value(held)} (confidence "
+                            f"{held['confidence']:.2f}).")
+        if (_REVISION_ALOUD and isinstance(result, dict)
+                and result.get("outcome") == "revised"):
+            notice = (f"That revises what I held: {key} was "
+                      f"{result['was']}.")
+            retracted = result.get("retracted") or []
+            if retracted:
+                names = ", ".join(repr(k) for k in retracted)
+                notice += (f" {len(retracted)} derived fact(s) "
+                           f"rested on it and were retracted: "
+                           f"{names}.")
+            ctx.say(notice)
+        ctx.data["response"] = " ".join(
+            part.strip() for part in ctx.response_parts
+            if part.strip())
+
     def run(self, ctx: ThoughtContext) -> None:
         session = ctx.session
         intent = ctx.data.get("intent", "chat")
         learned: list[str] = []
 
         # A statement the *user* typed is testimony we accept directly.
+        if intent == "fact_statement" and ctx.data.get("statements"):
+            for key, value in ctx.data["statements"]:
+                self._learn_statement(ctx, session, key, value)
+                learned.append(f"fact {key!r}")
         if intent == "fact_statement" and ctx.data.get("statement"):
             key, value = ctx.data["statement"]
             value, negated = _split_polarity(value)

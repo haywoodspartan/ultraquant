@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.54 · 1633 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.55 · 1642 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         103 modules, 1633 tests
+tests/         104 modules, 1642 tests
 ```
 
 ---
@@ -3408,6 +3408,31 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.71 Conjunctive statements teach all their facts
+
+"the tower material and the bridge material are iron" offered two
+facts and taught zero, silently — " are " never parsed, the intent
+classifier read the sentence as chat, and the teacher had no way to
+know the lesson was dropped. The plural form is admitted exactly as
+wide as it is honest: " are " counts as statement-shaped only beside
+" and " (a conjunctive sentence is plural by construction; a bare
+" are " sentence is conversation), full-subject parts split and each
+takes the shared value through the COMPLETE statement machinery — a
+shared `_learn_statement` helper, so polarity distributes ("... are
+not steel" denies each part), a revising part narrates its §11.53
+notice inside the conjunction, and an adjacent part its §11.63 note.
+The elided form ("the tower and the bridge are iron") stays the
+registered ceiling: distributing an attribute the parts do not name
+would be guessing, and the refusal says so. A key containing " and "
+is never stored, ever.
+
+The gate (`experiments/conjunction_gate.py`) ran
+`_CONJUNCTIVE_STATEMENTS` off against on. **PASS on the first run:
+0.000 -> 0.836 at 6.45x seed sd, zero junk keys, singular statements
+identical in both arms.** A teacher can finally say two things in one
+sentence and have both of them land, each through the full machinery
+it would have met alone.
 
 ### 11.70 Declining a derivation names its premises: the family whole
 

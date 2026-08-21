@@ -69,7 +69,9 @@ Anything else is treated as input to the thought pipeline, which
 understands - among others - these forms:
   statements   "the tower material is iron" / "... is not steel"
                (a conflicting statement is revised aloud: the old
-               belief named, retracted derivations counted)
+               belief named, retracted derivations counted); "the A
+               material and the B material are iron" teaches every
+               part
   questions    "what is the tower material?"
   chains       "what is the tower architect hometown region climate?"
                (up to four facts bridged; the trail is the answer)
