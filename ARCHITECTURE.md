@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.38 · 1540 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.39 · 1544 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         91 modules, 1540 tests
+tests/         92 modules, 1544 tests
 ```
 
 ---
@@ -3408,6 +3408,34 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.58 The density revisit: the session's arc at scale
+
+§11.37's lesson governs its descendants: every capability of the
+§11.45-§11.57 arc was gated at small worlds, where mechanisms are
+debuggable — and clean-room success means nothing until density has
+its say. The revisit gate (`experiments/revisit_gate.py`) is the
+capstone the lesson demands: one colliding world of ~10,000 facts,
+every question form of the session asked against it, fabrication at
+absolute zero across every decoy family the session built, floors
+pre-registered per form, and the full-scan price finally seen at
+scale.
+
+**Its first run indicted the harness.** The name pool ran dry at
+2,731 facts while claiming ten thousand, and polar, why, and compare
+scored 0.000 with second-long latencies while depth-4 sat at 1.000 —
+the asymmetry was the diagnosis: the builder ingested keys WITH
+articles through direct `remember_fact`, but the live statement path
+strips them and the recall ladders look up stripped keys, so every
+recall-backed form missed facts the token-based spread could still
+see. A density harness must key its world the way live usage would.
+Pools enlarged, keys stripped, and at 9,631 facts: **every floor at
+1.000, zero fabrications** — depth-4 chains 726.5 ms (three
+synchronous frontier rounds over a dense store: the expensive
+capability, expensively honest), polar and why at 1.3 ms on the
+addressed index, compare at 4.6 ms, and the full-scan forms saying
+their price aloud (superlative 49.5 ms, aggregate 18.3 ms). The
+session's arc survives density whole.
 
 ### 11.57 Aggregates: the family counted, totalled, and averaged
 
