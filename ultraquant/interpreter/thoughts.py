@@ -813,6 +813,8 @@ class Reason(Thought):
             return
         if _SUPERLATIVES_ON and self._superlative_answer(ctx):
             return
+        if _AGGREGATES_ON and self._aggregate_answer(ctx):
+            return
         if _WHY_ANSWERS and self._why_answer(ctx):
             return
         if _NEGATION_AWARE and self._polar_answer(ctx):
@@ -1341,6 +1343,115 @@ class Reason(Thought):
             return True
         return False
 
+    def _aggregate_answer(self, ctx: ThoughtContext) -> bool:
+        """Count, total, or average an attribute family - §11.57.
+
+        The same enumerated family the superlative ranks (§11.56),
+        aggregated: "how many height facts do you hold?", "what is the
+        total height?", "what is the average height?". The honesty
+        contract is inherited whole - scope named, exclusions named,
+        denials never counted in arithmetic (a denial names no number,
+        and a denied 900 meters must not move a mean by a millimeter)
+        - and counting tells the whole truth: positive beliefs counted,
+        denials reported beside them as what they are.
+        """
+        from ultraquant.reason.inference import (_UNIT_FAMILIES,
+                                                 _UNIT_TO_FAMILY)
+        from ultraquant.shards.router import _informative, normalize_token
+
+        lowered = ctx.text.lower().strip().strip("?!. ")
+        counting = lowered.startswith("how many ")
+        tokens = [normalize_token(tok)
+                  for tok in _TOKEN_RE.findall(lowered)
+                  if _informative(tok)]
+        _AGG_WORDS = {"total": "sum", "sum": "sum",
+                      "average": "mean", "mean": "mean"}
+        _NOISE = {"fact", "hold", "many", "how", "know"}
+        agg = [tok for tok in tokens if tok in _AGG_WORDS]
+        rest = [tok for tok in tokens
+                if tok not in _AGG_WORDS and tok not in _NOISE]
+        if counting:
+            if len(rest) != 1 or agg:
+                return False
+            operation = "count"
+        else:
+            if len(agg) != 1 or len(rest) != 1 \
+                    or not lowered.startswith("what "):
+                return False
+            operation = _AGG_WORDS[agg[0]]
+        attr = rest[0]
+
+        memory = ctx.session.memory
+        included, excluded, denied = _attr_family(memory, attr)
+
+        if operation == "count":
+            held = len(included) + len(excluded)
+            if not held and not denied:
+                ctx.say(f"I hold no {attr} facts.")
+            else:
+                note = (f", plus {denied} denial(s)" if denied else "")
+                ctx.say(f"I hold {held} {attr} fact(s){note}.")
+            ctx.note(self.name, f"counted {held} {attr} fact(s)")
+            return True
+
+        if not included:
+            note = (f" ({denied} denial(s) held, and a denial names "
+                    "no number)" if denied else "")
+            ctx.say(f"I hold no numeric {attr} facts{note}.")
+            ctx.note(self.name, f"aggregate refused; no numeric "
+                                f"{attr} facts")
+            return True
+
+        family = _UNIT_TO_FAMILY.get(included[0][3])
+        members = []
+        converted = False
+        for key, record, number, unit in included:
+            if unit == included[0][3]:
+                members.append((key, record, number, unit))
+            elif (family is not None
+                    and _UNIT_TO_FAMILY.get(unit) == family):
+                members.append((key, record, number, unit))
+                converted = True
+            else:
+                excluded.append((key, f"in {unit or 'no unit'}, not "
+                                      "comparable"))
+        if not members:
+            ctx.say(f"I hold {attr} facts but none share a comparable "
+                    "unit.")
+            ctx.note(self.name, "aggregate refused; units diverge")
+            return True
+
+        if family is not None:
+            factors = _UNIT_FAMILIES[family]
+            out_unit = max({unit for _k, _r, _n, unit in members},
+                           key=lambda u: factors[u])
+            total = sum(number * factors[unit] / factors[out_unit]
+                        for _k, _r, number, unit in members)
+            unit_text = f" {out_unit}s"
+        else:
+            total = sum(number for _k, _r, number, _u in members)
+            unit_text = ""
+        value = (total if operation == "sum"
+                 else total / len(members))
+        confidence = min(float(r.get("confidence", 0.0))
+                         for _k, r, _n, _u in members)
+        scope = f"of the {len(members)} {attr} facts I hold"
+        notes = ""
+        if excluded:
+            names = "; ".join(f"{k} ({reason})"
+                              for k, reason in excluded)
+            notes += f" Excluded: {names}."
+        if denied:
+            notes += (f" {denied} denial(s) not counted - a denial "
+                      "names no number.")
+        word = "total" if operation == "sum" else "average"
+        mark = " (units converted)" if converted else ""
+        ctx.say(f"The {word} {scope} is {value:g}{unit_text}{mark} "
+                f"(confidence {confidence:.2f}).{notes}")
+        ctx.note(self.name,
+                 f"{word} over {len(members)} {attr} fact(s)")
+        return True
+
     def _superlative_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "which {attr} is the {tallest}?" over the whole
         attribute family - §11.56.
@@ -1375,27 +1486,7 @@ class Reason(Thought):
         attr = attrs[0]
 
         memory = ctx.session.memory
-        included = []
-        excluded = []
-        denied = 0
-        for key in memory.fact_keys():
-            key_tokens = [normalize_token(tok)
-                          for tok in _TOKEN_RE.findall(key.lower())
-                          if _informative(tok)]
-            if not key_tokens or key_tokens[-1] != attr:
-                continue
-            record = memory.recall_fact(key)
-            if record is None:
-                continue
-            if record.get("negated"):
-                denied += 1
-                continue
-            number = _numeric(record.get("value", ""))
-            if number is None:
-                excluded.append((key, "no number"))
-                continue
-            included.append((key, record, number,
-                             _unit(record.get("value", ""))))
+        included, excluded, denied = _attr_family(memory, attr)
 
         if not included:
             note = (f" ({denied} denial(s) held, and a denial names no "
@@ -1731,6 +1822,13 @@ _COMPARE_DERIVES = True
 #: turns it off.
 _SUPERLATIVES_ON = True
 
+#: The §11.57 rung: "how many {attr} facts...", "what is the total
+#: {attr}?", "what is the average {attr}?" - aggregates over the same
+#: enumerated family the superlative ranks, scope named, exclusions
+#: named, denials never counted. The aggregate gate's baseline arm
+#: turns it off.
+_AGGREGATES_ON = True
+
 #: Superlative word -> comparison direction, mirroring _COMBINE_WORDS.
 _SUPERLATIVES = {
     "tallest": "larger", "longest": "larger", "biggest": "larger",
@@ -1738,6 +1836,43 @@ _SUPERLATIVES = {
     "shortest": "smaller", "smallest": "smaller", "lowest": "smaller",
     "lightest": "smaller",
 }
+
+
+def _attr_family(memory, attr: str):
+    """Enumerate the whole store for facts whose key ends in ``attr``.
+
+    Returns ``(included, excluded, denied)``: included as
+    ``(key, record, number, unit)`` for positive numeric facts,
+    excluded as ``(key, reason)`` for named exclusions, denied as the
+    count of negations - which hold no number and never participate.
+    A full scan by design (§11.56): a top-k sample could silently
+    miss a member, and a claim about a set must see the set.
+    """
+    from ultraquant.reason.inference import _numeric, _unit
+    from ultraquant.shards.router import _informative, normalize_token
+
+    included = []
+    excluded = []
+    denied = 0
+    for key in memory.fact_keys():
+        key_tokens = [normalize_token(tok)
+                      for tok in _TOKEN_RE.findall(key.lower())
+                      if _informative(tok)]
+        if not key_tokens or key_tokens[-1] != attr:
+            continue
+        record = memory.recall_fact(key)
+        if record is None:
+            continue
+        if record.get("negated"):
+            denied += 1
+            continue
+        number = _numeric(record.get("value", ""))
+        if number is None:
+            excluded.append((key, "no number"))
+            continue
+        included.append((key, record, number,
+                         _unit(record.get("value", ""))))
+    return included, excluded, denied
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:

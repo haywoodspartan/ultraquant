@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.37 · 1530 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.38 · 1540 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         90 modules, 1530 tests
+tests/         91 modules, 1540 tests
 ```
 
 ---
@@ -3408,6 +3408,33 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.57 Aggregates: the family counted, totalled, and averaged
+
+The enumeration §11.56 built now reckons as well as ranks: "how many
+height facts do you hold?", "what is the total height?", "what is the
+average height?" — aggregates over the same `_attr_family` scan
+(extracted into a shared helper), governed by the same three honesty
+rules: name the scope ("of the 3 height facts I hold"), name the
+exclusions ("mill height (no number)"), and never let a denial touch a
+number. Counting tells the whole truth in both directions: positive
+beliefs are counted — word-valued facts included, a fact is a fact —
+and denials are reported beside them as what they are ("I hold 4
+height fact(s), plus 1 denial(s)"). Totals and averages convert
+within §11.42's families to the largest unit present, say so aloud,
+and carry the minimum confidence over every member. The §11.30
+pairwise combine keeps its own door: "the sum of the tower height and
+the bridge height" names its operands and is not an aggregate.
+
+The gate (`experiments/aggregate_gate.py`) ran `_AGGREGATES_ON` off
+against on, and between its two runs a latent harness hazard was
+closed before it ever fired: the drift control demands exact
+float-string equality, and different summation orders could differ in
+the last bits — a spurious drift waiting on a seed. Cross-unit worlds
+now draw meter values converting to exact binary eighths. The
+authoritative run: **PASS, 0.343 -> 1.000, +0.657 at 5.05x seed sd,
+zero drifted numbers** — no denied value moved any total or mean —
+with the pairwise door and recall identical at 1.000 in both arms.
 
 ### 11.56 Superlatives: a claim about a set, with the set named
 
