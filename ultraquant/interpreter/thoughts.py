@@ -811,6 +811,8 @@ class Reason(Thought):
         if compound is not None:
             self._answer_compound(ctx, compound)
             return
+        if _NEGATION_AWARE and self._polar_answer(ctx):
+            return
         facts = ctx.data.get("facts", [])
         if facts:
             key, fact = facts[0]
@@ -832,7 +834,7 @@ class Reason(Thought):
                     for tok in _TOKEN_RE.findall(key.lower())
                     if _informative(tok)}
             if asked <= held:
-                ctx.say(f"{key} is {fact['value']} "
+                ctx.say(f"{key} is {_shown_value(fact)} "
                         f"(confidence {fact['confidence']:.2f}).")
                 ctx.note(self.name, f"answered from fact {key!r}")
                 return
@@ -932,7 +934,7 @@ class Reason(Thought):
             # answer. Nearest-held is still worth SAYING; it is not worth
             # asserting as identity.
             if question_tokens <= key_tokens:
-                ctx.say(f"{key} is {fact['value']} "
+                ctx.say(f"{key} is {_shown_value(fact)} "
                         f"(confidence {fact['confidence']:.2f}).")
                 ctx.note(self.name, f"answered from keyword fact {key!r}")
                 return
@@ -953,7 +955,7 @@ class Reason(Thought):
                              f"{reading.similarity:.2f}")
                     return
             ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
-                    f"{fact['value']} (confidence "
+                    f"{_shown_value(fact)} (confidence "
                     f"{fact['confidence']:.2f})." + hint)
             ctx.note(self.name,
                      f"nearest-held {key!r}; question content "
@@ -1125,6 +1127,80 @@ class Reason(Thought):
                  f"compound: {len(parts)} part(s), {len(pieces)} answered, "
                  f"{len(unknown_parts)} unknown")
 
+    def _polar_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "is X Y?" with yes, no, or an honest don't-know.
+
+        The subject is the longest stored-key prefix of the question;
+        the remainder is the claim. Absence is NEVER no: a subject the
+        library holds nothing about returns False here and falls
+        through to the hedging machinery below - "no" is reserved for
+        actual contrary belief, stored either as a different value or
+        as a negation. That line - belief-of-absence against
+        absence-of-belief - is the §11.48 claim.
+        """
+        from ultraquant.shards.router import _informative, normalize_token
+
+        lowered = ctx.text.lower().strip().strip("?!. ")
+        for lead in ("is ", "are ", "was ", "were "):
+            if lowered.startswith(lead):
+                rest = lowered[len(lead):].strip()
+                break
+        else:
+            return False
+        for article in ("the ", "a ", "an "):
+            if rest.startswith(article):
+                rest = rest[len(article):]
+        words = rest.split()
+        if len(words) < 2:
+            return False
+
+        memory = ctx.session.memory
+        fact = None
+        key = ""
+        claim_words: list[str] = []
+        for size in range(len(words) - 1, 0, -1):
+            candidate = " ".join(words[:size])
+            record = memory.recall_fact(candidate)
+            if record is not None:
+                fact, key = record, candidate
+                claim_words = words[size:]
+                break
+        if fact is None:
+            return False
+        claim_negated = any(w in ("not", "never") for w in claim_words)
+        claimed = " ".join(w for w in claim_words
+                           if w not in ("not", "never", "a", "an", "the"))
+        if not claimed:
+            return False
+
+        fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
+                             in _TOKEN_RE.findall(str(text).lower())
+                             if _informative(tok)}
+        matches = fold(claimed) == fold(str(fact.get("value", "")))
+        held = fact.get("value", "")
+        confidence = f"(confidence {fact['confidence']:.2f})"
+        if not fact.get("negated"):
+            if matches:
+                verdict = ("No" if claim_negated else "Yes")
+                ctx.say(f"{verdict} - {key} is {held} {confidence}.")
+            elif claim_negated:
+                ctx.say(f"Yes - {key} is {held}, not {claimed} "
+                        f"{confidence}.")
+            else:
+                ctx.say(f"No - {key} is {held}, not {claimed} "
+                        f"{confidence}.")
+        else:
+            if matches:
+                verdict = ("Yes" if claim_negated else "No")
+                ctx.say(f"{verdict} - believed not {held} {confidence}.")
+            else:
+                # A negation of one value says nothing about another:
+                # "not steel" cannot answer "is it iron?".
+                ctx.say(f"I don't know - I hold only that {key} is "
+                        f"not {held} {confidence}.")
+        ctx.note(self.name, f"polar question against {key!r}")
+        return True
+
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)
         if parsed is None:
@@ -1140,12 +1216,43 @@ class Reason(Thought):
         facts = ctx.data.get("facts", [])
         if facts:
             key, fact = facts[0]
-            ctx.say(f"That lands near '{key}', which I hold as: {fact['value']}.")
+            ctx.say(f"That lands near '{key}', which I hold as: "
+                    f"{_shown_value(fact)}.")
         elif routes:
             ctx.say(f"That reads as {routes[0][0]}. I have nothing stored on it yet.")
         else:
             ctx.say("I have nothing on that yet. ':help' lists what I can do.")
         ctx.note(self.name, "conversational reply")
+
+
+#: The §11.48 polarity switch: the negation gate's baseline arm turns
+#: it off to measure shipped behavior ("not steel" stored as a value,
+#: no polar questions). Sessions run with it on.
+_NEGATION_AWARE = True
+
+
+def _split_polarity(value: str) -> tuple[str, bool]:
+    """Split a statement value into (value, negated).
+
+    "not steel" and "never steel" are belief-of-absence; the bare value
+    is stored and the polarity travels as a flag, so the fold can never
+    again bridge a denial as an assertion ("via not steel").
+    """
+    if not _NEGATION_AWARE:
+        return value, False
+    lowered = value.lower()
+    for lead in ("not ", "never "):
+        if lowered.startswith(lead):
+            rest = value[len(lead):].strip()
+            if rest:
+                return rest, True
+    return value, False
+
+
+def _shown_value(fact: dict) -> str:
+    """A record's value as speech, polarity included."""
+    value = fact.get("value", "")
+    return f"not {value}" if fact.get("negated") else str(value)
 
 
 def _parse_statement(text: str) -> tuple[str, str] | None:
@@ -1232,7 +1339,9 @@ class Learn(Thought):
         # A statement the *user* typed is testimony we accept directly.
         if intent == "fact_statement" and ctx.data.get("statement"):
             key, value = ctx.data["statement"]
-            session.memory.remember_fact(key, value, confidence=0.6)
+            value, negated = _split_polarity(value)
+            session.memory.remember_fact(key, value, confidence=0.6,
+                                         negated=negated)
             learned.append(f"fact {key!r}")
 
         # Web claims only cross into memory once independent sources agree.

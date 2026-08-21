@@ -190,26 +190,43 @@ class SystematicMemory:
         scored.sort(key=lambda triple: (-triple[0], -triple[1], triple[2]))
         return [key for _o, _w, key in scored[:top_k]]
 
-    def remember_fact(self, key: str, value: Any, confidence: float = 0.5) -> None:
+    def remember_fact(self, key: str, value: Any, confidence: float = 0.5,
+                      negated: bool = False) -> None:
         """Store, reinforce, or revise a semantic fact.
 
         * New key → stored with the given confidence and 0 reinforcements.
-        * Same key, equal value → confidence bumped by 0.1 (capped at
-          1.0) and ``reinforcements`` incremented.
-        * Same key, different value → value replaced, confidence reset to
-          the given ``confidence``, and a ``"revision"`` episode logged.
+        * Same key, equal value AND equal polarity → confidence bumped by
+          0.1 (capped at 1.0) and ``reinforcements`` incremented.
+        * Same key, different value OR flipped polarity → replaced,
+          confidence reset to the given ``confidence``, and a
+          ``"revision"`` episode logged. Polarity is part of a fact's
+          identity: "the dome material is steel" after "the dome
+          material is not steel" is a change of mind, never a
+          reinforcement.
+
+        Args:
+            key: The fact key.
+            value: The believed value — for a negation, the value the
+                subject is believed NOT to be (stored bare; the
+                ``negated`` flag carries the polarity).
+            confidence: Belief strength for a new or revised fact.
+            negated: True to store belief-of-absence.
         """
         now = _utc_now()
         existing = self._fact_record(key)
         if existing is None:
-            self._put_fact(key, {
+            record = {
                 "value": value,
                 "confidence": float(confidence),
                 "reinforcements": 0,
                 "first_seen": now,
                 "last_seen": now,
-            })
-        elif existing["value"] == value:
+            }
+            if negated:
+                record["negated"] = True
+            self._put_fact(key, record)
+        elif (existing["value"] == value
+              and bool(existing.get("negated")) == bool(negated)):
             existing["confidence"] = min(1.0, existing["confidence"] + 0.1)
             existing["reinforcements"] += 1
             existing["last_seen"] = now
@@ -217,6 +234,10 @@ class SystematicMemory:
         else:
             old_value = existing["value"]
             existing["value"] = value
+            if negated:
+                existing["negated"] = True
+            else:
+                existing.pop("negated", None)
             existing["confidence"] = float(confidence)
             existing["last_seen"] = now
             # A revision breaks every conclusion that rested on the old

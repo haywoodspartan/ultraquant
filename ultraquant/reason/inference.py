@@ -197,6 +197,13 @@ def _spread(question_tokens: set[str], memory,
 
     nodes: dict[str, _Node] = {}
     for key, record in facts.items():
+        # A negation is inhibitory knowledge: "the dome material is not
+        # steel" says what may NOT be believed, and letting it excite the
+        # network bridged a denial into an assertion - the dome's melting
+        # point derived "via not steel", the value's polarity invisible
+        # to the fold. Negated facts neither seed nor relay.
+        if record.get("negated"):
+            continue
         key_tokens = _fold(key)
         contact = key_tokens & question_tokens
         if not contact:
@@ -241,6 +248,8 @@ def _spread(question_tokens: set[str], memory,
             targets = _reachable_facts(memory, bridge_probes)
             for t_key, t_record in targets.items():
                 if t_key == node.key:
+                    continue
+                if t_record.get("negated"):
                     continue
                 t_tokens = _fold(t_key)
                 # Whole-value bridging, both directions. A bridge that
@@ -440,6 +449,11 @@ def _combine(question_tokens: set[str], text: str,
     facts = _reachable_facts(memory, [" ".join(sorted(content))])
     matched = []
     for key, record in facts.items():
+        # "the bridge height is not 120 meters" holds no number to add -
+        # a negated numeric summed 120 anyway the first time this was
+        # probed. Denials never participate in arithmetic.
+        if record.get("negated"):
+            continue
         key_tokens = _fold(key)
         # Participation requires the key be FULLY asked about: "the sum of
         # the tower height and the bridge height" names {tower, bridge,
@@ -561,6 +575,10 @@ def missing_premise(text: str, memory) -> dict | None:
     facts = _reachable_facts(memory, probes)
     best: tuple | None = None
     for key, record in facts.items():
+        if record.get("negated"):
+            # "not steel" once minted the premise key "not steel steel";
+            # a denial names no bridge to ask through.
+            continue
         key_tokens = _fold(key)
         covered = key_tokens & question_tokens
         remainder = question_tokens - key_tokens

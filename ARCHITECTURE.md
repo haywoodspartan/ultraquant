@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.28 · 1430 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.29 · 1446 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         81 modules, 1430 tests
+tests/         82 modules, 1446 tests
 ```
 
 ---
@@ -3408,6 +3408,57 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.48 Polarity: belief-of-absence, inhibitory everywhere, honest aloud
+
+The library had no concept of negation, and the probe that opened the
+unit caught the cost live: "the dome material is not steel" stored
+"not steel" as a value, `_fold` dropped "not" as a stopword, and the
+chain machinery derived the dome's melting point "via not steel" — a
+denial bridged as an assertion, the premise trail displaying the exact
+statement it contradicted. The curiosity path minted "not steel steel"
+from the same record. Negation is now a first-class polarity:
+
+* **Stored as identity.** `remember_fact(..., negated=True)` keeps the
+  bare value with a flag, and polarity is part of what the fact IS — a
+  positive restatement of a negated value is a REVISION (change of
+  mind, episode logged, derivatives retracted), never a reinforcement.
+* **Inhibitory everywhere the network reasons.** Negated facts neither
+  seed nor relay the spread, never join arithmetic (a negated numeric
+  summed its 120 anyway when first probed), and never mint curiosity
+  premises. A denial says what may NOT be believed; letting it excite
+  anything was the fabrication.
+* **Honest aloud.** Every surface that speaks a value speaks its
+  polarity ("dome material is not steel"), and statements parse it
+  ("is not X" / "is never X") behind `_NEGATION_AWARE` — the gate's
+  baseline switch.
+
+With polarity comes the question form that needs it: **polar
+questions**. "is X Y?" answers yes against matching belief; no against
+contrary belief — a different stored value ("No - tower material is
+iron, not steel") or a stored negation ("No - believed not steel");
+inverts cleanly for negated claims ("is X not Y?"); and holds the line
+the section is named for: a negation of one value says nothing about
+another ("is the dome material iron?" -> "I don't know - I hold only
+that dome material is not steel"), and **absence is never no** — an
+unheld subject hedges, because not believing X and believing not-X are
+different states of mind, and collapsing them is how a system starts
+denying things it merely hasn't heard of.
+
+The gate (`experiments/negation_gate.py`) ran the flag's two arms over
+shared worlds: polar questions of four kinds in world-varying mixes,
+entities whose only material knowledge is negative, unheld subjects,
+genuine chains and recalls as the regression floor. **PASS on the
+first run: polar 0.273 -> 1.000, +0.727 at 28.33x seed sd** — the
+margin wide because the capability simply does not exist in the
+baseline (its 0.27 is the unknown-kind share its hedge answers by
+being honest). The baseline arm derived a chain straight through a
+denial **36 times** — the old fabrication measured at its full rate
+beside the fix — while the polarity arm derived zero, denied zero
+unheld subjects, and moved neither chains (1.000) nor recall (1.000).
+Negative chain answers at depth ("believed not temperate", derived)
+stay a registered candidate: phase one made denials inert; making them
+speak is its own claim or none.
 
 ### 11.47 Depth: three-fact chains, and the three layers the gate indicted
 
