@@ -1200,11 +1200,30 @@ class Reason(Thought):
         parts = [seg.strip() for seg in head.split(" and ") if seg.strip()]
         if len(parts) < 2:
             return None
-        for part in parts:
-            tokens = {normalize_token(tok) for tok in
-                      _TOKEN_RE.findall(part) if _informative(tok)}
-            if len(tokens) < 2:
+
+        def informative(part: str) -> list[str]:
+            return [normalize_token(tok) for tok in
+                    _TOKEN_RE.findall(part) if _informative(tok)]
+
+        widths = [len(informative(part)) for part in parts]
+        if any(width < 2 for width in widths):
+            # §11.73: the question-side ellipsis, §11.72's rule
+            # verbatim - the FINAL part's trailing relation word
+            # completes every single-token part ("the tower and the
+            # bridge material" asks tower material + bridge material).
+            # The same two lines hold: no relation anywhere refuses,
+            # and multi-word entities stay the ambiguity ceiling.
+            if not _QUESTION_ELLIPSIS:
                 return None
+            final = informative(parts[-1])
+            if len(final) < 2:
+                return None
+            if any(width > 2 for width in widths[:-1]) or                     any(width < 1 for width in widths):
+                return None
+            relation = final[-1]
+            parts = [part if len(informative(part)) >= 2
+                     else f"{part} {relation}"
+                     for part in parts]
         return parts
 
     def _answer_compound(self, ctx: ThoughtContext, parts: list[str]) -> None:
@@ -1234,7 +1253,13 @@ class Reason(Thought):
                 if part_tokens <= key_tokens:
                     record = memory.recall_fact(key)
                     if record is not None:
-                        pieces.append(f"{key} is {record['value']}")
+                        # §11.48 reaches the compound formatter too: a
+                        # negated part answers "not steel", never the
+                        # bare value - found when §11.73's ellipsis
+                        # routed a denial through this line and it
+                        # asserted the denied value positively.
+                        pieces.append(f"{key} is "
+                                      f"{_shown_value(record)}")
                         answered = True
                         break
             if answered:
@@ -2104,6 +2129,13 @@ _REVISION_ALOUD = True
 #: key containing " and " is never stored. The conjunction gate's
 #: baseline arm turns it off.
 _CONJUNCTIVE_STATEMENTS = True
+
+#: The §11.73 rung, §11.72's question-side mirror: "what is the
+#: tower and the bridge material?" completes single-token question
+#: parts from the final part's stated relation - same rule, same
+#: ceilings, one grammar for teaching and asking. The question-ellipsis
+#: gate's baseline arm turns it off.
+_QUESTION_ELLIPSIS = True
 
 #: The §11.72 rung, cashing §11.71's ceiling: "the tower and the
 #: bridge material are iron" states the relation ONCE and ellipsis

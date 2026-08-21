@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.56 · 1650 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.57 · 1657 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         105 modules, 1650 tests
+tests/         106 modules, 1657 tests
 ```
 
 ---
@@ -3408,6 +3408,26 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.73 One grammar for teaching and asking
+
+§11.72's question-side mirror: "what is the tower and the bridge
+material?" hedged with a junk curiosity while its full-subject form
+answered both parts. The rule applies verbatim to `_compound_parts` —
+the final part's trailing relation completes every single-token
+question part, the same two lines hold (no relation anywhere refuses;
+multi-word entities stay the ambiguity ceiling) — and teaching and
+asking finally share one grammar: a sentence that stores two facts
+can be asked back in the same shape.
+
+Building it caught a pre-existing §11.48 gap: the compound formatter
+predates polarity and asserted a denied value positively ("dome
+material is steel" for a stored "not steel") the moment the ellipsis
+routed a denial through it. The formatter speaks polarity now. The
+gate (`experiments/qellipsis_gate.py`) ran `_QUESTION_ELLIPSIS` off
+against on: **PASS on the first run, 0.278 -> 1.000, +0.722 at 4.04x
+seed sd, zero denials rendered bare, full-subject compounds and the
+arithmetic combine identical at 1.000 in both arms.**
 
 ### 11.72 The relation stated once distributes
 
