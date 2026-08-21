@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.76 · 1809 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.77 · 1816 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         120 modules, 1809 tests
+tests/         121 modules, 1816 tests
 ```
 
 ---
@@ -3409,6 +3409,65 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.88 A native tier that has to agree
+
+README line 8 has stated the rule since the beginning: the
+pure-Python tier defines this system's semantics, and every other
+tier reproduces it. The existing `native/` sources are accelerants
+for numeric kernels. `native/uq/` is a different thing — a native
+build of the COGNITIVE core, C++17, no external dependencies, the
+same rule the Python tier keeps by using no numpy.
+
+The discipline is the point, and it is stricter than "port it".
+Every piece is gated against Python as the oracle, not against a
+second opinion of my own, and parity is checked as STRINGS: the
+native tier is right when it says the same thing, not when it says
+something defensible. Nothing here is required at runtime — a
+machine with no compiler runs the whole system in Python and sees a
+green suite, because the parity pins skip when the binaries are
+absent. What must never exist is a native tier that is present and
+wrong.
+
+**The first piece is arbitrary-precision integers**, because C++ has
+none and this system leans on Python's everywhere it matters: "what
+is 2 ^ 1000?" is a 302-digit answer, an exact rational's denominator
+grows without being asked, and §11.81's root enclosures scale a
+radicand by 10^(places*degree) before taking an integer root. A tier
+built on `long long` would diverge on the first interesting question
+and be quietly wrong after that, which is worse than being slower.
+`native/uq/src/bigint.cpp` is sign-magnitude, base 1,000,000,000,
+limbs least-significant first — base 1e9 rather than 2^32 because
+every decimal boundary in this system (parsing "0.1" exactly,
+printing an exact decimal, scaling by a power of ten to round)
+becomes limb arithmetic instead of repeated division, and those are
+the paths that have to be exactly right rather than merely fast.
+
+Two behaviours were implemented explicitly rather than inherited,
+because they are where a C++ port disagrees silently. **Floor
+division**: Python's `//` rounds toward negative infinity and `%`
+takes the divisor's sign, while C++ truncates toward zero — and
+every rounding rule in §11.84 is specified in Python's terms.
+**Integer roots**: §11.81's enclosures are only honest if the root
+is exact, so it is found by bisection over integers with no float
+anywhere near it.
+
+The gate (`experiments/nativebigint_gate.py`) **PASSED on the first
+run: 4,000 operations compared against Python, zero mismatches,
+0.494 of operands past 2^64, zero roots failing their own
+exponentiation** — with add, sub, mul, floor-div, floor-mod, gcd,
+pow, iroot and decimal printing each measured separately and each at
+zero.
+
+One difference between the tiers surfaced that has nothing to do
+with arithmetic: **CPython refuses to print an integer past 4,300
+digits** by default, a denial-of-service guard added in 3.11, and
+the first attempt to build the case list crashed on it while
+computing an ORACLE answer rather than while checking one. The
+native tier has no such guard. The limit is raised inside the gate
+so the oracle can speak at the sizes the tier under test can reach —
+otherwise the measurement would quietly have become one of CPython's
+printing policy.
 
 ### 11.87 A list of numbers is not a list of beliefs
 

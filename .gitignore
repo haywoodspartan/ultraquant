@@ -24,3 +24,9 @@ ultraquant.json
 native/_build/
 *.obj
 *.pdb
+
+# The native cognitive tier builds its own executables. These are NOT tracked:
+# unlike the accelerator DLLs, nothing degrades without them - the parity gates
+# skip, and the Python tier answers every question by itself, which is the
+# whole point of it defining the semantics.
+native/uq/_build/
