@@ -1,5 +1,7 @@
 #include "uq/calculate.hpp"
 
+#include "uq/text.hpp"
+
 #include <algorithm>
 #include <map>
 #include <regex>
@@ -103,28 +105,6 @@ double unit_factor(const std::string& unit) {
     return 1.0;
 }
 
-std::string normalize_token(const std::string& token) {
-    // The router's plural fold, reproduced exactly - including the
-    // three-character floor and the -ss/-us/-is/-os exceptions,
-    // because a unit is recognised only after folding.
-    const std::size_t size = token.size();
-    if (size < 4) return token;
-    auto ends_with = [&token](const std::string& tail) {
-        return token.size() >= tail.size()
-            && token.compare(token.size() - tail.size(), tail.size(), tail) == 0;
-    };
-    if (ends_with("ies") && size > 4) return token.substr(0, size - 3) + "y";
-    for (const std::string& ending : {"ches", "shes", "xes", "zes", "sses"}) {
-        if (ends_with(ending) && size - 2 >= 3)
-            return token.substr(0, size - 2);
-    }
-    if (ends_with("s") && !ends_with("ss") && !ends_with("us")
-        && !ends_with("is") && !ends_with("os")) {
-        const std::string stripped = token.substr(0, size - 1);
-        if (stripped.size() >= 3) return stripped;
-    }
-    return token;
-}
 
 namespace {
 

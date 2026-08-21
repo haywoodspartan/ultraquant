@@ -3,36 +3,9 @@
 #include <algorithm>
 #include <cctype>
 
-#include "uq/calculate.hpp"   // normalize_token
+#include "uq/text.hpp"
 
 namespace uq {
-
-namespace {
-
-// Raw [a-z0-9]+ over lowercased text - NO plural fold. That is not
-// an oversight to be tidied up later: the store's own retrieval
-// compares raw tokens, and the fold belongs to the router and the
-// interpreter above it. A native tier that folded here would find
-// facts the Python store does not, which is the same kind of wrong
-// as missing them.
-std::vector<std::string> raw_tokens(const std::string& text) {
-    std::vector<std::string> out;
-    std::string current;
-    for (char raw : text) {
-        const char c = static_cast<char>(
-            std::tolower(static_cast<unsigned char>(raw)));
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            current.push_back(c);
-        } else if (!current.empty()) {
-            out.push_back(current);
-            current.clear();
-        }
-    }
-    if (!current.empty()) out.push_back(current);
-    return out;
-}
-
-}  // namespace
 
 std::vector<std::string> tokens_of(const std::string& text) {
     // The folded form, for the callers above the store that do fold.

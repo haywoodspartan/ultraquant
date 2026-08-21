@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "uq/calculate.hpp"
+#include "uq/text.hpp"
 
 namespace uq {
 namespace {
@@ -16,70 +17,6 @@ const double kDecay = 0.5;
 const double kFloor = 0.05;
 const int kMaxHops = 4;
 const int kMaxModifiers = 3;
-
-bool informative(const std::string& token) {
-    // The interpreter's own list, copied rather than reinvented: the
-    // spread's coverage test asks whether a question's INFORMATIVE
-    // tokens are covered, so a different list is a different answer.
-    static const std::set<std::string> stop = {
-        "a", "about", "all", "an", "and", "any", "are", "as", "at",
-        "be", "been", "being", "but", "by", "can", "could", "did",
-        "do", "does", "done", "each", "every", "for", "from", "get",
-        "give", "got", "had", "has", "have", "here", "how", "i",
-        "if", "in", "into", "is", "it", "it's", "its", "just",
-        "know", "let", "look", "make", "many", "may", "me", "might",
-        "mine", "more", "most", "much", "must", "my", "need", "no",
-        "not", "of", "on", "or", "other", "our", "ours", "same",
-        "see", "should", "show", "so", "some", "take", "tell",
-        "than", "that", "the", "their", "them", "then", "there",
-        "these", "they", "think", "this", "those", "to", "us", "use",
-        "used", "using", "very", "want", "was", "we", "were", "what",
-        "when", "where", "which", "who", "whom", "why", "will",
-        "with", "would", "yes", "you", "your", "yours"
-    };
-    return token.size() > 2 && stop.find(token) == stop.end();
-}
-
-std::vector<std::string> raw_lower_tokens(const std::string& text) {
-    std::vector<std::string> out;
-    std::string current;
-    for (char raw : text) {
-        const char c = static_cast<char>(
-            std::tolower(static_cast<unsigned char>(raw)));
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            current.push_back(c);
-        } else if (!current.empty()) {
-            out.push_back(current);
-            current.clear();
-        }
-    }
-    if (!current.empty()) out.push_back(current);
-    return out;
-}
-
-// The question's informative tokens, folded. A std::set is sorted,
-// which is exactly what the Python side asks for wherever the order
-// of a token set is observable (it always calls sorted()).
-std::set<std::string> fold(const std::string& text) {
-    std::set<std::string> out;
-    for (const std::string& token : raw_lower_tokens(text))
-        if (informative(token)) out.insert(normalize_token(token));
-    return out;
-}
-
-// The same tokens in QUESTION order, deduplicated - order is
-// evidence at density, so this is not a convenience.
-std::vector<std::string> ordered_fold(const std::string& text) {
-    std::vector<std::string> out;
-    std::set<std::string> seen;
-    for (const std::string& token : raw_lower_tokens(text)) {
-        const std::string folded = normalize_token(token);
-        if (seen.count(folded) || !informative(token)) continue;
-        seen.insert(folded);
-        out.push_back(folded);
-    }
-    return out;
-}
 
 // Consecutive trigrams then bigrams: a subject is a PHRASE, and
 // probing chunks ranks its facts above every single-word sharer.
@@ -225,7 +162,7 @@ Inference spread(const std::set<std::string>& question_tokens,
         // believed, so it neither seeds nor relays. Letting it excite
         // the network bridged a denial into an assertion.
         if (record.negated) continue;
-        const std::set<std::string> key_tokens = fold(key);
+        const std::set<std::string> key_tokens = folded_tokens(key);
         Node node;
         node.key = key;
         node.record = record;
@@ -276,7 +213,7 @@ Inference spread(const std::set<std::string>& question_tokens,
                 lineages.push_back({origin, merged});
             }
             const std::string value = node.record.value;
-            const std::set<std::string> bridge_tokens = fold(value);
+            const std::set<std::string> bridge_tokens = folded_tokens(value);
             if (bridge_tokens.empty()) continue;
 
             // Addressed bridge probes: a bare value is also a prefix
@@ -293,7 +230,7 @@ Inference spread(const std::set<std::string>& question_tokens,
             for (const std::string& t_key : targets.order) {
                 const Fact& t_record = targets.data.at(t_key);
                 if (t_key == node.key) continue;
-                const std::set<std::string> t_tokens = fold(t_key);
+                const std::set<std::string> t_tokens = folded_tokens(t_key);
                 // Whole-value bridging, both directions: every token
                 // of a chain fact is accounted for - by the incoming
                 // value, by the question, or by ONE terminal relation
@@ -313,7 +250,7 @@ Inference spread(const std::set<std::string>& question_tokens,
                 }
                 if (!extra.empty()) {
                     const std::vector<std::string> key_order =
-                        ordered_fold(t_key);
+                        ordered_tokens(t_key);
                     if (extra.size() > 1 || key_order.empty()
                         || !extra.count(key_order.back()))
                         continue;
@@ -345,7 +282,7 @@ Inference spread(const std::set<std::string>& question_tokens,
                 Node fresh;
                 fresh.key = item.key;
                 fresh.record = item.record;
-                for (const std::string& token : fold(item.key))
+                for (const std::string& token : folded_tokens(item.key))
                     if (question_tokens.count(token))
                         fresh.sources[token] = 1.0;
                 target = &nodes.add(fresh);
@@ -378,7 +315,7 @@ Inference spread(const std::set<std::string>& question_tokens,
 
     auto order_overlap = [&question_bigrams](const std::string& key) {
         std::vector<std::string> folded;
-        for (const std::string& token : raw_lower_tokens(key))
+        for (const std::string& token : raw_tokens(key))
             folded.push_back(normalize_token(token));
         const std::set<std::string> key_bigrams = bigrams_of(folded);
         int shared = 0;
@@ -419,7 +356,7 @@ Inference spread(const std::set<std::string>& question_tokens,
             // qualifier silently substitutes one entity for another.
             const std::string origin_key = entry.path.front().first;
             int absent = 0;
-            for (const std::string& token : fold(origin_key))
+            for (const std::string& token : folded_tokens(origin_key))
                 if (!question_tokens.count(token)) ++absent;
             if (absent > 1) continue;
             const int order_score = order_overlap(origin_key);
@@ -427,7 +364,7 @@ Inference spread(const std::set<std::string>& question_tokens,
             // must share at least one adjacent bigram with the
             // question, because an anagram with no competitor would
             // otherwise win unopposed.
-            if (raw_lower_tokens(origin_key).size() >= 3 && order_score < 1)
+            if (raw_tokens(origin_key).size() >= 3 && order_score < 1)
                 continue;
             double weakest = 0.0;
             bool first = true;
@@ -493,11 +430,11 @@ Inference spread(const std::set<std::string>& question_tokens,
 
     const std::string subject_key = premises.front().first;
     std::vector<std::string> subject_parts;
-    for (const std::string& token : raw_lower_tokens(subject_key))
+    for (const std::string& token : raw_tokens(subject_key))
         if (question_tokens.count(normalize_token(token)))
             subject_parts.push_back(token);
     const std::string subject = join_with(subject_parts, " ");
-    const std::set<std::string> subject_tokens = fold(subject_key);
+    const std::set<std::string> subject_tokens = folded_tokens(subject_key);
     std::vector<std::string> asked_parts;
     for (const std::string& token : question_tokens)
         if (!subject_tokens.count(token)) asked_parts.push_back(token);
@@ -553,7 +490,7 @@ bool looks_numeric(const std::string& value) {
 
 bool library_unknown(const std::string& token, const Memory& memory) {
     for (const std::string& key : memory.find_facts(token, 3)) {
-        const std::set<std::string> folded = fold(key);
+        const std::set<std::string> folded = folded_tokens(key);
         if (folded.count(token)) return false;
     }
     return true;
@@ -563,9 +500,9 @@ bool library_unknown(const std::string& token, const Memory& memory) {
 
 Inference infer(const std::string& text, const Memory& memory) {
     Inference nothing;
-    const std::set<std::string> question_tokens = fold(text);
+    const std::set<std::string> question_tokens = folded_tokens(text);
     if (question_tokens.size() < 2) return nothing;
-    const std::vector<std::string> ordered = ordered_fold(text);
+    const std::vector<std::string> ordered = ordered_tokens(text);
     const Inference direct = spread(question_tokens, memory, ordered);
     if (direct.present) return direct;
 
@@ -619,10 +556,10 @@ MissingPremise missing_premise(const std::string& text,
     // the spam guard - a system that asks about everything it fails to
     // answer is noise wearing a curious face.
     MissingPremise nothing;
-    for (const std::string& token : raw_lower_tokens(text)) {
+    for (const std::string& token : raw_tokens(text)) {
         if (combine_word(token)) return nothing;   // combines re-derive
     }
-    std::set<std::string> question_tokens = fold(text);
+    std::set<std::string> question_tokens = folded_tokens(text);
     if (question_tokens.size() < 2) return nothing;
 
     // The one-unknown rule cannot work here, because the asked-about
@@ -631,7 +568,7 @@ MissingPremise missing_premise(const std::string& text,
     // key-known token, while the asked attribute precedes nothing
     // known.
     std::vector<std::string> raw_sequence;
-    for (const std::string& token : raw_lower_tokens(text))
+    for (const std::string& token : raw_tokens(text))
         raw_sequence.push_back(normalize_token(token));
     std::set<std::string> droppable;
     for (std::size_t index = 0; index < raw_sequence.size(); ++index) {
@@ -674,7 +611,7 @@ MissingPremise missing_premise(const std::string& text,
         // "not steel" once minted the premise key "not steel steel";
         // a denial names no bridge to ask through.
         if (record.negated) continue;
-        const std::set<std::string> key_tokens = fold(key);
+        const std::set<std::string> key_tokens = folded_tokens(key);
         std::set<std::string> covered, remainder;
         for (const std::string& token : key_tokens)
             if (question_tokens.count(token)) covered.insert(token);
@@ -686,9 +623,8 @@ MissingPremise missing_premise(const std::string& text,
         // gaps.
         if (remainder.size() > 2) continue;
         const std::string value = record.value;
-        Quantity ignored;
         if (looks_numeric(value)) continue;   // a quantity names no subject
-        const std::set<std::string> value_tokens = fold(value);
+        const std::set<std::string> value_tokens = folded_tokens(value);
         if (value_tokens.empty() || value_tokens.size() > 2) continue;
         int absent = 0;
         for (const std::string& token : key_tokens)
@@ -704,7 +640,7 @@ MissingPremise missing_premise(const std::string& text,
         if (!better) continue;
         std::vector<std::string> ordered_remainder;
         std::set<std::string> seen;
-        for (const std::string& token : raw_lower_tokens(text)) {
+        for (const std::string& token : raw_tokens(text)) {
             const std::string folded = normalize_token(token);
             if (remainder.count(folded) && !seen.count(folded)) {
                 ordered_remainder.push_back(token);

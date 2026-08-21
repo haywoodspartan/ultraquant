@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "uq/rational.hpp"
+#include "uq/text.hpp"
 
 namespace uq {
 
@@ -55,10 +56,6 @@ struct MathResult {
 // bit and be wrong for a reason nobody could see.
 bool unit_family(const std::string& unit, std::string& family);
 double unit_factor(const std::string& unit);
-
-// The English plural fold the router applies, needed here because a
-// unit word is recognised after folding: "meters" is a meter.
-std::string normalize_token(const std::string& token);
 
 // An exact rational printed the way the Python tier prints it:
 // an integer, an exact decimal where the denominator allows one,

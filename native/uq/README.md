@@ -33,6 +33,7 @@ accelerator DLLs, nothing degrades without it.
 
 | piece | source | gate |
 |---|---|---|
+| shared text rules | `src/text.cpp` | `test_nativetext` |
 | arbitrary-precision integers | `src/bigint.cpp` | `nativebigint_gate` |
 | exact rationals | `src/rational.cpp` | (through the reader) |
 | the arithmetic reader | `src/calculate.cpp` | `nativecalc_gate` |
@@ -63,6 +64,16 @@ native/uq/_build/uq_chat.exe --plain
 Type statements and questions; it learns and answers. What it does
 NOT yet cover is listed in `nativechat_gate`'s docstring rather than
 left to be discovered.
+
+## A note on shared rules
+
+The stopword list, the plural fold and the token split live in
+`src/text.cpp` and nowhere else. They were written three times while
+the pieces were being ported separately, and three copies of a rule
+that must agree is a silent-divergence hazard rather than an
+untidiness: a drifted copy would make the tiers disagree about what
+a question asked, in one branch only. `tests/test_nativetext.py`
+compares the list to Python's and fails if either moves.
 
 ## A note on regexes
 

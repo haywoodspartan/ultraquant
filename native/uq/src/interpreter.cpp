@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "uq/calculate.hpp"
+#include "uq/text.hpp"
 #include "uq/forms.hpp"
 #include "uq/inference.hpp"
 
@@ -128,41 +129,8 @@ bool parse_statement(const std::string& text, std::string& key,
 
 namespace {
 
-// The stopword list the router uses, because §11.29's coverage rule
-// asks whether the question's INFORMATIVE tokens are covered - and a
-// key that shares "the" with a question has been told nothing.
-bool informative(const std::string& token) {
-    // The interpreter's own stopword list, copied rather than
-    // reinvented: §11.29's coverage rule asks whether a question's
-    // INFORMATIVE tokens are covered by a key, so a native tier with
-    // a different list would assert where Python hedges. It is also
-    // a length test - nothing of three characters or fewer is
-    // informative, which is why "is" and "of" would be excluded even
-    // if the list forgot them.
-    static const std::set<std::string> stop = {
-        "a", "about", "all", "an", "and", "any", "are", "as", "at",
-        "be", "been", "being", "but", "by", "can", "could", "did",
-        "do", "does", "done", "each", "every", "for", "from", "get",
-        "give", "got", "had", "has", "have", "here", "how", "i",
-        "if", "in", "into", "is", "it", "it's", "its", "just",
-        "know", "let", "look", "make", "many", "may", "me", "might",
-        "mine", "more", "most", "much", "must", "my", "need", "no",
-        "not", "of", "on", "or", "other", "our", "ours", "same",
-        "see", "should", "show", "so", "some", "take", "tell",
-        "than", "that", "the", "their", "them", "then", "there",
-        "these", "they", "think", "this", "those", "to", "us", "use",
-        "used", "using", "very", "want", "was", "we", "were", "what",
-        "when", "where", "which", "who", "whom", "why", "will",
-        "with", "would", "yes", "you", "your", "yours"
-    };
-    return token.size() > 2 && stop.find(token) == stop.end();
-}
-
 std::set<std::string> informative_tokens(const std::string& text) {
-    std::set<std::string> out;
-    for (const std::string& token : tokens_of(text))
-        if (informative(token)) out.insert(token);
-    return out;
+    return folded_tokens(text);
 }
 
 // Fact keys worth trying for this input, most specific first - the
@@ -263,7 +231,6 @@ Turn Session::learn_statement(const std::string& text) {
     // about the held base invites the reader to assume the two are
     // one. The adjacency is spoken, never treated as a conflict.
     if (result.outcome == "new") {
-        const std::vector<std::string> parts = tokens_of(key);
         std::vector<std::string> words;
         std::istringstream in(key);
         std::string word;
