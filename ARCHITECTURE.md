@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.34 · 1499 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.35 · 1511 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         87 modules, 1499 tests
+tests/         88 modules, 1511 tests
 ```
 
 ---
@@ -3408,6 +3408,39 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.54 Comparatives: a verdict that was computed, refusals that are named
+
+"is the tower taller than the bridge?" reached the polar machinery
+through two defects at once. The derive path ran it through the
+combine machinery — whose conclusion is None — so the claim never
+matched and BOTH directions answered No: a coin that always says No.
+And a missing operand fell to the direct matrix, which asserted "No -
+tower height is 300 meters, not taller than citadel height" — a
+verdict fabricated over an operand the library does not hold, the
+absence-is-never-no line violated through the comparative door.
+
+Comparatives now have an owner (`_polar_compare`, before the subject
+ladder): the two operands are recalled, converted where §11.42's table
+connects their units, and compared — the verdict naming BOTH values so
+it can be checked at a glance ("Yes - tower height is 300 meters,
+bridge height is 120 meters"), equal values answering "No - they are
+equal", downward comparatives inverting. Four refusals, each naming
+its reason: a missing operand ("I hold nothing for 'citadel height'"),
+a negated operand (§11.48: a denial holds no number to compare), a
+non-numeric operand, and cross-family units ("no definition connects
+them"). The comparator compares RECALLED operands by design; derivable
+operands refuse honestly, and comparing them is a registered
+candidate.
+
+The gate (`experiments/comparative_gate.py`) ran the flag's two arms.
+Its first run measured the mechanism perfect and failed the variance
+rule — the eighth "nothing varied" in the book — and was hardened the
+standing way, the derived-operand ceiling scored into the metric at
+~25%. Then: **PASS, 0.000 -> 0.893 at 12.91x seed sd, zero verdicts
+without operands — while the coin arm fabricated 38 of them**, the
+shipped defect measured at its full rate beside the fix, and recall at
+1.000 in both arms.
 
 ### 11.53 A change of mind, said out loud
 

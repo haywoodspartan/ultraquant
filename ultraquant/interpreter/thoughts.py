@@ -1160,6 +1160,9 @@ class Reason(Thought):
         if len(words) < 2:
             return False
 
+        if _POLAR_COMPARES and self._polar_compare(ctx, words):
+            return True
+
         memory = ctx.session.memory
         fact = None
         key = ""
@@ -1336,6 +1339,116 @@ class Reason(Thought):
             return True
         return False
 
+    def _polar_compare(self, ctx: ThoughtContext,
+                       words: list[str]) -> bool:
+        """Answer "is A <taller/heavier/...> than B?" - §11.54.
+
+        The two operands are recalled, converted where §11.42's table
+        connects their units, and compared; the verdict names both
+        values so it can be checked at a glance. This branch OWNS
+        comparative questions: before it existed, the derive path ran
+        them through the combine machinery (whose conclusion is None)
+        and answered No in both directions, and a missing operand fell
+        to the direct matrix and got a fabricated verdict - the
+        absence-is-never-no line violated through the comparative
+        door. Missing, negated, non-numeric, or unit-incomparable
+        operands refuse aloud.
+        """
+        from ultraquant.reason.inference import (_COMBINE_WORDS,
+                                                 _UNIT_TO_FAMILY,
+                                                 _convert, _numeric,
+                                                 _unit)
+
+        comp_at = None
+        for index, word in enumerate(words[1:-1], start=1):
+            direction = _COMBINE_WORDS.get(word)
+            if (direction in ("larger", "smaller")
+                    and words[index + 1] == "than"):
+                comp_at = index
+                break
+        if comp_at is None:
+            return False
+        direction = _COMBINE_WORDS[words[comp_at]]
+
+        def _side(side_words: list[str]) -> str:
+            out = list(side_words)
+            for article in ("the", "a", "an"):
+                if out and out[0] == article:
+                    out = out[1:]
+            return " ".join(out)
+
+        left_key = _side(words[:comp_at])
+        right_key = _side(words[comp_at + 2:])
+        if not left_key or not right_key:
+            return False
+
+        memory = ctx.session.memory
+        sides = {}
+        for name, key in (("left", left_key), ("right", right_key)):
+            record = memory.recall_fact(key)
+            if record is None:
+                ctx.say(f"I can't compare those: I hold nothing for "
+                        f"'{key}'.")
+                ctx.note(self.name,
+                         f"comparative refused; {key!r} unheld")
+                return True
+            if record.get("negated"):
+                ctx.say(f"I can't compare those: I hold only a denial "
+                        f"for '{key}' ({key} is not "
+                        f"{record.get('value', '')}).")
+                ctx.note(self.name,
+                         f"comparative refused; {key!r} negated")
+                return True
+            number = _numeric(record.get("value", ""))
+            if number is None:
+                ctx.say(f"I can't compare those: '{key}' holds no "
+                        f"number ({record.get('value', '')}).")
+                ctx.note(self.name,
+                         f"comparative refused; {key!r} non-numeric")
+                return True
+            sides[name] = (key, record, number,
+                           _unit(record.get("value", "")))
+
+        (l_key, l_rec, l_num, l_unit) = sides["left"]
+        (r_key, r_rec, r_num, r_unit) = sides["right"]
+        converted = ""
+        if l_unit != r_unit or bool(l_unit) != bool(r_unit):
+            family = _UNIT_TO_FAMILY.get(l_unit)
+            if (not l_unit or not r_unit or family is None
+                    or _UNIT_TO_FAMILY.get(r_unit) != family):
+                ctx.say(f"I can't compare those: '{l_key}' is in "
+                        f"{l_unit or 'no unit'} and '{r_key}' in "
+                        f"{r_unit or 'no unit'}, and no definition "
+                        "connects them.")
+                ctx.note(self.name, "comparative refused; units "
+                                    "incomparable")
+                return True
+            r_in_l = _convert(r_num, r_unit, l_unit)
+            wins = (l_num > r_in_l if direction == "larger"
+                    else l_num < r_in_l)
+            equal = l_num == r_in_l
+            converted = " (units converted)"
+        else:
+            wins = (l_num > r_num if direction == "larger"
+                    else l_num < r_num)
+            equal = l_num == r_num
+        confidence = min(float(l_rec.get("confidence", 0.0)),
+                         float(r_rec.get("confidence", 0.0)))
+        both = (f"{l_key} is {l_rec.get('value', '')}, "
+                f"{r_key} is {r_rec.get('value', '')}")
+        if equal:
+            ctx.say(f"No - they are equal: {both}{converted} "
+                    f"(confidence {confidence:.2f}).")
+        elif wins:
+            ctx.say(f"Yes - {both}{converted} "
+                    f"(confidence {confidence:.2f}).")
+        else:
+            ctx.say(f"No - {both}{converted} "
+                    f"(confidence {confidence:.2f}).")
+        ctx.note(self.name,
+                 f"comparative {l_key!r} vs {r_key!r} ({direction})")
+        return True
+
     def _polar_derive(self, ctx: ThoughtContext, subject_words: list[str],
                       claim_words: list[str]) -> bool:
         """Answer a polar question by DERIVING the subject - §11.50.
@@ -1454,6 +1567,14 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.54 rung: "is A taller than B?" compares the two held
+#: numerics (units converted where a definition connects them) and
+#: answers with both values named. The comparative gate's baseline arm
+#: turns it off - and its baseline is not merely featureless: without
+#: this branch the polar machinery answered comparatives with a coin
+#: that always said No, and fabricated verdicts over missing operands.
+_POLAR_COMPARES = True
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:
