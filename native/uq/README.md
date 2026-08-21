@@ -37,6 +37,7 @@ accelerator DLLs, nothing degrades without it.
 | exact rationals | `src/rational.cpp` | (through the reader) |
 | the arithmetic reader | `src/calculate.cpp` | `nativecalc_gate` |
 | the fact store | `src/memory.cpp` | `nativememory_gate` |
+| the thought pipeline (spine) | `src/interpreter.cpp` | `nativechat_gate` |
 
 Arbitrary precision comes first because C++ has none and the system
 leans on Python's everywhere it matters — `2 ^ 1000` is a 302-digit
@@ -50,6 +51,16 @@ C++, because that is where a port disagrees silently: **floor
 division** (Python rounds toward negative infinity and the remainder
 takes the divisor's sign; C++ truncates toward zero) and **integer
 roots** (bisection over integers, no float anywhere near a value).
+
+## Running it
+
+```
+native/uq/_build/uq_chat.exe --plain
+```
+
+Type statements and questions; it learns and answers. What it does
+NOT yet cover is listed in `nativechat_gate`'s docstring rather than
+left to be discovered.
 
 ## A note on regexes
 

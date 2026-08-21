@@ -47,6 +47,7 @@ failures are documented next to the passes
 | **Exact arithmetic** | "what is 3 + 4 * 5?" reads precedence and parentheses structurally and evaluates over exact rationals, not floats: 0.1 + 0.2 is 0.3, one third prints as 1/3 because 0.333… is a different number, and division by zero refuses. Measured against the standard option rather than an absence — the same reader in binary floating point — which printed a number that was not the answer 45 times and answered 8 undefined divisions, once reporting 126,100,789,566,373,888 for an expression whose divisor is zero (0.443 -> 1.000 at 3.69x sd) |
 | **Modifier tolerance** | up to three library-unknown adjectives read away behind one unmoved residual floor, every dropped word named so the reading can be vetoed — three cap moves, the floor untouched, the distinction measured each time |
 | **Revision accountability** | a change of mind is narrated (old belief named, retracted derivations counted), a near-key statement names the held base it sits beside, and agreements are never called revisions (0.000 -> 0.803 at 5.03x sd, zero false notices) |
+| **One conversation, two tiers, the same words** | the thought pipeline ported far enough to hold a session — intent, statements with polarity and revisions named aloud, the recall ladder with its coverage rule, and the arithmetic readers — gated turn by turn on the SENTENCE (1,200 turns, zero unexplained differences, zero intent differences, zero stores differing at the end). The one gap is measured rather than avoided: 71 turns differ only by a curiosity hint the native tier cannot yet produce, and that number is the debt the inference port inherits |
 | **Two stores that remember the same way** | the fact store ported and gated on its whole observable surface — whether a statement was new, reinforced or a revision, the spoken form of a replaced belief, what a revised premise took down, and which key retrieval picks (4,800 script steps across 12 sessions, zero differences). It took five runs, and every failure was the native tier being reasonable instead of faithful: none was a wrong value, and one surfaced two steps later as a differently ordered retrieval rather than as a wrong confidence |
 | **The native reader says the same sentence** | the arithmetic reader ported to C++ and gated against Python on the whole RECORD — expression echo, rendered value, rounding label, root bounds, and the wording of every refusal (3,000 questions, zero records differed, plus three further seeds). Run one caught the point of doing it that way: on a mixed-unit list both tiers refused, for the right reason, naming the units in opposite ORDER — a value comparison would have called that a pass. The symmetry line holds too: 376 non-arithmetic inputs were declined by both, because a tier that answers MORE than Python is as wrong as one that answers less |
 | **A native tier that has to agree** | `native/uq/` is a C++17 build of the cognitive core (not the accelerator tier), gated against Python as the oracle with parity checked as STRINGS — it is right when it says the same thing, not when it says something defensible. First piece: arbitrary-precision integers, because C++ has none and `2 ^ 1000` is a 302-digit answer (4,000 operations compared, zero mismatches, half the operands past 2^64). Floor division and integer roots are written explicitly, since those are where a port disagrees silently. Nothing is required at runtime: without the binaries the pins skip and Python answers everything |
@@ -75,7 +76,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1834 tests, ~4 min
+python -m unittest discover -s tests      # 1842 tests, ~4 min
 ```
 
 In the chat, try:
@@ -109,7 +110,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1834 tests across 123 modules
+tests/         1842 tests across 124 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

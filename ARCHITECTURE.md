@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.79 · 1834 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.80 · 1842 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         123 modules, 1834 tests
+tests/         124 modules, 1842 tests
 ```
 
 ---
@@ -3409,6 +3409,53 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.91 One conversation, two tiers, the same words
+
+The native tier stops being a library here and starts being the
+system: text in, a sentence out, a store that changed. The parity
+obligation is at its strictest, because what a pipeline produces IS
+a sentence — so the gate compares words, not a structure that could
+be worded two ways, and compares them TURN BY TURN over a shared
+conversation, because a store carries state and the third answer
+depends on the first two.
+
+**Ported here**: intent (statement, question, expression, chat);
+statements parsed, stored and spoken back, with polarity, with a
+revision named aloud, with §11.63's near-key adjacency note; and the
+question ladder as far as the arithmetic and list readers, the exact
+recall branch under §11.29's coverage rule, nearest-held, and the
+honest unknown. **Not ported, and so not claimed**: polar, why,
+comparatives, superlatives, aggregates, history, choices, testimony,
+conjunctions, clause splitting, chains, glyphs, goals, URLs and
+learning mode.
+
+**One known gap is measured rather than avoided.** The Python tier
+appends a curiosity hint to a hedged answer when a failed question
+points somewhere — "... If I knew the iron bridge, I could work this
+out — ':learn' will ask" — and that hint comes from
+`missing_premise`, which belongs to the spreading-activation
+machinery. Choosing a corpus that never triggers it would be a gate
+quietly avoiding what the tier cannot do, which measures nothing. So
+the corpus provokes it freely and every difference is CLASSIFIED: a
+response differing only by that suffix is counted as a named gap, a
+response differing in any other way is a fail.
+
+**PASS on the first run: 1,200 turns across twenty conversations —
+zero unexplained differences, zero intent differences, zero
+conversations ending with unequal stores, and 71 turns differing
+only by the curiosity hint.** Coverage: 420 statements, 193
+questions about held facts, 150 arithmetic questions, 126 revisions,
+118 questions that may or may not be held, 100 about nothing held,
+93 lines of chat.
+
+Two of those zeros are quieter than the headline and matter as much.
+**Zero intent differences** means every turn went through the same
+door in both tiers, which is what keeps the next turn comparable — a
+right answer reached the wrong way diverges later, not now. **Zero
+stores differing at the end** means the pipeline that said the right
+thing also remembered the right thing. The 71 is the debt the
+inference unit inherits, named and bounded rather than hidden.
 
 ### 11.90 Two stores that remember the same way
 
