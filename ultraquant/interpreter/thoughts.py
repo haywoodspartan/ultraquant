@@ -2331,9 +2331,13 @@ def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
     """
     cleaned = text.strip().rstrip(".")
     lowered_all = cleaned.lower()
-    # "but" joins statements exactly as "and" does, and swallowed a
-    # second clause exactly as "and" did - one boundary set, one rule.
-    joiners = [j for j in (" and ", " but ") if j in lowered_all]
+    # "but" and the comma join statements exactly as "and" does, and
+    # each swallowed a second clause the same way - one boundary set,
+    # one rule, and the both-sides-parse guard protects every idiom
+    # and list value ("slow but steady", "red, green") because their
+    # right sides carry no verb.
+    joiners = [j for j in (" and ", " but ", ", ")
+               if j in lowered_all]
     if not joiners:
         return None
     clauses: list[tuple[str, str]] = []

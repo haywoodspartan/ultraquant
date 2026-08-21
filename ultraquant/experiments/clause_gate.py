@@ -56,6 +56,15 @@ identical verdict, zero swallowed, zero split, both idioms whole. One
 boundary set, one rule, and the contrastive conjunction keeps no
 corruption of its own.
 
+**Run three added the comma** — "the tower material is iron, the
+bridge material is steel" swallowed like both conjunctions before it
+— and the widened worlds (comma-joined chains, "1, 2, 3" joining the
+integrity floor) returned the identical verdict: zero swallowed, zero
+split, list values whole. Three joiners, one both-sides-parse rule,
+and the rule has now protected an idiom, a contrast, and a list
+without ever being told which was which — the guard generalises
+because it tests structure, not vocabulary.
+
 Run it::
 
     python -m ultraquant.experiments.clause_gate
@@ -78,7 +87,8 @@ _NOUNS = ["tower", "bridge", "spire", "tunnel", "gate", "dome", "mill",
           "keep", "wall", "hall"]
 _MATERIALS = ["steel", "iron", "copper", "granite", "oak", "bronze"]
 _AND_VALUES = ["live and learn", "slow and steady", "safe and sound",
-               "slow but steady", "small but mighty"]
+               "slow but steady", "small but mighty",
+               "1, 2, 3"]
 
 
 @dataclass
@@ -196,7 +206,8 @@ def run_gate(seeds: int = 12) -> ClauseReport:
                             neg = "not " if negate_last and last else ""
                             clauses.append(
                                 f"the {e} material is {neg}{v}")
-                        joiner = rng.choice((" and ", " but "))
+                        joiner = rng.choice((" and ", " but ",
+                                             ", "))
                         response, _t = run_pipeline(
                             joiner.join(clauses), session)
                         good = True

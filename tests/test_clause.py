@@ -79,6 +79,20 @@ class ClauseTests(unittest.TestCase):
             self.session.memory.recall_fact("motto")["value"],
             "slow but steady")
 
+    def test_the_comma_splits_and_lists_survive(self) -> None:
+        """Run three's boundary: commas join clauses like both
+        conjunctions, and "1, 2, 3" survives because its parts carry
+        no verb - structure, not vocabulary."""
+        self._say("the tower height is 300 meters, the bridge height "
+                  "is 120 meters")
+        self.assertEqual(
+            self.session.memory.recall_fact("bridge height")["value"],
+            "120 meters")
+        self._say("the reading is 1, 2, 3")
+        self.assertEqual(
+            self.session.memory.recall_fact("reading")["value"],
+            "1, 2, 3")
+
     def test_an_and_value_survives_whole(self) -> None:
         """A split that fired on any "and" would shred ordinary
         values; it fires only where both sides parse as statements."""
