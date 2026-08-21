@@ -67,6 +67,14 @@ frontier rounds over a dense store cost 0.7 seconds — the expensive
 capability, expensively honest. The session's arc survives density
 whole.
 
+**Run three extended the battery to the units that landed after run
+two** — §11.64's history and §11.66's choices joined the floors at
+1.000 each — and re-read the whole table under §11.59's frontier
+clock: depth-4 at 339 ms (down from 726.5), history and choice at 1.2
+and 1.3 ms on the addressed index, every other floor and price
+holding. Eight forms, one dense world, nothing fabricated anywhere:
+the closing measurement of the session it capstones.
+
 Run it::
 
     python -m ultraquant.experiments.revisit_gate
@@ -261,6 +269,19 @@ def run_gate(n_facts: int = 10_000, seed: int = 0) -> RevisitReport:
             (f"is the {polar_entity} material steel?", "no"),
             (f"is the {denial_entity} material steel?", "no"),
         ]
+        choice_qs = [
+            (f"is the {polar_entity} material steel or iron?", "iron"),
+            (f"is the {polar_entity} material oak or granite?",
+             "neither"),
+        ]
+        history_entity = names[11]
+        memory.remember_fact(f"{history_entity} material", "iron",
+                             confidence=0.6)
+        memory.remember_fact(f"{history_entity} material", "steel",
+                             confidence=0.6)
+        stored += 1
+        history_q = (f"what was the {history_entity} material?",
+                     ["It was iron", "it is steel now"])
         unheld_polar = [f"is the {names[10]} material steel?"]
         why_qs = [
             (f"why is the {polar_entity} material iron?",
@@ -374,6 +395,22 @@ def run_gate(n_facts: int = 10_000, seed: int = 0) -> RevisitReport:
         latency["aggregate"] = ms
         floors["aggregate"] = float(expected in response)
 
+        # choices (§11.66)
+        wins, times = [], []
+        for question, lead in choice_qs:
+            response, ms = timed(question)
+            times.append(ms)
+            wins.append(float(response.strip().lower()
+                              .startswith(lead)))
+        floors["choice"] = statistics.fmean(wins)
+        latency["choice"] = statistics.fmean(times)
+
+        # history (§11.64)
+        question, payload = history_q
+        response, ms = timed(question)
+        latency["history"] = ms
+        floors["history"] = float(all(p in response for p in payload))
+
         report.floors = floors
         report.fabricated = fabricated
         report.latency_ms = latency
@@ -384,7 +421,8 @@ def run_gate(n_facts: int = 10_000, seed: int = 0) -> RevisitReport:
             return report
         checks = [("depth4", 0.75), ("polar", 1.0), ("why", 0.9),
                   ("compare", 1.0), ("superlative", 1.0),
-                  ("aggregate", 1.0)]
+                  ("aggregate", 1.0), ("choice", 1.0),
+                  ("history", 1.0)]
         for form, floor in checks:
             if floors[form] < floor:
                 report.reason = (f"the {form} floor broke: "
