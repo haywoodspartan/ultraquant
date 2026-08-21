@@ -1658,10 +1658,12 @@ class Reason(Thought):
         alternatives = [" ".join(g) for g in groups if g]
         if len(alternatives) < 2:
             return False
-        if any(len(alt.split()) != 1 for alt in alternatives):
-            # Multi-word disjuncts are the registered ceiling: refuse
-            # the branch and let the fallbacks hedge rather than
-            # half-parse a compound alternative.
+        if (not _CHOICE_MULTIWORD
+                and any(len(alt.split()) != 1 for alt in alternatives)):
+            # §11.66 shipped with this refusal as its registered
+            # ceiling; §11.67 lifted it - fold-equality compares a
+            # compound alternative whole or not at all, so there is
+            # nothing to half-parse. The flag is the gate's arm.
             return False
 
         fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
@@ -1673,8 +1675,12 @@ class Reason(Thought):
                         if fold(alt) == fold(value)), None)
         if not fact.get("negated"):
             if matched is not None:
-                ctx.say(f"{matched.capitalize()} - {key} is {value} "
-                        f"{confidence}.")
+                # Speak the STORED value, not the parsed alternative:
+                # article-stripping made "wren the younger" parse as
+                # "wren younger", and the lead must say the belief as
+                # held.
+                ctx.say(f"{str(value).capitalize()} - {key} is "
+                        f"{value} {confidence}.")
             else:
                 ctx.say(f"Neither - {key} is {value} {confidence}.")
         elif matched is not None:
@@ -1955,6 +1961,13 @@ _REVISION_ALOUD = True
 #: unheld subject - absence never picks a side. The choice gate's
 #: baseline arm turns it off.
 _POLAR_CHOICES = True
+
+#: The §11.67 rung, cashing §11.66's ceiling: multi-word disjuncts
+#: ("wren or wren the younger") compare by the same fold-equality
+#: single words do - a compound alternative either matches whole or
+#: not at all, the §11.47 qualifier lesson in question form. The
+#: multiword-choice gate's baseline arm turns it off.
+_CHOICE_MULTIWORD = True
 
 #: The §11.64 rung: "what was X?" answers from the revision record -
 #: every past belief named in order, the present marked as present,

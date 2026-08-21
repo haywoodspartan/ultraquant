@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.50 · 1600 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.51 · 1609 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         99 modules, 1600 tests
+tests/         100 modules, 1609 tests
 ```
 
 ---
@@ -3408,6 +3408,26 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.67 Compound disjuncts compare whole
+
+§11.66's registered ceiling, cashed within the session that registered
+it — the third such: the branch refused multi-word disjuncts rather
+than half-parse a compound alternative, but fold-equality compares a
+compound WHOLE or not at all, so there was never anything to
+half-parse. "is the spire architect wren or wren the younger?" picks
+the held compound by name; "reinforced steel" against a held "steel"
+answers Neither, because a qualified value is a different value —
+§11.47's lesson in question form; the bare base does not match the
+compound it abbreviates; and absence never picks a side, however many
+words the side has. The first probe caught the spoken lead using the
+article-stripped PARSE ("Wren younger") — the lead now names the
+belief as held ("Wren the younger").
+
+The gate (`experiments/multichoice_gate.py`) ran `_CHOICE_MULTIWORD`
+off against on. **PASS on the first run: 0.175 -> 1.000, +0.825 at
+7.66x seed sd, zero sides elected without grounds**, §11.66's
+single-word forms identical at 1.000 in both arms.
 
 ### 11.66 Choices: the held disjunct answers by name
 
