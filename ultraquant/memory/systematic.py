@@ -176,13 +176,19 @@ class SystematicMemory:
         if self.shards is not None:
             return self.shards.search(text, top_k=top_k)
         wanted = set(re.findall(r"[a-z0-9]+", text.lower()))
-        scored = [
-            (len(wanted & set(re.findall(r"[a-z0-9]+", key.lower()))), key)
-            for key in self._facts
-        ]
-        scored = [(n, k) for n, k in scored if n]
-        scored.sort(key=lambda pair: (-pair[0], pair[1]))
-        return [key for _n, key in scored[:top_k]]
+        scored = []
+        for key, record in self._facts.items():
+            overlap = len(wanted & set(re.findall(r"[a-z0-9]+",
+                                                  key.lower())))
+            if overlap:
+                # The same reinforcement tie-break the sharded search
+                # applies (§11.44): equal overlap resolves toward the
+                # re-attested fact, never past a better token match.
+                weight = (float(record.get("reinforcements", 0))
+                          + float(record.get("confidence", 0.0)))
+                scored.append((overlap, weight, key))
+        scored.sort(key=lambda triple: (-triple[0], -triple[1], triple[2]))
+        return [key for _o, _w, key in scored[:top_k]]
 
     def remember_fact(self, key: str, value: Any, confidence: float = 0.5) -> None:
         """Store, reinforce, or revise a semantic fact.

@@ -205,14 +205,22 @@ class FactShards:
                          f"{int.from_bytes(digest, 'big') % self.buckets:03d}")
             if addressed not in buckets:
                 buckets.append(addressed)
-        hits: list[tuple[int, str]] = []
+        hits: list[tuple[int, float, str]] = []
         for shard_id in buckets or list(self._dirty):
-            for key in self._load(shard_id):
+            bucket = self._load(shard_id)
+            for key, record in bucket.items():
                 overlap = len(wanted & set(self.tokens(key)))
                 if overlap:
-                    hits.append((overlap, key))
-        hits.sort(key=lambda pair: (-pair[0], pair[1]))
-        return [key for _score, key in hits[:top_k]]
+                    # Recall reinforces (rule 3), finally reaching fact
+                    # retrieval: equal-overlap ties break toward the fact
+                    # that has been re-attested, not toward the alphabet.
+                    # A tie-break only - reinforcement never outranks a
+                    # better token match, and the coverage rules upstream
+                    # still refuse whatever retrieval surfaces (§11.44).
+                    weight = float(record.get("reinforcements", 0))                         + float(record.get("confidence", 0.0))
+                    hits.append((overlap, weight, key))
+        hits.sort(key=lambda triple: (-triple[0], -triple[1], triple[2]))
+        return [key for _o, _w, key in hits[:top_k]]
 
     # ------------------------------------------------------------------ #
     # writing

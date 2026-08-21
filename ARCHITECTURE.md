@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.24 · 1385 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.25 · 1392 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         77 modules, 1385 tests
+tests/         78 modules, 1392 tests
 ```
 
 ---
@@ -3409,6 +3409,31 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.44 Plasticity: attestation earns rank, and nothing more
+
+Rule 3 — "recall reinforces: the catalog reorganises around what is
+used" — reached experts and the router long ago and never reached fact
+retrieval: equal-overlap ranking ties broke by the alphabet. §11.30's
+last registered candidate lands in its honest first form: a fact's
+reinforcement count plus confidence breaks ties in BOTH search paths
+(sharded and inline), so a re-attested fact surfaces above token-tied
+siblings under top-k pressure. A tie-break only: reinforcement never
+outranks a better token match, and the coverage rules upstream still
+refuse whatever retrieval surfaces.
+
+**The gate PASSED — narrowly on margin, absolutely on the controls,
+with one accidental validation**: the first world build buried the
+target under OTHER entities and both arms answered anyway, because
+§11.38's phrase probes already rescue cross-subject burial — that fix
+validating itself from an unexpected direction. The burial that
+matters is within one subject (ten same-entity facts sorting ahead of
+"material"), and there: chains 0.000 -> **0.571 at 1.11x seed sd**,
+zero entrenchment falls (a five-times-reinforced sibling never bought
+a ghost an answer), better token matches winning identically in both
+arms. The 0.429 miss is the unreinforced worlds, where the alphabet
+stands for both arms: attestation earns rank, absence earns nothing,
+which is the entire claim.
+
 ### 11.43 Self-study: the loop that closes its own gaps, shipped on a zero
 
 The pieces existed separately; `interpreter/study.py` is the loop — one
@@ -4428,6 +4453,7 @@ wrong one. 0.896, not 1.000, is what that costs.
 | containment corroboration | **PASSED** (§11.41) — elaborations jointly back their shared core (+0.600 at 1.16x sd) with zero negation falls and zero paraphrase falls; the library learned its first panel facts ('language is communication', 3 voices), with one stored fact flagged for human veto |
 | unit conversion | **PASSED** (§11.42) — definition-table conversion answers 0.643 of cross-unit combinations at 1.29x sd with zero refusal falls; cross-family, unknown-unit, and bare-number combinations refuse exactly as §11.30 required |
 | self-study | **PASSED** (§11.43) — the loop closes 0.667 of its own seeded gaps at 1.29x sd with ZERO invented-term corroborations across two live passes and zero wrong subjects; contested concepts stay open by design; ':study' ships |
+| plasticity | **PASSED** (§11.44) — reinforcement breaks retrieval ties (+0.571 at 1.11x sd) with zero entrenchment falls and better token matches always winning; rule 3 finally reaches the fact layer |
 | storage split + sequential training | **live** (§11.19) — context window wired, one-voice-at-a-time training; run 4 leaked a template token, was caught by the decoy gate, and rolled back |
 | route correction (`:correct`) | **works** (§11.18) — deployed routing 0.750 -> 1.000; withdrew the claim that `:learn` could do it |
 | context window + reference index | **PASSED** (§11.14) — +0.896 at 10.39x sd; two wrong signatures and a ceilinged control fixed first |
