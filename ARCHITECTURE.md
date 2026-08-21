@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.84 · 1881 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.85 · 1895 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -214,6 +214,8 @@ ultraquant/
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
+  convert/     gguf · ternary · pack · library                 a trained transformer,
+                                                              packed into the vault
   hybrid/      expert · pool                                  quantum vs classical experts
   storage/     base · local · blockdev · ceph · ram ·          pluggable byte-range storage
                tiered · index · registry · vendors · scale
@@ -223,7 +225,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         128 modules, 1881 tests
+tests/         129 modules, 1895 tests
 ```
 
 ---
@@ -3410,6 +3412,217 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.96 Tensors that go into the library
+
+The conversion kit's output, packed INTO the shard library as a
+first-class citizen - catalogued, addressable, paged - rather than
+as a pile of files beside it. `convert/pack.py` is the codec,
+`convert/library.py` writes shards, and both of its decisions are
+visible in the catalog.
+
+**Granularity: one shard per tensor.** A matmul needs the whole
+matrix, so splitting a tensor across shards would page every piece
+for every use; keeping several tensors in one shard would page a
+layer to read a bias. The tensor is the unit that gets used, so it
+is the unit that gets stored.
+
+**Address: the category is the layer, the keywords are the name.**
+Those carry different halves, and it is worth being exact about
+which. The keyword index finds a KIND - "attn out" scores every
+category holding an attention output projection - and it cannot tell
+layer 3 from layer 9, because a layer number is a digit and digits
+are not keywords. Layer identity lives in the category; kind lives
+in the index; the shard id names the tensor exactly.
+
+**The bytes.** The vault serialises JSON and zlib-compresses it,
+which is an awkward home for millions of trits. Four spellings,
+measured on real tensors: list of ints 2.25 bits/weight, byte per
+trit 2.27, two-bit packed 1.53, base-243 packed 1.54. The dense
+packings beat the obvious one by a third and then tie each other -
+which the arithmetic does not predict, since five trits in a byte is
+1.60 bits against two-bit's 2.00. The advantage vanishes in the
+zlib: the looser packing keeps byte-aligned structure a compressor
+can find, the denser one looks like noise, and density and
+compressibility very nearly cancel. **base-243 won on the other
+axis** - a table-driven decoder reads 118M weights/s against
+two-bit's 34M, and a pageable library decodes on every page-in.
+
+**PASS: 20 tensors, 1,018,016 weights, 1.820 bits/weight against the
+naive spelling's 2.298 (+0.477 at 0.300 tensor sd), zero trit
+differences, zero scale differences, zero unreachable shards, 11.6M
+weights/s end to end.** Criterion 1 had no tolerance and held: the
+conversion above this layer is lossy by 47%, and if this layer were
+lossy too the two would be indistinguishable.
+
+**A finding was retracted on the way.** Run one appeared to show
+packing LOSING 0.4-0.6 bits/weight on 1-D tensors, and produced a
+tidy story about skewed distributions needing a per-tensor spelling
+choice. The baseline was unfair - a bare `{q, s}` dict with no name
+and no shape against a payload carrying both, so it measured the
+spelling and the metadata at once, and on small tensors the metadata
+is most of the difference. Compared like for like, packing wins on
+**twelve of fourteen** tensors and the two exceptions favour text by
+0.014 and 0.062. The per-tensor choice survives for a much smaller
+reason than the one it was built for: about 0.005 bits/weight, kept
+because it can never be worse rather than because it pays.
+
+### 11.95 What converting a transformer costs (failed, kept)
+
+A kit that reads a trained transformer and puts it into UltraQuant's
+ternary tier. `convert/gguf.py` reads GGUF with the standard library
+- metadata, tensor table, and F32/F16/BF16/Q8_0 data - and refuses
+every other quantisation BY NAME rather than guessing at its blocks;
+`convert/ternary.py` quantises and, more importantly, measures;
+`python -m ultraquant.convert <model.gguf>` prints what conversion
+would cost that file.
+
+**The measure is output error, not weight error.** A layer's job is
+`W x`, so the number that matters is how far the ternary layer's
+output lands from the trained one for Gaussian probes. Errors that
+cancel across a row never reach the output.
+
+Measured on 24 real weight tensors from an 899 MB checkpoint:
+
+| rule | output error | cosine | non-zero |
+|---|---:|---:|---:|
+| per matrix, 0.75 (UQ's own) | 0.4942 | 0.8675 | 0.520 |
+| per row, 0.75 | 0.4801 | 0.8753 | 0.529 |
+| per row, optimal | 0.4741 | 0.8793 | 0.490 |
+| chosen per tensor | **0.4667** | **0.8837** | 0.503 |
+
+**Criterion 1 fails**: +0.027 against a tensor-to-tensor sd of
+0.045. The rule choice is second-order; the loss is first-order.
+Criterion 2 exists so the kit cannot hide behind a relative
+improvement, so: **0.4667 relative output error at cosine 0.8837,
+per layer.** A stack of thirty such layers does not preserve much.
+Conversion is a starting point for retraining, not a substitute for
+it, and the CLI says so in those words.
+
+**Two things were learned that are worth more than a pass.** The
+threshold that provably minimises the squared error, found in closed
+form, produced a WORSE matrix-vector product than the 0.75 heuristic
+on **7 of 24 tensors** - it keeps fewer, larger weights, and the
+small ones it discards were carrying signal that cancelled less than
+the Frobenius norm suggested. Minimising weight error is not
+minimising output error. So the kit chooses per tensor, on one set
+of probes and scored on another, because choosing and reporting on
+the same probes is picking the winner after seeing the coin.
+
+And a harness error caught before it was believed: the first pass at
+1-D tensors reported **2.41** relative error and an obvious
+conclusion ("biases must stay float"). It was pushing a random
+vector through a 1xN dot product - measuring a bias as though it
+were a matrix. Measured as what it is, a 1-D tensor takes **0.527**,
+in line with the matrices. The clean conclusion was an artifact of
+the wrong question.
+
+### 11.94 One copy of a rule that has to agree
+
+Housekeeping with a safety claim behind it. The stopword list and
+the plural fold had been written three times in the native tier -
+once each in the store, the spread and the interpreter - because
+each piece was ported on its own and each needed them.
+
+Three copies of THOSE rules is not a tidiness problem. §11.29's
+coverage rule asks whether a question's INFORMATIVE tokens are
+covered by a key, and the fold decides whether "towers" reaches
+"tower". A copy that drifted would make the tiers disagree about
+what a question asked - silently, in one branch only, which is the
+hardest kind of difference to find and exactly the kind these gates
+exist to prevent.
+
+`native/uq/src/text.cpp` holds one copy now. **210 lines of
+duplication removed, 27 added**, and all six native gates re-run
+afterwards still pass - a refactor that changes behaviour is not a
+refactor, and that is checkable here rather than assumed.
+
+The pin is the point of the exercise. `tests/test_nativetext.py`
+parses the C++ list out of the source and compares it to Python's
+`_STOPWORDS` as a set, checks the length floor is carried too, and
+asserts `normalize_token` is defined in exactly one file. "Copied
+rather than reinvented" was a comment in three places; it is a test
+in one.
+
+### 11.93 A claim about a set, twice
+
+Superlatives and aggregates, ported. Both stand on the same move -
+enumerate the WHOLE store for facts whose key ends in an attribute -
+and both carry the same honesty contract: scope named, exclusions
+named BY NAME, ties named rather than broken, and denials never
+counted in arithmetic, because a denial names no number and a denied
+900 meters must not move a mean by a millimetre. Those trailing
+clauses are why the gate compares sentences rather than winners.
+
+**Run one found the best thing in this unit.** Two of 540 answers
+differed, and only in the last digit:
+
+```
+what is the average weight?
+  python: The average of the 6 weight facts I hold is 250.463 tonnes
+  native: The average of the 6 weight facts I hold is 250.462 tonnes
+```
+
+Same facts, same order, same conversions, same formula. The cause is
+not arithmetic but the SUM: **CPython's `sum()` over floats has
+carried a Neumaier compensation term since 3.12**, so that family
+sums to 1502.775 where a plain left-to-right accumulation gives
+1502.7749999999999, and `%g` prints those as 250.463 and 250.462.
+The native tier sums the way the oracle sums now - and the
+alternative was refused deliberately: widening the comparison to
+"close enough" would have turned this gate into one that cannot see
+the next real difference either.
+
+Two other details were ported rather than improved. The ranking
+multiplies by the FLOAT unit factors because the Python tier does -
+using the exact rationals there could order two facts differently at
+the last bit and be wrong for a reason nobody could see. And the
+combined value prints through `%g`, which is exactly what Python's
+`format(x, 'g')` is.
+
+**Run two: 540 set-claims across sixty worlds, zero answers
+differed**, with the hard cases present and counted - empty families
+and polysemous words in all 60, mixed units in 45, denials in 26,
+non-numeric values in 24, ties in 21, uncomparable units in 16.
+
+### 11.92 Two spreads that converge the same way
+
+Spreading-activation inference, ported to the native tier and gated
+against Python. The hardest piece to port faithfully, because its
+correctness lives in ORDER as much as in arithmetic: which facts the
+index surfaces for which probe, which lineage reaches a node first,
+which of several equally-strong convergences wins. Python dicts
+preserve insertion order and the spread leans on that, so the port
+uses insertion-ordered containers wherever the Python side walks a
+dict - a `std::map` would have sorted them and quietly changed which
+chain answered. The activation strengths are powers of one half,
+exact in binary floating point, so the one place a port would
+normally drift, it cannot.
+
+Everything else that could differ is a rule rather than an
+implementation detail, and the rules were copied rather than
+re-derived: whole-value bridging, the single-origin lineage, origin
+coverage at one absent token, the terminal relation slot, the
+adjacent-bigram order rule, and the anagram refusal.
+
+**PASS on the first run: 368 questions across forty worlds, zero
+derivations differed, zero curiosity gaps differed** - 130 two-fact
+chains, 59 unreachable questions, 36 epithet decoys, 30 three-fact
+chains, 30 four-fact chains, 30 denial bridges, 28 anagram decoys,
+25 modifier questions.
+
+The refusal-symmetry line matters most and held in both directions:
+**zero questions were derived only by the native tier.** Every
+epithet decoy, anagram subject and denial bridge that Python
+refuses, the native tier refuses too. A port that converged more
+often would have scored better on correctness and been strictly
+worse, because each extra answer is a pun the rule stack exists to
+refuse.
+
+`missing_premise` came with it, which closed §11.91's debt: the
+curiosity hint the native pipeline could not produce is produced
+now, the chat gate's 71 hint-only differences went to zero, and
+nothing else moved.
+
 ### 11.91 One conversation, two tiers, the same words
 
 The native tier stops being a library here and starts being the
@@ -5858,60 +6071,6 @@ position (§11.21, no), scale (§11.22, no), capacity (§11.22, the one real
 lift), parts (here, no). Hidden 64 still fails 46% of held variants, and the
 remaining lever is **data** — 26 taught variants per split is what every
 mechanism starved on, and §11.20 already measured which models can draw more.
-
-### 11.96 Tensors that go into the library
-
-The conversion kit's output, packed INTO the shard library as a
-first-class citizen - catalogued, addressable, paged - rather than
-as a pile of files beside it. `convert/pack.py` is the codec,
-`convert/library.py` writes shards, and both of its decisions are
-visible in the catalog.
-
-**Granularity: one shard per tensor.** A matmul needs the whole
-matrix, so splitting a tensor across shards would page every piece
-for every use; keeping several tensors in one shard would page a
-layer to read a bias. The tensor is the unit that gets used, so it
-is the unit that gets stored.
-
-**Address: the category is the layer, the keywords are the name.**
-Those carry different halves, and it is worth being exact about
-which. The keyword index finds a KIND - "attn out" scores every
-category holding an attention output projection - and it cannot tell
-layer 3 from layer 9, because a layer number is a digit and digits
-are not keywords. Layer identity lives in the category; kind lives
-in the index; the shard id names the tensor exactly.
-
-**The bytes.** The vault serialises JSON and zlib-compresses it,
-which is an awkward home for millions of trits. Four spellings,
-measured on real tensors: list of ints 2.25 bits/weight, byte per
-trit 2.27, two-bit packed 1.53, base-243 packed 1.54. The dense
-packings beat the obvious one by a third and then tie each other -
-which the arithmetic does not predict, since five trits in a byte is
-1.60 bits against two-bit's 2.00. The advantage vanishes in the
-zlib: the looser packing keeps byte-aligned structure a compressor
-can find, the denser one looks like noise, and density and
-compressibility very nearly cancel. **base-243 won on the other
-axis** - a table-driven decoder reads 118M weights/s against
-two-bit's 34M, and a pageable library decodes on every page-in.
-
-**PASS: 20 tensors, 1,018,016 weights, 1.820 bits/weight against the
-naive spelling's 2.298 (+0.477 at 0.300 tensor sd), zero trit
-differences, zero scale differences, zero unreachable shards, 11.6M
-weights/s end to end.** Criterion 1 had no tolerance and held: the
-conversion above this layer is lossy by 47%, and if this layer were
-lossy too the two would be indistinguishable.
-
-**A finding was retracted on the way.** Run one appeared to show
-packing LOSING 0.4-0.6 bits/weight on 1-D tensors, and produced a
-tidy story about skewed distributions needing a per-tensor spelling
-choice. The baseline was unfair - a bare `{q, s}` dict with no name
-and no shape against a payload carrying both, so it measured the
-spelling and the metadata at once, and on small tensors the metadata
-is most of the difference. Compared like for like, packing wins on
-**twelve of fourteen** tensors and the two exceptions favour text by
-0.014 and 0.062. The per-tensor choice survives for a much smaller
-reason than the one it was built for: about 0.005 bits/weight, kept
-because it can never be worse rather than because it pays.
 
 ### 11.23 The adoption gate: §11.22's pass stops at the shape it was measured on
 
