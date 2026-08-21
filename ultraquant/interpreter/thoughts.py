@@ -814,9 +814,31 @@ class Reason(Thought):
         facts = ctx.data.get("facts", [])
         if facts:
             key, fact = facts[0]
-            ctx.say(f"{key} is {fact['value']} (confidence {fact['confidence']:.2f}).")
-            ctx.note(self.name, f"answered from fact {key!r}")
-            return
+            # §11.29's coverage rule reaches the exact branch: Recall's
+            # candidate ladder tries sub-n-grams, so a hit here is not
+            # necessarily the whole question. "the high mill sculptor"
+            # answers "what is the high mill sculptor?" but must not
+            # answer "what is the high mill sculptor workshop
+            # population?" - the depth gate caught that question being
+            # told who the sculptor IS, while the chain inference that
+            # could answer what was ASKED sat unreached below.
+            from ultraquant.shards.router import (_informative,
+                                                  normalize_token)
+
+            asked = {normalize_token(tok)
+                     for tok in _TOKEN_RE.findall(ctx.text.lower())
+                     if _informative(tok)}
+            held = {normalize_token(tok)
+                    for tok in _TOKEN_RE.findall(key.lower())
+                    if _informative(tok)}
+            if asked <= held:
+                ctx.say(f"{key} is {fact['value']} "
+                        f"(confidence {fact['confidence']:.2f}).")
+                ctx.note(self.name, f"answered from fact {key!r}")
+                return
+            ctx.note(self.name,
+                     f"sub-key hit {key!r} not asserted; question "
+                     "content uncovered - falling through")
 
         # Exact key-match missed. Two fallbacks, in trust order, before giving
         # up - both were sitting unused while the pipeline said "I don't hold

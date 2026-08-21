@@ -208,6 +208,14 @@ def _spread(question_tokens: set[str], memory,
 
     for _hop in range(_MAX_HOPS):
         grown = False
+        # Synchronous rounds: updates collect during the pass and apply
+        # after it. The first form mutated origins in place, and a lucky
+        # dict order cascaded origin -> middle -> target inside ONE
+        # round - the depth gate measured a "one-hop" arm answering
+        # three-fact chains at 0.667, meaning hop depth depended on
+        # iteration order. Cognition must not depend on dict order;
+        # a round is a frontier, not a free-for-all.
+        pending: list[tuple[str, dict, str, dict, list]] = []
         for node in list(nodes.values()):
             # A node relays each origin lineage separately. Its own direct
             # contact starts a lineage rooted at itself; every inherited
@@ -235,24 +243,34 @@ def _spread(question_tokens: set[str], memory,
                 if t_key == node.key:
                     continue
                 t_tokens = _fold(t_key)
-                if not (t_tokens & bridge_tokens):
+                # Whole-value bridging, both directions. A bridge that
+                # carries on ANY shared token lets "wren the younger"
+                # hop through plain wren's birthplace - the depth pun,
+                # asserted at 100% of epithet decoys the first time it
+                # was measured. And the mirror: value "wren" must not
+                # flow into "wren the younger birthplace", whose extra
+                # qualifier the question never asked for. Every token
+                # of a chain fact is accounted for - by the incoming
+                # value, by the question, or by ONE terminal relation
+                # slot ("bronzite BASE" traverses; the slot trails the
+                # subject the way "material" trails "tower" in origin
+                # coverage) - or the hop refuses. An unaccounted token
+                # INSIDE the subject is a qualifier being dropped, and
+                # dropping qualifiers is how one entity substitutes
+                # for another.
+                if not bridge_tokens <= t_tokens:
                     continue
-                target = nodes.get(t_key)
-                if target is None:
-                    target = _Node(key=t_key, record=t_record)
-                    direct = t_tokens & question_tokens
-                    for token in direct:
-                        target.sources[token] = 1.0
-                    nodes[t_key] = target
+                extra = t_tokens - bridge_tokens - question_tokens
+                if extra:
+                    key_order = _ordered_fold(t_key)
+                    if (len(extra) > 1 or not key_order
+                            or key_order[-1] not in extra):
+                        continue
                 for origin, sources, path in lineages:
                     if any(p_key == t_key for p_key, _v in path):
                         continue
-                    if node.key == origin:
-                        carried_path = path + [(node.key,
-                                                node.record.get("value", ""))]
-                    else:
-                        carried_path = path + [(node.key,
-                                                node.record.get("value", ""))]
+                    carried_path = path + [(node.key,
+                                            node.record.get("value", ""))]
                     arriving = {}
                     for token, s in sources.items():
                         decayed = s * _DECAY
@@ -260,12 +278,21 @@ def _spread(question_tokens: set[str], memory,
                             arriving[token] = decayed
                     if not arriving:
                         continue
-                    entry = target.origins.get(origin)
-                    if entry is None or                             sum(arriving.values()) > sum(
-                                entry["sources"].values()):
-                        target.origins[origin] = {"sources": arriving,
-                                                  "path": carried_path}
-                        grown = True
+                    pending.append((t_key, t_record, origin, arriving,
+                                    carried_path))
+        for t_key, t_record, origin, arriving, carried_path in pending:
+            target = nodes.get(t_key)
+            if target is None:
+                target = _Node(key=t_key, record=t_record)
+                for token in _fold(t_key) & question_tokens:
+                    target.sources[token] = 1.0
+                nodes[t_key] = target
+            entry = target.origins.get(origin)
+            if entry is None or                     sum(arriving.values()) > sum(
+                        entry["sources"].values()):
+                target.origins[origin] = {"sources": arriving,
+                                          "path": carried_path}
+                grown = True
         if not grown:
             break
 

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.27 · 1417 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.28 · 1430 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         80 modules, 1417 tests
+tests/         81 modules, 1430 tests
 ```
 
 ---
@@ -3408,6 +3408,62 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.47 Depth: three-fact chains, and the three layers the gate indicted
+
+Three-fact chains — two bridges, "the tower architect is wren; wren's
+birthplace is york; york's climate is temperate" — turned out to be
+mechanically reachable inside `_MAX_HOPS = 2`: the middle fact's
+direct contact merges into the carried lineage, and decay 1.0 -> 0.25
+clears the 0.2 floor. Found is not believed: no gate had ever measured
+depth, and a four-fact clean-room probe immediately caught a
+depth-specific pun. The depth gate (`experiments/depth_gate.py`) was
+pre-registered — entity -> agent -> place -> attribute worlds, ~25%
+broken-middle chains as the unwinnable share, epithet decoys ("wren
+the younger" holds the role, only plain wren holds a birthplace),
+ghost entities, a one-hop baseline arm — and its three runs each
+indicted a different layer:
+
+* **The exact branch asserted sub-keys.** Run one scored 3-chains at
+  0.000 in BOTH arms with 72/72 decoys "asserted" — every one the same
+  interception: Recall's candidate ladder tries sub-n-grams, the
+  question surface's exact branch believed "hit" meant "exact", and
+  "what is the high mill sculptor workshop population?" was told who
+  the sculptor IS while the chain inference that could answer what was
+  ASKED sat unreached below. §11.29's coverage rule now guards the
+  exact branch too: assert only when the key covers the question,
+  else fall through.
+* **Hop depth depended on dict order.** Run two's "one-hop" arm
+  answered 3-chains at 0.667 — impossible if `_MAX_HOPS` meant depth.
+  Origins were mutated in place during a round's pass, so a lucky
+  iteration order cascaded origin -> middle -> target inside one
+  "hop". Cognition must not depend on dict order: rounds are now
+  synchronous frontiers (updates collect during the pass and apply
+  after it), and the hop cap finally means what it says.
+* **A bridge carried on any shared token.** The same run measured the
+  epithet pun genuinely: 72/72 asserted through inference — plain
+  wren's birthplace, york's climate, delivered for "wren the younger",
+  the premise trail displaying the substitution it had just made. The
+  whole-value rule closed it in both directions: the value's tokens
+  must all appear in the target key ("wren the younger" may not hop
+  through "wren birthplace"), and the target's unaccounted tokens must
+  be asked-for — except ONE in terminal position, the relation slot
+  ("bronzite BASE" traverses), origin coverage's own allowance applied
+  to every link. An unaccounted token INSIDE the subject ("wren the
+  YOUNGER birthplace" receiving plain wren) is a qualifier being
+  dropped, and dropping qualifiers is how one entity substitutes for
+  another.
+
+Run three, all layers honest: **one-hop 0.000, two-hop 0.688, +0.688
+at 2.85x seed sd**, zero assertions on either decoy form in either
+arm, recall 1.000 in both. The two-hop miss is the broken-middle share
+scoring zero by design; the one-hop zero is the baseline finally
+meaning depth. The world builder needed its own fix on the way — an
+epithet decoy's backing fact could silently re-link a "broken" chain,
+so its refusal expectation was scoring a lie until forbidden
+(agent, relation) pairs kept broken chains broken — harnesses must be
+indictable too. The fourth fact stays refused by the decay floor: the
+architecture's stated limit, not a promise.
 
 ### 11.46 Two adjectives may decorate: the cap moves, the floor stays
 
