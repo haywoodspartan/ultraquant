@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.89 · 1954 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.90 · 1968 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -214,7 +214,7 @@ ultraquant/
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
-  infer/       ops                                            norms · attention ·
+  infer/       ops · vit                                      norms · attention ·
                                                               activations
   convert/     gguf · ternary · pack · library · glyph · load   a trained transformer,
                                                               packed into the vault
@@ -227,7 +227,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         134 modules, 1954 tests
+tests/         135 modules, 1968 tests
 ```
 
 ---
@@ -3413,6 +3413,107 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.101 The 27-block encoder
+
+`infer/vit.py` assembles the real vision tower from the real
+checkpoint: 27 blocks, 1152 wide, 16 heads of 72, a 4304 feed-
+forward, a 48x48 patch grid, and the `qwen3vl_merger` projector that
+concatenates 2x2 neighbouring patches before two 4608-wide layers.
+
+**Every hyperparameter is read from the file, and one of them proves
+why.** The checkpoint specifies `layer_norm_epsilon = 1e-6`;
+`ops.layer_norm` defaults to `1e-5`. Trusting that default one unit
+after building the machinery to catch exactly this class of error
+would have introduced a silent, everywhere, plausible-looking
+mistake. `load_config` raises on a missing key rather than
+defaulting, and a test asserts that for every key in turn.
+
+**Streaming, because the weights do not fit.** One block is 15.2M
+weights; twenty-seven is 402M, which as Python lists is over ten
+gigabytes. A block is read, used by every tower under test, and
+dropped - the residual stream is the only thing that persists. The
+gate walks six towers through one pass over an 857 MB file.
+
+**A real bug, caught by a size check rather than by its output.**
+`TensorInfo.rows` is `dims[1]`, which is the output count for a
+matrix and is 16 for the 4-D patch kernel - so reading `info.rows`
+rows returned 256 of 884,736 values. Without the assertion the
+kernel would have been built from a fragment, every patch would have
+been scrambled identically, and the encoder would have run to
+completion producing finite, plausible, meaningless numbers.
+
+**The tower runs, and its profile is a real one.** Residual RMS
+dips through the early blocks (0.58 to 0.28), grows smoothly from
+block 9 to 22 (0.48 to 2.00), and then spikes to **71.7 at the final
+block** - the massive-activation signature real SigLIP-shaped towers
+show. Nothing was fitted to produce that; it is what these weights
+do.
+
+**What the gate could not check, said plainly.** No reference
+implementation on this machine exposes intermediate activations - LM
+Studio ships `llama-server.exe`, which returns text. So pre-norm
+ordering, the contiguous head split and the 2x2 merge are read from
+tensor names, shapes and metadata, and they are ASSUMPTIONS. The
+gate compensates by measuring whether it can detect deliberate
+mis-wirings at all.
+
+**FAILED criteria 2 and 3, and the failures are the result.** The
+compounding of ternary error across a stack had been asserted three
+times in this repository and never measured. Measured, with the f16
+tower as its own reference:
+
+| block | cos(f16, ternary) | f16 RMS | ternary RMS |
+|---:|---:|---:|---:|
+| 0 | 0.9496 | 0.58 | 0.62 |
+| 5 | 0.4889 | 0.29 | 0.28 |
+| 10 | 0.2681 | 0.50 | 0.27 |
+| 20 | 0.2280 | 1.50 | 1.47 |
+| 25 | **-0.0592** | 1.63 | 6.90 |
+| 26 | 0.8749 | 71.73 | 53.32 |
+| **after the projector** | **0.0185** | | |
+
+**0.0185 against a bar of 0.90.** A converted encoder's output is
+not a degraded version of the original - it is uncorrelated with it.
+The half-life is about five blocks, and by block 25 the towers are
+mildly ANTI-correlated. The ternary tower also destabilises in
+magnitude: RMS 7.21 at block 24 against 1.96, which the cosine
+alone hides.
+
+**The methodological trap is worth more than the headline.** Block
+26 reads **0.8749** and the projected output reads **0.0185**. The
+final block's massive activations dominate both towers, so they look
+aligned while their content does not agree; `post_ln` divides that
+shared magnitude out and the disagreement appears. Anyone measuring
+conversion damage on the last hidden state, before the final norm,
+would have read 0.87 and called it a success.
+
+**Criterion 3 failed because quantisation damaged the output MORE
+than any structural bug.** Interleaved heads 0.0193, SiLU-for-GELU
+0.1210, a dropped attention residual 0.2218 - all above ternary's
+0.0185. A tower with no attention residual keeps twelve times more
+signal than a correctly wired one whose weights were converted.
+
+**That failure was localised rather than accepted.** The same
+comparison at depths 1, 2, 4 and 8 discriminates every time - all
+three defects land below the ternary tower - and only stops at 27.
+So criterion 3's failure is a fact about quantisation, not about the
+method, and it is criterion 2's fact seen from the other side. The
+wiring is validated where the signal survives to validate it.
+
+Two smaller findings. **A wrong activation is instantly fatal and a
+wrong head split is not**: at one block SiLU-for-GELU already reads
+-0.0055 while interleaved heads still reads 0.9482, becoming obvious
+only by block 8. The bug that hides for eight blocks is the more
+dangerous one. And the **wrong epsilon measured 1.0000** - no effect
+at four decimals over 27 blocks. It was registered as reported
+rather than gated because its size was unknown; the answer is that
+this default would have been harmless, and reading from the file is
+still right because the next checkpoint's may not be.
+
+**The standing conclusion, now measured rather than extrapolated:
+conversion without retraining does not produce a working encoder.**
+§11.95 said so from one layer's 0.884 and was too kind.
 
 ### 11.100 The operations between the matmuls
 
