@@ -103,7 +103,9 @@ understands - among others - these forms:
                testimony (confidence 0.90 - stronger than a passing
                restatement, which reinforces by 0.1); "no" contests it
                - confidence drops to 0.30, the correction is asked
-               for, and doubt never deletes
+               for, and doubt never deletes; "no" after a derived
+               answer declines it and names every premise so the
+               wrong one can be restated
 A near-key statement ("the old tower material is ...") also names the
 held base it sits beside: "I separately hold: tower material is
 iron" - information, never a merge."""

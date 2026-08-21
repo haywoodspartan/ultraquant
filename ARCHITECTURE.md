@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.53 · 1626 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.54 · 1633 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         102 modules, 1626 tests
+tests/         103 modules, 1633 tests
 ```
 
 ---
@@ -3408,6 +3408,31 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.70 Declining a derivation names its premises: the family whole
+
+The testimony family's last door: "no" after a DERIVED answer.
+§11.69's protocol does not transfer — nothing was stored, so nothing
+lowers, and a bare "no" cannot say WHICH premise it blames, so no
+premise confidence moves either: blaming an unnamed premise would
+invent the accusation. What the refusal earns is the trail, §11.31's
+thesis serving correction: "Noted - not consolidating that. The
+derivation rested on: tower material is iron; iron hardness is 490
+units. If one of those is wrong, restate it" — the wrong premise
+restated closes into §11.53's narrated revision, the chain re-derives
+from what is NOW believed, and "yes" consolidates the corrected
+conclusion. Contest, correct, re-derive, confirm — the full cycle,
+every step spoken.
+
+The gate (`experiments/decline_gate.py`) ran `_DECLINE_DERIVATIONS`
+off against on. **PASS on the first run: 0.472 -> 1.000, +0.528 at
+3.07x seed sd, zero unnamed premises blamed, zero declined
+conclusions stored, consolidation untouched in both arms.** The
+testimony family is whole: yes consolidates a derivation or confirms
+an assertion, no declines a derivation naming its premises or
+contests an assertion dropping it to doubt — four responses to two
+words, chosen by what was actually pending, and a bare word with
+nothing pending still moves nothing anywhere.
 
 ### 11.69 No is testimony too: doubt spoken, never absence
 

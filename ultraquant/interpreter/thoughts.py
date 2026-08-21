@@ -319,6 +319,13 @@ class Perceive(Thought):
             ctx.note(self.name, "intent=affirmation, confirms pending "
                                 "inference", intent="affirmation")
             return
+        if (pending is not None and _DECLINE_DERIVATIONS
+                and _NEGATION_REPLY_RE.fullmatch(lowered.strip())):
+            ctx.data["intent"] = "declination"
+            ctx.data["declined_inference"] = pending
+            ctx.note(self.name, "intent=declination, derivation "
+                                "contested", intent="declination")
+            return
         if (confirmable is not None and _CONFIRM_TESTIMONY
                 and _AFFIRMATION_RE.fullmatch(lowered.strip())):
             ctx.data["intent"] = "confirmation"
@@ -525,6 +532,7 @@ class Reason(Thought):
             "affirmation": self._affirm,
             "confirmation": self._confirm,
             "disconfirmation": self._disconfirm,
+            "declination": self._decline,
         }.get(intent, self._chat)
         handler(ctx)
 
@@ -1078,6 +1086,31 @@ class Reason(Thought):
             ctx.say(f"I no longer hold {key}, so there is nothing to "
                     "confirm.")
             ctx.note(self.name, f"confirmation missed {key!r}")
+
+    def _decline(self, ctx: ThoughtContext) -> None:
+        """Decline a derivation, naming its premises for correction.
+
+        Nothing was stored, so nothing lowers - and a bare "no" cannot
+        say WHICH premise it blames, so no premise confidence moves
+        either: blaming an unnamed premise would invent the
+        accusation. What the refusal earns is the trail (§11.31: the
+        trail is the answer, here serving the correction): every
+        premise named, so the wrong one can be restated and everything
+        resting on it re-derives.
+        """
+        declined = ctx.data.get("declined_inference") or {}
+        premises = declined.get("premises") or []
+        if not premises:
+            ctx.say("Noted - not consolidating that.")
+            return
+        trail = "; ".join(f"{k} is {v}" for k, v in premises)
+        ctx.say(f"Noted - not consolidating that. The derivation "
+                f"rested on: {trail}. If one of those is wrong, "
+                f"restate it ('the ... is ...') and everything "
+                "resting on it will re-derive.")
+        ctx.note(self.name,
+                 f"derivation declined; {len(premises)} premise(s) "
+                 "named for correction")
 
     def _disconfirm(self, ctx: ThoughtContext) -> None:
         """Record "no" after an asserted belief as testimony against.
@@ -2042,6 +2075,13 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.70 rung: "no" after a DERIVED answer declines the
+#: consolidation and names the premises so the wrong one can be
+#: corrected - nothing lowers, because a bare no cannot say WHICH
+#: premise it blames, and blaming an unnamed premise would invent the
+#: accusation. The declination gate's baseline arm turns it off.
+_DECLINE_DERIVATIONS = True
 
 #: The §11.69 rung: "no" after the system asserts a held belief is
 #: testimony AGAINST - the belief drops to doubt (0.30), the drop is
