@@ -23,9 +23,11 @@ one, and the difference is structural, not cosmetic:
   Confidence is the **minimum** along the path — spreading dilutes belief,
   never concentrates it — and the reply is marked inferred, never
   presented as stored.
-* **Bounded depth.** Activation decays; two bridge hops is the measured
-  limit of honesty for 2-4 token keys. Longer chains multiply pun risk
-  faster than they add reach.
+* **Bounded depth.** Activation decays over a floor, and the hop cap
+  moves only by measurement: two bridges originally, three after
+  §11.52, four after §11.61 — each move gated on zero decoy
+  assertions at the new depth, because the pun resistance lives in
+  the structural rules, not the decay floor.
 
 What this deliberately does NOT do: free association. The fabrication
 family this codebase has been burned by three times (§11.14's stopword
@@ -687,11 +689,12 @@ def _library_unknown(token: str, memory) -> bool:
 
 
 #: How many library-unknown tokens the inference path may read as
-#: decoration. §11.36 shipped at one and recorded double-modifier
-#: questions refusing at 0.333; §11.46 moved the cap to two behind the
-#: residual floor (at least two known informative tokens must survive
-#: the drop). The floor, not the cap, is the safety line.
-_MAX_MODIFIERS = 2
+#: decoration. §11.36 shipped at one, §11.46 moved it to two, §11.62
+#: to three - each behind the unmoved residual floor (at least two
+#: known informative tokens must survive the drop, and convergence
+#: still demands a bridge). The floor, not the cap, is the safety
+#: line, measured three times now.
+_MAX_MODIFIERS = 3
 
 
 def infer(text: str, memory) -> Inference | None:

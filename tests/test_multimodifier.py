@@ -54,13 +54,20 @@ class TwoModifierTests(unittest.TestCase):
         self.assertIn("reading 'crumbling' and 'weathered' as modifiers",
                       result.answer)
 
-    def test_three_unknowns_refuse(self) -> None:
-        """The cap. Three unknown tokens is a question the library does
-        not understand - §11.46 records this ceiling as §11.36 recorded
-        its own."""
-        self.assertIsNone(infer(
+    def test_three_unknowns_now_read_through(self) -> None:
+        """§11.46 pinned this refusing as its ceiling; §11.62 moved the
+        cap to three (test_triplemodifier pins that rung). Four
+        unknowns still refuse below."""
+        result = infer(
             "what is the ancient weathered crumbling tower melting point?",
-            self.memory))
+            self.memory)
+        self.assertIsNotNone(result)
+        self.assertIn("1370", result.answer)
+
+    def test_four_unknowns_refuse(self) -> None:
+        self.assertIsNone(infer(
+            "what is the ancient weathered crumbling gleaming tower "
+            "melting point?", self.memory))
 
     def test_the_residual_floor_refuses_a_thin_question(self) -> None:
         """Two drops into a one-token residual is a question read away,

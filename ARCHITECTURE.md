@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.43 · 1557 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.44 · 1564 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         94 modules, 1557 tests
+tests/         95 modules, 1564 tests
 ```
 
 ---
@@ -3408,6 +3408,30 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.62 The third adjective: the cap is policy, the floor is safety
+
+The modifier family's registered rung, cashed the family way: §11.36
+shipped tolerance at one dropped token, §11.46 moved the cap to two
+behind the residual floor, and this unit moves it to three — the floor
+untouched through all three moves. At most three library-unknown
+tokens may be read as decoration; at least two known informative
+tokens must survive, and convergence still demands a bridge. "The
+ancient weathered crumbling tower melting point" reads three
+adjectives away, names all three in question order, and converges
+through the bridge; a fourth unknown refuses above, and a thin
+residual refuses below, exactly as before.
+
+The gate (`experiments/triplemodifier_gate.py`) ran cap-2 against
+cap-3 with ~25% quadruple-modifier worlds as the unwinnable share and
+both §11.46 decoy forms. **PASS on the first run: 0.000 -> 0.583 at
+1.13x seed sd — narrowly, in §11.13's tradition, on the same dealt
+hand §11.46 drew** (the identical seed positions draw the identical
+5/12 quadruple share) — zero decoys of either form asserted, every
+answer naming all three words. Three cap moves, one unmoved floor:
+the cap is policy, the floor is safety, and the distinction has been
+measured every time it mattered. The quadruple rung stays registered,
+not promised.
 
 ### 11.61 The fifth fact: the second limit moved by measurement
 
