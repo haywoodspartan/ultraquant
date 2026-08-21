@@ -374,6 +374,13 @@ class Perceive(Thought):
             intent = "fact_statement"
         elif text.endswith("?") or lowered.startswith(_INTERROGATIVE_LEADS):
             intent = "question"
+        elif _ARITHMETIC_ON and _is_arithmetic(text):
+            # §11.76: "6 * 7" and "calculate 6 * 7" ask a question in
+            # a shape no interrogative lead covers. An expression is
+            # self-identifying - it is nothing but numbers, operators
+            # and parentheses - so admitting it steals nothing: a
+            # statement carries words, and words make this False.
+            intent = "question"
         else:
             intent = "chat"
 
@@ -853,6 +860,8 @@ class Reason(Thought):
         compound = self._compound_parts(ctx.text)
         if compound is not None:
             self._answer_compound(ctx, compound)
+            return
+        if _ARITHMETIC_ON and self._arithmetic_answer(ctx):
             return
         if _HISTORY_ANSWERS and self._history_answer(ctx):
             return
@@ -1680,6 +1689,35 @@ class Reason(Thought):
                  "revision(s)")
         return True
 
+    def _arithmetic_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "what is 3 + 4 * 5?" - §11.76.
+
+        The expression is evaluated over exact rationals and echoed
+        back in normalised form, so the READING is visible: "3 + 4 *
+        5 = 23" shows the precedence that produced the number. The
+        answer is marked computed rather than stored - it is not a
+        belief, nothing was recalled, and nothing is remembered.
+        Division by zero refuses aloud; anything that is not a pure
+        expression is not this branch's question, and falls through
+        untouched to the ladder that can answer it.
+        """
+        from ultraquant.reason import calculate
+
+        result = calculate.evaluate(ctx.text)
+        if result is None:
+            return False
+        if result.refusal:
+            ctx.say(f"I can't compute that: {result.refusal}.")
+            ctx.note(self.name, f"arithmetic refused; {result.refusal}")
+            return True
+        exact = (" (exact - that value has no decimal form)"
+                 if result.fractional else "")
+        ctx.say(f"{result.expression} = {result.shown}{exact} - "
+                "computed, not stored.")
+        ctx.note(self.name,
+                 f"arithmetic over {result.expression!r}")
+        return True
+
     def _superlative_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "which {attr} is the {tallest}?" over the whole
         attribute family - §11.56.
@@ -2287,6 +2325,15 @@ _SUPERLATIVES = {
 #: baseline arm turns it off.
 _IMPLIED_ATTRS_ON = True
 
+#: The §11.76 rung: arithmetic the speaker WRITES ("what is 3 + 4 *
+#: 5?"), evaluated over exact rationals rather than floats, with
+#: precedence and parentheses structural, division by zero refused
+#: aloud, and anything that is not a pure expression left for the
+#: rest of the ladder. The arithmetic gate's baseline arm evaluates
+#: the same expressions in binary floating point - the standard
+#: option, honestly implemented.
+_ARITHMETIC_ON = True
+
 #: Comparative/superlative word -> the attribute it names.
 _IMPLIED_ATTRS = {
     "taller": "height", "tallest": "height",
@@ -2294,6 +2341,13 @@ _IMPLIED_ATTRS = {
     "lighter": "weight", "lightest": "weight",
     "longer": "length", "longest": "length",
 }
+
+
+def _is_arithmetic(text: str) -> bool:
+    """Whether ``text`` is nothing but an arithmetic expression."""
+    from ultraquant.reason import calculate
+
+    return calculate.evaluate(text) is not None
 
 
 def _attr_family(memory, attr: str):

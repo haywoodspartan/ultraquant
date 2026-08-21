@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.64 · 1681 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.65 · 1697 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -209,7 +209,8 @@ ultraquant/
   memory/      systematic                                      episodic / semantic / working
   archive/     artchive                                        tamper-evident T-snapshots
   pattern/     recognition                                     glyph dataset + recognizer
-  reason/      blackboard                                     where partial results meet
+  reason/      blackboard · inference · calculate            where partial results meet,
+                                                              chains spread, arithmetic is exact
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
@@ -222,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         108 modules, 1681 tests
+tests/         109 modules, 1697 tests
 ```
 
 ---
@@ -3408,6 +3409,48 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.76 Arithmetic that is exactly right
+
+The system could combine two STORED numbers since §11.42 but could
+not add two: "what is 2 + 2?" fell through the entire question ladder
+to "I don't hold anything on that yet" — honest, and useless.
+`reason/calculate.py` reads an arithmetic expression and evaluates
+it, with precedence and parentheses structural rather than
+special-cased (`expr := term (('+'|'-') term)*` and down), word
+operators mapped to the same operators, and signs handled by the
+grammar. A bare expression is admitted as a question in Perceive:
+"6 * 7" asks in a shape no interrogative lead covers, and an
+expression is self-identifying — nothing but numbers, operators and
+parentheses — so admitting it steals nothing, because a statement
+carries words.
+
+**It evaluates over exact rationals, not floats**, and that is the
+whole design choice. The standard option cannot hold a tenth: it
+answers "what is 0.1 + 0.2?" with 0.30000000000000004, a number that
+is not the answer. A system whose entire discipline is "say exactly
+what is true" cannot answer a question about tenths with a number
+that is not the answer. Decimals parse exactly, the renderer prints
+an exact decimal when the denominator allows one and an exact
+fraction when it does not ("1/3", never 0.333…, which is a different
+number), and division by zero refuses aloud.
+
+The gate (`experiments/arithmetic_gate.py`) does not measure against
+an absence. **Its baseline arm is the standard implementation,
+honestly built** — same reader, same grammar, same refusals,
+evaluating in binary floating point — and ground truth comes from
+the gate's own expression TREES, walked with `Fraction`, never from
+the parser under test. **PASS on the first run: 0.443 -> 1.000,
++0.557 at 3.69x seed sd, zero wrong answers, zero undefined
+divisions answered — while the float arm printed a number that was
+not the answer 45 times and answered 8 undefined divisions.** The
+two failures differ in kind: `0.1 + 0.2 = 0.30000000000000004` is a
+wrong digit, but `7 / (0.1 + 0.2 - 0.3) = 126100789566373888` is a
+wrong BRANCH — the divisor is zero, the float arm reaches a residue
+near 1e-17 instead, and reports a hundred and twenty-six quadrillion
+for an expression that has no value at all. Ordinary questions
+answered identically in both arms and in a control session with the
+branch switched off entirely.
 
 ### 11.75 The comparative word carries its attribute
 

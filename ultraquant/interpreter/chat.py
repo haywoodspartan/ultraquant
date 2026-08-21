@@ -93,6 +93,11 @@ understands - among others - these forms:
                total height?" / "what is the average height?"
   arithmetic   "what is the sum of the tower height and the bridge
                height?" (named operands; units convert or refuse)
+  math         "what is 3 + 4 * 5?" / "6 * 7" / "calculate 100 / 8" -
+               precedence and parentheses, evaluated over exact
+               rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
+               because 0.333... is a different number, and division by
+               zero refuses rather than name a number
   choices      "is the tower material steel or iron?" - the held
                disjunct answers by name; "Neither" names the actual; a
                denial rules out without electing; an unheld subject
