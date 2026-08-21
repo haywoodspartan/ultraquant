@@ -5859,6 +5859,60 @@ lift), parts (here, no). Hidden 64 still fails 46% of held variants, and the
 remaining lever is **data** — 26 taught variants per split is what every
 mechanism starved on, and §11.20 already measured which models can draw more.
 
+### 11.96 Tensors that go into the library
+
+The conversion kit's output, packed INTO the shard library as a
+first-class citizen - catalogued, addressable, paged - rather than
+as a pile of files beside it. `convert/pack.py` is the codec,
+`convert/library.py` writes shards, and both of its decisions are
+visible in the catalog.
+
+**Granularity: one shard per tensor.** A matmul needs the whole
+matrix, so splitting a tensor across shards would page every piece
+for every use; keeping several tensors in one shard would page a
+layer to read a bias. The tensor is the unit that gets used, so it
+is the unit that gets stored.
+
+**Address: the category is the layer, the keywords are the name.**
+Those carry different halves, and it is worth being exact about
+which. The keyword index finds a KIND - "attn out" scores every
+category holding an attention output projection - and it cannot tell
+layer 3 from layer 9, because a layer number is a digit and digits
+are not keywords. Layer identity lives in the category; kind lives
+in the index; the shard id names the tensor exactly.
+
+**The bytes.** The vault serialises JSON and zlib-compresses it,
+which is an awkward home for millions of trits. Four spellings,
+measured on real tensors: list of ints 2.25 bits/weight, byte per
+trit 2.27, two-bit packed 1.53, base-243 packed 1.54. The dense
+packings beat the obvious one by a third and then tie each other -
+which the arithmetic does not predict, since five trits in a byte is
+1.60 bits against two-bit's 2.00. The advantage vanishes in the
+zlib: the looser packing keeps byte-aligned structure a compressor
+can find, the denser one looks like noise, and density and
+compressibility very nearly cancel. **base-243 won on the other
+axis** - a table-driven decoder reads 118M weights/s against
+two-bit's 34M, and a pageable library decodes on every page-in.
+
+**PASS: 20 tensors, 1,018,016 weights, 1.820 bits/weight against the
+naive spelling's 2.298 (+0.477 at 0.300 tensor sd), zero trit
+differences, zero scale differences, zero unreachable shards, 11.6M
+weights/s end to end.** Criterion 1 had no tolerance and held: the
+conversion above this layer is lossy by 47%, and if this layer were
+lossy too the two would be indistinguishable.
+
+**A finding was retracted on the way.** Run one appeared to show
+packing LOSING 0.4-0.6 bits/weight on 1-D tensors, and produced a
+tidy story about skewed distributions needing a per-tensor spelling
+choice. The baseline was unfair - a bare `{q, s}` dict with no name
+and no shape against a payload carrying both, so it measured the
+spelling and the metadata at once, and on small tensors the metadata
+is most of the difference. Compared like for like, packing wins on
+**twelve of fourteen** tensors and the two exceptions favour text by
+0.014 and 0.062. The per-tensor choice survives for a much smaller
+reason than the one it was built for: about 0.005 bits/weight, kept
+because it can never be worse rather than because it pays.
+
 ### 11.23 The adoption gate: §11.22's pass stops at the shape it was measured on
 
 §11.22 ended by refusing to change the forge default silently, calling it "a
