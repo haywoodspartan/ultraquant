@@ -811,6 +811,8 @@ class Reason(Thought):
         if compound is not None:
             self._answer_compound(ctx, compound)
             return
+        if _SUPERLATIVES_ON and self._superlative_answer(ctx):
+            return
         if _WHY_ANSWERS and self._why_answer(ctx):
             return
         if _NEGATION_AWARE and self._polar_answer(ctx):
@@ -1339,6 +1341,116 @@ class Reason(Thought):
             return True
         return False
 
+    def _superlative_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "which {attr} is the {tallest}?" over the whole
+        attribute family - §11.56.
+
+        A superlative is a claim about a SET, so the set is enumerated
+        (`fact_keys`, the full store - a top-k sample could silently
+        miss the winner) and the answer names its scope: "of the 4
+        height facts I hold". Negated facts are excluded by polarity,
+        non-numeric and unit-unconnectable candidates are excluded BY
+        NAME, ties are named rather than broken, and confidence is the
+        minimum over every included candidate - the verdict rests on
+        all of them.
+        """
+        from ultraquant.reason.inference import (_UNIT_FAMILIES,
+                                                 _UNIT_TO_FAMILY,
+                                                 _numeric, _unit)
+        from ultraquant.shards.router import _informative, normalize_token
+
+        lowered = ctx.text.lower().strip().strip("?!. ")
+        tokens = [normalize_token(tok)
+                  for tok in _TOKEN_RE.findall(lowered)
+                  if _informative(tok)]
+        found = [tok for tok in tokens if tok in _SUPERLATIVES]
+        if len(found) != 1 or not (lowered.startswith("which ")
+                                   or lowered.startswith("what ")):
+            return False
+        word = found[0]
+        direction = _SUPERLATIVES[word]
+        attrs = [tok for tok in tokens if tok != word]
+        if len(attrs) != 1:
+            return False
+        attr = attrs[0]
+
+        memory = ctx.session.memory
+        included = []
+        excluded = []
+        denied = 0
+        for key in memory.fact_keys():
+            key_tokens = [normalize_token(tok)
+                          for tok in _TOKEN_RE.findall(key.lower())
+                          if _informative(tok)]
+            if not key_tokens or key_tokens[-1] != attr:
+                continue
+            record = memory.recall_fact(key)
+            if record is None:
+                continue
+            if record.get("negated"):
+                denied += 1
+                continue
+            number = _numeric(record.get("value", ""))
+            if number is None:
+                excluded.append((key, "no number"))
+                continue
+            included.append((key, record, number,
+                             _unit(record.get("value", ""))))
+
+        if not included:
+            note = (f" ({denied} denial(s) held, and a denial names no "
+                    "number)" if denied else "")
+            ctx.say(f"I hold no {attr} facts to rank{note}.")
+            ctx.note(self.name, f"superlative refused; no {attr} "
+                                "candidates")
+            return True
+
+        family = _UNIT_TO_FAMILY.get(included[0][3])
+        comparable = []
+        for key, record, number, unit in included:
+            if unit == included[0][3] or (
+                    family is not None
+                    and _UNIT_TO_FAMILY.get(unit) == family):
+                base = (number * _UNIT_FAMILIES[family][unit]
+                        if family is not None else number)
+                comparable.append((key, record, base))
+            else:
+                excluded.append((key, f"in {unit or 'no unit'}, not "
+                                      "comparable"))
+        if not comparable:
+            ctx.say(f"I hold {attr} facts but none share a comparable "
+                    "unit.")
+            ctx.note(self.name, "superlative refused; units diverge")
+            return True
+
+        best = (max if direction == "larger" else min)(
+            comparable, key=lambda item: item[2])
+        winners = [item for item in comparable if item[2] == best[2]]
+        confidence = min(float(r.get("confidence", 0.0))
+                         for _k, r, _b in comparable)
+        scope = f"of the {len(comparable)} {attr} facts I hold"
+        notes = ""
+        if excluded:
+            names = "; ".join(f"{k} ({reason})"
+                              for k, reason in excluded)
+            notes += f" Excluded: {names}."
+        if denied:
+            notes += (f" {denied} denial(s) not counted - a denial "
+                      "names no number.")
+        if len(winners) > 1:
+            tied = " and ".join(k for k, _r, _b in winners)
+            ctx.say(f"Tied for {word} {scope}: {tied}, at "
+                    f"{winners[0][1].get('value', '')} each "
+                    f"(confidence {confidence:.2f}).{notes}")
+        else:
+            key, record, _base = best
+            ctx.say(f"The {key} is the {word} {scope}: "
+                    f"{record.get('value', '')} "
+                    f"(confidence {confidence:.2f}).{notes}")
+        ctx.note(self.name,
+                 f"superlative over {len(comparable)} {attr} fact(s)")
+        return True
+
     def _polar_compare(self, ctx: ThoughtContext,
                        words: list[str]) -> bool:
         """Answer "is A <taller/heavier/...> than B?" - §11.54.
@@ -1610,6 +1722,22 @@ _POLAR_COMPARES = True
 #: modifier-rescued split), the verdict marking which side was derived
 #: and its trail. The compderive gate's baseline arm turns it off.
 _COMPARE_DERIVES = True
+
+#: The §11.56 rung: "which {attr} is the {tallest/...}?" answers over
+#: the ENUMERATED attribute family - the whole store scanned, never a
+#: top-k sample - with the candidate count named, negated facts
+#: excluded by polarity, unconnectable units excluded by name, and
+#: ties named rather than broken. The superlative gate's baseline arm
+#: turns it off.
+_SUPERLATIVES_ON = True
+
+#: Superlative word -> comparison direction, mirroring _COMBINE_WORDS.
+_SUPERLATIVES = {
+    "tallest": "larger", "longest": "larger", "biggest": "larger",
+    "highest": "larger", "largest": "larger", "heaviest": "larger",
+    "shortest": "smaller", "smallest": "smaller", "lowest": "smaller",
+    "lightest": "smaller",
+}
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:

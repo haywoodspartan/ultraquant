@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.36 · 1519 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.37 · 1530 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         89 modules, 1519 tests
+tests/         90 modules, 1530 tests
 ```
 
 ---
@@ -3408,6 +3408,34 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.56 Superlatives: a claim about a set, with the set named
+
+The comparative family's completion is setwise: "which height is the
+tallest?" is a claim about EVERY height the library holds, so the
+answer enumerates the attribute family through `fact_keys` — the
+whole store, never a top-k sample that could silently miss the winner
+— and names its scope: "The spire height is the tallest of the 3
+height facts I hold: 2 kilometers." Negated facts are excluded by
+polarity and accounted aloud ("1 denial(s) not counted — a denial
+names no number"), non-numeric candidates are excluded BY NAME ("mill
+height (no number)"), units convert where §11.42's table connects
+them before any ranking, ties are named with every holder rather than
+broken ("Tied for tallest ... barn height and spire height"), empty
+families refuse, and confidence is the minimum over every included
+candidate — the verdict rests on all of them. The enumeration is a
+full scan by design: correctness before optimization, and the cost is
+explicit where a sampled index would have been a silent wrong answer.
+
+The gate (`experiments/superlative_gate.py`) ran `_SUPERLATIVES_ON`
+off against on: winners in one unit and across units, downward
+superlatives, ties, empty families (the baseline's free share, and
+the variance), and worlds where the numeric maximum is stored NEGATED.
+**PASS on the first run: 0.206 -> 1.000, +0.794 at 7.45x seed sd**,
+zero denials crowned — the §11.48 line holding at set scale — and
+recall at 1.000 in both arms. The comparative family is complete:
+pairwise (§11.54), derived operands (§11.55), setwise (here) — every
+verdict naming what it rests on.
 
 ### 11.55 Derived operands compare: three families in one answer
 
