@@ -56,6 +56,8 @@ failures are documented next to the passes
 | **The arithmetic capstone** | every math form above measured against one 5,818-fact colliding world: ten forms at 1.000, zero fabrications across all eight refusal families (unheld operand, denial, non-numeric, unit times unit, division by zero, percentage of nothing, unknown relation, zero to the zero), zero false bounds. The price line then found something: literal arithmetic cost 38.9 ms, of which the arithmetic itself is 0.016 ms — the Recall stage is ~90% of the price of a question that names no belief. Registered with its number, not yet acted on |
 | **The density capstone** | every question form above measured against one ~10,000-fact colliding world: floors at 1.000, fabrication at zero across every decoy family, every price named (depth-4 chains 347 ms after the frontier clock, recall-backed forms ~1 ms) |
 
+| **Transformer conversion kit** | reads a real GGUF checkpoint with the standard library (F32/F16/BF16/Q8_0, every other quantisation refused BY NAME rather than guessed at) and reports what ternary conversion would cost it: `python -m ultraquant.convert model.gguf`. Measured on 24 real tensors, the best rule leaves **0.467 relative output error at cosine 0.884 per layer** — the gate FAILS its own gain criterion, because the choice of threshold rule is second-order and the loss is first-order. Conversion is a starting point for retraining, not a substitute for it, and the tool says so |
+
 Where a mechanism failed its gate, that is in the book too: the shared-encoder
 stage failed twice, honestly, and reordered the roadmap; hypervector retrieval
 passed on structure and failed on similarity; a rehearsal mechanism and an
@@ -78,7 +80,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1866 tests, ~4 min
+python -m unittest discover -s tests      # 1881 tests, ~4 min
 ```
 
 In the chat, try:
@@ -112,7 +114,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1866 tests across 127 modules
+tests/         1881 tests across 128 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
