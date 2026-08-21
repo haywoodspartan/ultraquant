@@ -1449,6 +1449,12 @@ _POLAR_DERIVES = True
 #: arm turns it off.
 _WHY_ANSWERS = True
 
+#: The §11.53 rung: a statement that conflicts with held belief is
+#: revised ALOUD - the old belief named, the retracted derivatives
+#: counted - instead of behind a bare "Noted:". The revision gate's
+#: baseline arm turns it off.
+_REVISION_ALOUD = True
+
 
 def _split_polarity(value: str) -> tuple[str, bool]:
     """Split a statement value into (value, negated).
@@ -1559,9 +1565,29 @@ class Learn(Thought):
         if intent == "fact_statement" and ctx.data.get("statement"):
             key, value = ctx.data["statement"]
             value, negated = _split_polarity(value)
-            session.memory.remember_fact(key, value, confidence=0.6,
-                                         negated=negated)
+            result = session.memory.remember_fact(key, value,
+                                                  confidence=0.6,
+                                                  negated=negated)
             learned.append(f"fact {key!r}")
+            if (_REVISION_ALOUD and isinstance(result, dict)
+                    and result.get("outcome") == "revised"):
+                # Honest aloud reaches belief CHANGE: the episode log
+                # always recorded revisions, but the reply said the
+                # same bare "Noted:" for a change of mind as for news.
+                # The old belief is named so it can be defended, and
+                # the retractions are counted so the cost is visible.
+                notice = (f"That revises what I held: {key} was "
+                          f"{result['was']}.")
+                retracted = result.get("retracted") or []
+                if retracted:
+                    names = ", ".join(repr(k) for k in retracted)
+                    notice += (f" {len(retracted)} derived fact(s) "
+                               f"rested on it and were retracted: "
+                               f"{names}.")
+                ctx.say(notice)
+                ctx.data["response"] = " ".join(
+                    part.strip() for part in ctx.response_parts
+                    if part.strip())
 
         # Web claims only cross into memory once independent sources agree.
         promoted: list[int] = []

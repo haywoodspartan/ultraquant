@@ -191,7 +191,7 @@ class SystematicMemory:
         return [key for _o, _w, key in scored[:top_k]]
 
     def remember_fact(self, key: str, value: Any, confidence: float = 0.5,
-                      negated: bool = False) -> None:
+                      negated: bool = False) -> dict:
         """Store, reinforce, or revise a semantic fact.
 
         * New key → stored with the given confidence and 0 reinforcements.
@@ -211,6 +211,13 @@ class SystematicMemory:
                 ``negated`` flag carries the polarity).
             confidence: Belief strength for a new or revised fact.
             negated: True to store belief-of-absence.
+
+        Returns:
+            ``{"outcome": "new" | "reinforced" | "revised"}`` — a
+            revision additionally carries ``"was"`` (the old belief in
+            spoken form, polarity included) and ``"retracted"`` (the
+            derived keys truth maintenance took down), so the surface
+            can SAY what changed instead of noting a change silently.
         """
         now = _utc_now()
         existing = self._fact_record(key)
@@ -225,38 +232,43 @@ class SystematicMemory:
             if negated:
                 record["negated"] = True
             self._put_fact(key, record)
-        elif (existing["value"] == value
-              and bool(existing.get("negated")) == bool(negated)):
+            return {"outcome": "new"}
+        if (existing["value"] == value
+                and bool(existing.get("negated")) == bool(negated)):
             existing["confidence"] = min(1.0, existing["confidence"] + 0.1)
             existing["reinforcements"] += 1
             existing["last_seen"] = now
             self._put_fact(key, existing)
+            return {"outcome": "reinforced"}
+        old_value = existing["value"]
+        was = (f"not {old_value}" if existing.get("negated")
+               else str(old_value))
+        existing["value"] = value
+        if negated:
+            existing["negated"] = True
         else:
-            old_value = existing["value"]
-            existing["value"] = value
-            if negated:
-                existing["negated"] = True
-            else:
-                existing.pop("negated", None)
-            existing["confidence"] = float(confidence)
-            existing["last_seen"] = now
-            # A revision breaks every conclusion that rested on the old
-            # value: truth maintenance retracts derived facts recursively,
-            # so the next question re-derives from what is NOW believed
-            # instead of recalling a conclusion whose premise is gone.
-            existing.pop("derived_from", None)
-            self._put_fact(key, existing)
-            for gone in self._retract_derivatives(key):
-                self.remember_episode(
-                    kind="retraction",
-                    content={"key": gone,
-                             "because": f"premise {key!r} was revised"},
-                )
+            existing.pop("negated", None)
+        existing["confidence"] = float(confidence)
+        existing["last_seen"] = now
+        # A revision breaks every conclusion that rested on the old
+        # value: truth maintenance retracts derived facts recursively,
+        # so the next question re-derives from what is NOW believed
+        # instead of recalling a conclusion whose premise is gone.
+        existing.pop("derived_from", None)
+        self._put_fact(key, existing)
+        retracted = list(self._retract_derivatives(key))
+        for gone in retracted:
             self.remember_episode(
-                "revision",
-                {"key": key, "old_value": old_value, "new_value": value},
-                tags=["fact", key],
+                kind="retraction",
+                content={"key": gone,
+                         "because": f"premise {key!r} was revised"},
             )
+        self.remember_episode(
+            "revision",
+            {"key": key, "old_value": old_value, "new_value": value},
+            tags=["fact", key],
+        )
+        return {"outcome": "revised", "was": was, "retracted": retracted}
 
     def confirm_fact(self, key: str, confidence: float = 0.9) -> bool:
         """Set a fact's confidence outright, as direct testimony.

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.33 · 1487 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.34 · 1499 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         86 modules, 1487 tests
+tests/         87 modules, 1499 tests
 ```
 
 ---
@@ -3408,6 +3408,37 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.53 A change of mind, said out loud
+
+The episode log has recorded every revision since §11.16's era, truth
+maintenance has retracted resting derivatives since §11.30, and §11.48
+made polarity flips revisions — but the reply said the same bare
+"Noted:" for a change of mind as for news. The honest-aloud principle
+stopped exactly where a mind most owes an account: when it contradicts
+itself. Now `remember_fact` reports its outcome (new / reinforced /
+revised, with the old spoken form and the retracted keys — an additive
+return nothing previously read), and the Learn stage narrates a real
+conflict: "Noted: tower material is steel. That revises what I held:
+tower material was iron. 1 derived fact(s) rested on it and were
+retracted: 'tower hardness'." Polarity flips speak both sides ("was
+not steel"). The line the controls hold at zero: only a REAL conflict
+earns the notice — a reinforcement is not a revision, news is not a
+revision, and a system that cries "revised" at agreements is as
+unaccountable as one that revises silently.
+
+The gate (`experiments/revision_gate.py`) ran `_REVISION_ALOUD` off
+against on. Its first run measured the mechanism perfect and FAILED on
+the variance rule — every world gave +1.000, the seventh "nothing
+varied" in the book — and was hardened the standing way: the
+unwinnable scored into the metric, never the rule softened. The
+honest unwinnable is the exact-key ceiling: "the old tower material
+is ..." against a stored "tower material" stores a NEW fact and
+narrates nothing, by design. With ~25% near-key statements scored at
+zero for both arms (and doubling as false-notice bait): **PASS,
+0.000 -> 0.803 at 5.03x seed sd**, zero agreements called revisions,
+zero near-key false notices, and semantics at 1.000 in both arms —
+speaking the change changed nothing about what happened.
 
 ### 11.52 The fourth fact: a stated limit moved by measurement
 
