@@ -98,6 +98,10 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  is-it-so     "is 2 + 2 = 5?" / "is 3 * 4 greater than 10?" / "is the
+               tower height * 2 greater than 500 meters?" - either side
+               may be a number, a quantity, a belief or an expression,
+               and a side that cannot be read refuses rather than guess
   powers       "what is 2 ^ 10?" / "what is 5 squared?" / "what is
                the square root of 16?" - whole powers exact, rational
                roots exact, and an irrational root given as proved

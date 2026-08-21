@@ -847,6 +847,12 @@ def evaluate(text: str, memory=None) -> MathResult | None:
     stripped = strip_question(text)
     if not stripped:
         return None
+    if stripped.startswith(("is ", "are ", "was ", "were ")):
+        # A polar lead asks whether something HOLDS, which is
+        # §11.83's question and not this one. Reading it here made
+        # "is 2 + 2 equal to 4?" refuse with "I hold nothing for
+        # 'is'" - a refusal about the wrong word entirely.
+        return None
     try:
         read = _tokenize(stripped, memory)
     except _NotArithmetic:

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.71 · 1762 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.72 · 1773 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         115 modules, 1762 tests
+tests/         116 modules, 1773 tests
 ```
 
 ---
@@ -3409,6 +3409,56 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.83 Asking whether the arithmetic holds
+
+The system could compute "2 + 2" and could compare two beliefs, and
+could do nothing with the question that joins them:
+
+```
+> is 2 + 2 = 5?
+  I don't hold anything on that yet.
+> is 3 * 4 greater than 10?
+  I can't compare those: I hold nothing for '3 * 4'.
+```
+
+The second refusal is the honest shape of the gap: '3 * 4' really is
+not a key, and saying so is true and useless, because the question
+carries its own left-hand side and the reader that evaluates it was
+already in the building. A comparison side may be an EXPRESSION now,
+and the branch has learned equality — "=", "equals", "equal to" —
+which pivots exactly as "taller than" does, so both sides go through
+the same machinery: units, conversions, derived operands and all.
+The equals sign is split out of whatever it was written against, so
+"is 2+2=4?" reads.
+
+Everything composes because nothing was special-cased:
+
+```
+> is the tower height * 2 greater than 500 meters?
+  Yes - tower height * 2 is 600 meters, 500 meters (confidence 0.60)
+```
+
+That multiplies a belief and keeps its unit (§11.78), compares
+against a quantity nobody stored (§11.82), and reads the whole left
+side as an expression (here) — three rungs built separately, for
+separate reasons, meeting in one sentence because each was built as
+a rule rather than a case.
+
+One bug was fixed on the way in, and it was §11.78's own: its reader
+was taking polar questions, so "is 2 + 2 equal to 4?" refused with
+"I hold nothing for 'is'" — a refusal about the wrong word entirely.
+A polar lead asks whether something HOLDS, which is this rung's
+question, and the reader declines it.
+
+The gate (`experiments/polararith_gate.py`) ran `_EXPRESSION_OPERANDS`
+off against on. **PASS on the first run: 0.341 -> 1.000, +0.659 at
+8.52x seed sd, zero wrong verdicts, zero unreadable sides answered,
+zero comparisons moved, zero plain polar answers moved.** The
+equality voice is deliberate: "Yes - 4, 4" is a machine agreeing
+with itself, while "Yes - 2 + 2 is 4" and "No - 2 + 2 is 4, not 5"
+are the shapes the polar family has used since §11.48, so the newest
+question sounds like the oldest one.
 
 ### 11.82 A coin that always said No
 

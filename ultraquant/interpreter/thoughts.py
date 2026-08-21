@@ -1331,6 +1331,12 @@ class Reason(Thought):
             if rest.startswith(article):
                 rest = rest[len(article):]
         words = rest.split()
+        if _EXPRESSION_OPERANDS and "=" in rest:
+            # "2+2=4" is a single token to split(); the equals sign
+            # is an operator wherever it is written, so it becomes
+            # its own token before anything counts words.
+            words = [part for word in words
+                     for part in _EQUALS_RE.split(word) if part]
         if len(words) < 2:
             return False
 
@@ -2009,15 +2015,30 @@ class Reason(Thought):
                                                  _unit)
 
         comp_at = None
+        skip = 2
         for index, word in enumerate(words[1:-1], start=1):
             direction = _COMBINE_WORDS.get(word)
             if (direction in ("larger", "smaller")
                     and words[index + 1] == "than"):
                 comp_at = index
                 break
+        if comp_at is None and _EXPRESSION_OPERANDS:
+            # §11.83: equality is the comparison people ask most and
+            # the one this branch could not hear. "=" , "equals" and
+            # "equal to" pivot the same way "taller than" does, so
+            # the two sides go through the same machinery - units,
+            # derivations and expressions included.
+            for index, word in enumerate(words[1:-1], start=1):
+                if word in ("=", "equals"):
+                    comp_at, skip, direction = index, 1, "equal"
+                    break
+                if word == "equal" and words[index + 1] == "to":
+                    comp_at, skip, direction = index, 2, "equal"
+                    break
         if comp_at is None:
             return False
-        direction = _COMBINE_WORDS[words[comp_at]]
+        if direction != "equal":
+            direction = _COMBINE_WORDS[words[comp_at]]
 
         def _side(side_words: list[str]) -> str:
             out = list(side_words)
@@ -2027,7 +2048,7 @@ class Reason(Thought):
             return " ".join(out)
 
         left_key = _side(words[:comp_at])
-        right_key = _side(words[comp_at + 2:])
+        right_key = _side(words[comp_at + skip:])
         if not left_key or not right_key:
             return False
 
@@ -2037,6 +2058,7 @@ class Reason(Thought):
         sides = {}
         trails = {}
         literals: set[str] = set()
+        expressions: set[str] = set()
         for name, key in (("left", left_key), ("right", right_key)):
             record = memory.recall_fact(key)
             if record is None and _IMPLIED_ATTRS_ON:
@@ -2086,6 +2108,21 @@ class Reason(Thought):
                     record = {"value": _shown_quantity(written),
                               "confidence": 1.0}
                     literals.add(name)
+                elif _EXPRESSION_OPERANDS:
+                    # §11.83: the side may be an EXPRESSION. "is 3 *
+                    # 4 greater than 10?" named '3 * 4' as an unheld
+                    # key, which is true and useless - the question
+                    # carries its own left-hand side, and the reader
+                    # that evaluates it is already here.
+                    worked = calculate.evaluate(f"what is {key}?",
+                                                memory)
+                    if worked is not None and worked.answered:
+                        record = {"value": worked.shown,
+                                  "confidence": (worked.confidence
+                                                 if worked.confidence
+                                                 is not None else 1.0)}
+                        literals.add(name)
+                        expressions.add(name)
             if record is None:
                 ctx.say(f"I can't compare those: I hold nothing for "
                         f"'{key}'.")
@@ -2125,12 +2162,14 @@ class Reason(Thought):
                 return True
             r_in_l = _convert(r_num, r_unit, l_unit)
             wins = (l_num > r_in_l if direction == "larger"
-                    else l_num < r_in_l)
+                    else l_num < r_in_l if direction == "smaller"
+                    else l_num == r_in_l)
             equal = l_num == r_in_l
             converted = " (units converted)"
         else:
             wins = (l_num > r_num if direction == "larger"
-                    else l_num < r_num)
+                    else l_num < r_num if direction == "smaller"
+                    else l_num == r_num)
             equal = l_num == r_num
         confidence = min(float(l_rec.get("confidence", 0.0)),
                          float(r_rec.get("confidence", 0.0)))
@@ -2140,13 +2179,29 @@ class Reason(Thought):
                   if "right" in trails else "")
         # A written quantity is its own name: "200 meters is 200
         # meters" would be a strange thing to read back.
-        left_piece = (f"{l_rec.get('value', '')}" if "left" in literals
-                      else f"{l_key} is {l_rec.get('value', '')}")
-        right_piece = (f"{r_rec.get('value', '')}"
-                       if "right" in literals
-                       else f"{r_key} is {r_rec.get('value', '')}")
+        def _piece(name: str, key: str, record: dict) -> str:
+            value = record.get("value", "")
+            if name in expressions:
+                # An expression names itself and its value, so the
+                # reading stays checkable: "3 * 4 is 12".
+                return f"{key} is {value}"
+            return value if name in literals else f"{key} is {value}"
+
+        left_piece = _piece("left", l_key, l_rec)
+        right_piece = _piece("right", r_key, r_rec)
         both = f"{left_piece}{l_mark}, {right_piece}{r_mark}"
-        if equal:
+        if direction == "equal":
+            # "Yes - 2 + 2 is 4." reads like every other polar
+            # answer; "Yes - 4, 4" reads like a machine agreeing
+            # with itself.
+            if equal:
+                ctx.say(f"Yes - {left_piece}{l_mark}{converted} "
+                        f"(confidence {confidence:.2f}).")
+            else:
+                ctx.say(f"No - {left_piece}{l_mark}, not "
+                        f"{r_rec.get('value', '')}{converted} "
+                        f"(confidence {confidence:.2f}).")
+        elif equal:
             ctx.say(f"No - they are equal: {both}{converted} "
                     f"(confidence {confidence:.2f}).")
         elif wins:
@@ -2449,6 +2504,17 @@ _IMPLIED_ATTRS_ON = True
 #: the same expressions in binary floating point - the standard
 #: option, honestly implemented.
 _ARITHMETIC_ON = True
+
+#: The equals sign, split out of whatever it was written against.
+_EQUALS_RE = re.compile(r"(=)")
+
+#: The §11.83 rung: a comparison side may be an EXPRESSION, and
+#: equality is a comparison. "is 3 * 4 greater than 10?" named
+#: '3 * 4' as an unheld key - true and useless, when the question
+#: carries its own left-hand side - and "is 2 + 2 = 5?" was heard by
+#: nobody at all. The polar-arithmetic gate's baseline arm turns it
+#: off.
+_EXPRESSION_OPERANDS = True
 
 #: The §11.82 rung: a comparison is answered by comparing, or
 #: refused - never by checking whether the stored value happens to
