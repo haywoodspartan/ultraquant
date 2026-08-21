@@ -6,21 +6,23 @@
 // pipeline produces IS a sentence - so the gate compares the words,
 // not a structure that could be worded two ways.
 //
-// Scope, stated rather than implied. This unit ports the spine:
+// Scope, stated rather than implied, and kept current by a test
+// rather than by good intentions. Ported:
 //
 //   * intent - a statement, a question, an expression, or chat
 //   * statements - parsed, stored, spoken back, with polarity, with
 //     a revision named aloud, with the near-key adjacency note
-//   * questions - the arithmetic and list readers, then the exact
-//     recall branch with §11.29's coverage rule, then nearest-held,
-//     then the honest unknown
+//   * questions - the arithmetic and list readers, the superlative
+//     and aggregate families, chains and the curiosity hint, the
+//     yes/no family (claims, choices, comparisons, derived
+//     subjects), then the exact recall branch with the coverage
+//     rule, then nearest-held, then the honest unknown
 //
-// NOT ported here, and so not claimed: polar questions, why, the
-// comparative and superlative families, aggregates, history,
-// choices, testimony, conjunctions and clause splitting, chains,
-// glyphs, goals, URLs and the learning mode. Those arrive with their
-// own gates; a gate whose corpus quietly avoids what a tier cannot
-// do has measured nothing.
+// NOT ported here, and so not claimed: why, history, testimony,
+// conjunctions and clause splitting, glyphs, goals, URLs, the
+// learning mode, and arithmetic whose operands name beliefs. Those
+// arrive with their own gates; a gate whose corpus quietly avoids
+// what a tier cannot do has measured nothing.
 #ifndef UQ_INTERPRETER_HPP
 #define UQ_INTERPRETER_HPP
 

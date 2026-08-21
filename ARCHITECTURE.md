@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.85 · 1895 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.86 · 1912 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -225,7 +225,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         129 modules, 1895 tests
+tests/         130 modules, 1912 tests
 ```
 
 ---
@@ -3411,6 +3411,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.97 The yes/no family, natively
+
+Four question forms ported at once, because they share one door and
+one discipline and splitting them would gate a half-open door: "is X
+Y?" against a held belief, "is X A or B?" where the disjuncts are
+offered values, "is A taller than B?" with units and derived
+operands, and "is <derivable subject> Y?", which derives its own
+subject through the chain machinery before it can check anything.
+
+**The discipline is the thing worth porting carefully: absence is
+never No.** A subject the library holds nothing about gets no
+verdict - it falls through to the hedge, because "no" is reserved
+for actual contrary belief, held either as a different value or as a
+stored denial. That line is easy to state and easy to break in a
+port, because every way of breaking it produces a confident,
+plausible, wrong sentence. So the corpus asks about subjects that
+are not there, and both tiers have to decline in the same words.
+
+**One known gap, provoked rather than avoided.** A comparison side
+may be an expression over BELIEFS - "is the tower height * 2 taller
+than the bridge length?" - which needs §11.78's derived-operand
+reader, and that is not in this tier. Rather than choose a corpus
+that never asks, the corpus asks freely and the gate CLASSIFIES
+every difference.
+
+**PASS: 1,624 turns across 24 conversations, zero unexplained
+differences, zero intent differences, zero stores differing, zero
+fabricated verdicts over 109 questions about unheld subjects**, with
+74 of the 89 belief-operand turns counted as the named gap.
+Coverage: 613 statements, 176 polar questions about held facts, 140
+comparisons that must refuse aloud, 114 against a written quantity,
+113 choices, 111 between two held numbers, 92 with a derived
+subject, 67 over literal expressions.
+
+**A pass on the first run is a claim about the gate as much as the
+port, so the gate was checked against itself.** With the branch
+disabled and the tier rebuilt, 80 of 180 turns differ. A gate that
+cannot fail has measured nothing, and this one can - which is worth
+the two minutes it costs to find out, on a unit where 450 lines of
+someone else's semantics were reproduced in one pass.
+
+Two numbers are quieter than the headline. **Zero fabricated
+verdicts** is a criterion checked SEPARATELY from parity, on
+purpose: two tiers agreeing on a confident wrong answer would sail
+through a parity gate without either of them being right. And **74
+of 89**, not 89 of 89 - fifteen belief-operand comparisons agreed
+anyway, because a side the Python tier also could not read refuses
+in the same words. The gap is narrower than the form that provokes
+it.
+
+The unit also closed a stale scope claim. `interpreter.hpp` still
+listed superlatives, aggregates and chains as unported after §11.92
+and §11.93 landed them; the new pin reads only the NOT-ported
+sentence, so the header cannot go quietly out of date again.
 
 ### 11.96 Tensors that go into the library
 

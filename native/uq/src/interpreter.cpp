@@ -9,6 +9,7 @@
 #include "uq/calculate.hpp"
 #include "uq/text.hpp"
 #include "uq/forms.hpp"
+#include "uq/polar.hpp"
 #include "uq/inference.hpp"
 
 namespace uq {
@@ -332,6 +333,14 @@ Turn Session::answer_question(const std::string& text) {
             ? " (exact - that value has no decimal form)" : "";
         turn.response = listed.expression + " = " + listed.shown + exact
             + " - computed, not stored.";
+        return turn;
+    }
+
+    // The yes/no family runs after every branch that reads a WORD
+    // question form and before recall, because a recall of one
+    // operand is not an answer to a comparison.
+    if (polar_answer(text, memory_, said)) {
+        turn.response = said;
         return turn;
     }
 
