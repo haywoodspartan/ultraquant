@@ -65,7 +65,31 @@ UltraQuant Chat/Interpreter - commands:
   :attach <file.uql>     attach an existing shard library
   :snapshot              commit an Ar(T)chive snapshot
   :quit                  leave
-Anything else is treated as input to the thought pipeline."""
+Anything else is treated as input to the thought pipeline, which
+understands - among others - these forms:
+  statements   "the tower material is iron" / "... is not steel"
+               (a conflicting statement is revised aloud: the old
+               belief named, retracted derivations counted)
+  questions    "what is the tower material?"
+  chains       "what is the tower architect hometown region climate?"
+               (up to four facts bridged; the trail is the answer)
+  yes/no       "is the tower material iron?" - yes against belief, no
+               against contrary belief, and an honest don't-know
+               otherwise; absence is never no
+  why          "why is the tower hardness 490 units?" - answered from
+               provenance; a false premise is corrected, never
+               explained
+  compare      "is the tower height taller than the bridge height?"
+               (units convert; missing operands refuse aloud; operands
+               the store lacks are derived and marked)
+  which        "which height is the tallest?" - ranked over every held
+               fact, scope named, ties named, denials never counted
+  aggregates   "how many height facts do you hold?" / "what is the
+               total height?" / "what is the average height?"
+  arithmetic   "what is the sum of the tower height and the bridge
+               height?" (named operands; units convert or refuse)
+  affirmation  "yes" after a derived answer consolidates it - and a
+               revised premise takes its consolidations down"""
 
 
 class ChatCLI:

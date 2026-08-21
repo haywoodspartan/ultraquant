@@ -180,5 +180,31 @@ class EmptyTrainingReportTests(unittest.TestCase):
         self.assertNotIn("0.000", text)
 
 
+class HelpFormsTests(unittest.TestCase):
+    """The question forms the pipeline understands are discoverable.
+
+    §11.45-§11.57 added ten forms; a capability the ':help' text does
+    not name is half-shipped. These pins keep the help current - a new
+    form without its line fails here."""
+
+    def test_every_question_family_is_named(self) -> None:
+        from ultraquant.interpreter.chat import HELP
+
+        for marker in ("is not steel",
+                       "revised aloud",
+                       "hometown region climate",
+                       "absence is never no",
+                       "why is the tower hardness",
+                       "corrected, never",
+                       "taller than the bridge height",
+                       "derived and marked",
+                       "which height is the tallest",
+                       "how many height facts",
+                       "average height",
+                       "consolidates it"):
+            self.assertIn(marker, HELP,
+                          f"help text lost the {marker!r} form")
+
+
 if __name__ == "__main__":
     unittest.main()
