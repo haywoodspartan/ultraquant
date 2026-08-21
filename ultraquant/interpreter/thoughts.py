@@ -1486,6 +1486,24 @@ class Reason(Thought):
         memory = ctx.session.memory
         fact = memory.recall_fact(subject)
         if fact is None:
+            # §11.65: a subject no longer held may still have a
+            # RECORDED ending - a consolidated fact taken down by
+            # truth maintenance. The record answers; nothing else
+            # does, and an unrecorded absence stays a hedge.
+            takedowns = memory.recall_episodes(kind="retraction",
+                                               tags=[subject],
+                                               limit=5)
+            takedowns = [ep for ep in takedowns
+                         if ep["content"].get("key") == subject]
+            if takedowns:
+                because = takedowns[0]["content"].get("because", "")
+                ctx.say(f"I no longer hold {subject}: retracted - "
+                        f"{because}. It had been consolidated from a "
+                        "derivation, and a conclusion does not outlive "
+                        "its premise.")
+                ctx.note(self.name,
+                         f"retraction history for {subject!r}")
+                return True
             return False
         episodes = memory.recall_episodes(kind="revision",
                                           tags=[subject], limit=20)

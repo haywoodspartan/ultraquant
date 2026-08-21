@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.46 · 1584 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.47 · 1590 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         97 modules, 1584 tests
+tests/         98 modules, 1590 tests
 ```
 
 ---
@@ -3408,6 +3408,33 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.65 What happened: the retraction, askable — the tense family closes
+
+§11.64 opened the revision record's read side; this unit opens the
+other ending. A consolidated fact that truth maintenance takes down
+(§11.30: a conclusion does not outlive its premise) simply vanished —
+the user who watched it consolidate found a hedge where it stood,
+though the retraction episode records exactly what happened and why.
+The data had the same gap §11.64's polarity fix closed: retraction
+episodes carried no tags and could not be found by key. Tagged now, a
+past-tense question over a subject no longer held answers from the
+record — "I no longer hold tower hardness: retracted — premise 'tower
+material' was revised. It had been consolidated from a derivation,
+and a conclusion does not outlive its premise" — while the PRESENT
+tense honestly re-derives forward from the new premise instead of
+mourning the old conclusion. The zero-invention line extends
+unchanged: only a recorded ending answers; an ending invented is a
+history invented.
+
+The gate (`experiments/retraction_gate.py`) ran the flag's two arms
+over consolidate-then-revise sequences built live through the affirm
+flow. **PASS on the first run: 0.369 -> 1.000, +0.631 at 7.82x seed
+sd, zero endings invented**, with the §11.64 histories and the
+present untouched in both arms. The tense family is complete: what is
+(recall and derivation), what was (§11.64), what happened (here), and
+why (§11.51) — one record, four doors, nothing invented through any
+of them.
 
 ### 11.64 What was: belief history, askable — and never invented
 

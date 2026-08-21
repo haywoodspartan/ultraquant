@@ -258,10 +258,14 @@ class SystematicMemory:
         self._put_fact(key, existing)
         retracted = list(self._retract_derivatives(key))
         for gone in retracted:
+            # §11.65: tagged by the retracted key, so "what was X?"
+            # can find the takedown after the fact is gone - the same
+            # gap the polarity fix closed for revisions.
             self.remember_episode(
                 kind="retraction",
                 content={"key": gone,
                          "because": f"premise {key!r} was revised"},
+                tags=["fact", gone],
             )
         # §11.64: the episode logs SPOKEN forms, polarity included -
         # a §11.48 flip's history must read "was not steel", not
