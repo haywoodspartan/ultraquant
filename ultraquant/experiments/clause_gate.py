@@ -74,6 +74,15 @@ its value verbatim, because splitting it would fabricate a certainty
 the speaker never offered. Four joiners split, one refuses, and both
 choices are the same choice: say exactly what was said.
 
+**Run five closed the separator class with the period** — pasted
+prose being the most common multi-fact input of all: "The tower
+material is iron. The bridge material is steel." teaches both
+sentences. Decimals never split (no space after their dot) and
+abbreviations ("40 sq. meters") survive by the same structural guard
+as every idiom, contrast, and list before them — five boundaries,
+one rule, zero vocabulary. A paragraph of facts is a paragraph of
+facts now.
+
 Run it::
 
     python -m ultraquant.experiments.clause_gate
@@ -97,7 +106,7 @@ _NOUNS = ["tower", "bridge", "spire", "tunnel", "gate", "dome", "mill",
 _MATERIALS = ["steel", "iron", "copper", "granite", "oak", "bronze"]
 _AND_VALUES = ["live and learn", "slow and steady", "safe and sound",
                "slow but steady", "small but mighty",
-               "1, 2, 3", "iron or steel"]
+               "1, 2, 3", "iron or steel", "40 sq. meters"]
 
 
 @dataclass
@@ -216,7 +225,7 @@ def run_gate(seeds: int = 12) -> ClauseReport:
                             clauses.append(
                                 f"the {e} material is {neg}{v}")
                         joiner = rng.choice((" and ", " but ",
-                                             ", ", "; "))
+                                             ", ", "; ", ". "))
                         response, _t = run_pipeline(
                             joiner.join(clauses), session)
                         good = True

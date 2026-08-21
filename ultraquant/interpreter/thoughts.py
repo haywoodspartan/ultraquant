@@ -2339,7 +2339,11 @@ def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
     # "or" is deliberately absent: "the material is iron or steel"
     # states UNCERTAINTY, not two facts, and splitting it would
     # fabricate certainty - the value is stored verbatim instead.
-    joiners = [j for j in (" and ", " but ", ", ", "; ")
+    # The period closes the separator class: pasted prose is the
+    # most common multi-fact input of all. Decimals are safe (no
+    # space after their dot) and abbreviations survive by the same
+    # structural guard as every idiom - their right side has no verb.
+    joiners = [j for j in (" and ", " but ", ", ", "; ", ". ")
                if j in lowered_all]
     if not joiners:
         return None

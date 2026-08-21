@@ -108,6 +108,25 @@ class ClauseTests(unittest.TestCase):
             self.session.memory.recall_fact("keep material")["value"],
             "iron or steel")
 
+    def test_period_sentences_each_teach(self) -> None:
+        """Run five: pasted prose is the most common multi-fact
+        input of all."""
+        self._say("The spire height is 90 meters. The dome height is "
+                  "45 meters.")
+        self.assertEqual(
+            self.session.memory.recall_fact("dome height")["value"],
+            "45 meters")
+
+    def test_decimals_and_abbreviations_survive(self) -> None:
+        self._say("the price is 3.5 dollars")
+        self.assertEqual(
+            self.session.memory.recall_fact("price")["value"],
+            "3.5 dollars")
+        self._say("the area is 40 sq. meters")
+        self.assertEqual(
+            self.session.memory.recall_fact("area")["value"],
+            "40 sq. meters")
+
     def test_an_and_value_survives_whole(self) -> None:
         """A split that fired on any "and" would shred ordinary
         values; it fires only where both sides parse as statements."""
