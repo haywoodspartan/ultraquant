@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.30 · 1456 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.31 · 1468 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         83 modules, 1456 tests
+tests/         84 modules, 1468 tests
 ```
 
 ---
@@ -3408,6 +3408,43 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.50 Polar questions answered through chains: the family closes
+
+The seam left between §11.48 and §11.49: "is the dome city climate
+temperate?" when no fact holds the key "dome city climate" — derivable
+("dome city is york"; "york climate is not temperate" entails No), but
+the polar branch only consulted recall. Now a polar question whose
+subject is not stored DERIVES it: the subject ladder walks longest
+first, treating "subject" as a stored key OR a derivable one, and the
+derived value meets the claim under the same matrix stored facts use —
+polarity included ("No - the dome city climate is believed not
+temperate, via york (derived)"), absence still never no, every verdict
+marked derived with its trail, and an affirmation consolidating the
+conclusion under §11.33's protocol.
+
+Building the ladder caught two split bugs before the gate ran. A
+stored SHORT prefix could claim a question about a longer derivable
+subject — "dome city climate temperate" matched the stored "dome
+city" and answered about the city — so derivation now gets its try at
+each size before shorter stored keys are consulted. And a wrong split
+could survive by modifier tolerance — "tower hardness 490" derived
+with '490' read as a modifier — so a derivation that reads part of
+its own subject away refuses (the dropped word belongs to the claim),
+and a trailing "not" may never end a subject (the polarity word
+belongs to the claim: "dome city climate not" / "temperate" once
+answered No where the claim agreed).
+
+The gate (`experiments/polarderive_gate.py`) ran `_POLAR_DERIVES`
+off against on: derivable polar questions of four kinds, polar
+questions over negated middles (the inhibition line crossing into the
+interrogative form, zero tolerance), direct-fact polar and recall as
+floors. **PASS on the first run: 0.688 -> 1.000, +0.312 at 5.11x seed
+sd** — perfect on every derived kind, zero on every control, floors
+at 1.000 in both arms. The §11.48 family is closed: statements parse
+polarity, storage carries it, reasoning is inhibited by it, terminals
+speak it, and questions — recalled or derived — meet it with one
+matrix.
 
 ### 11.49 Denials speak at terminals, and only at terminals
 

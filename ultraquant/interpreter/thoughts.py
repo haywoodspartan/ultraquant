@@ -1162,6 +1162,11 @@ class Reason(Thought):
         fact = None
         key = ""
         claim_words: list[str] = []
+        # One ladder, longest subject first, where "subject" means a
+        # stored key OR a derivable one. "dome city climate temperate"
+        # must try deriving "dome city climate" BEFORE the stored
+        # "dome city" claims the split - the first cut answered about
+        # the city when the question asked about the climate.
         for size in range(len(words) - 1, 0, -1):
             candidate = " ".join(words[:size])
             record = memory.recall_fact(candidate)
@@ -1169,6 +1174,9 @@ class Reason(Thought):
                 fact, key = record, candidate
                 claim_words = words[size:]
                 break
+            if len(words) - size <= 2 and size >= 2:
+                if self._polar_derive(ctx, words[:size], words[size:]):
+                    return True
         if fact is None:
             return False
         claim_negated = any(w in ("not", "never") for w in claim_words)
@@ -1205,6 +1213,79 @@ class Reason(Thought):
         ctx.note(self.name, f"polar question against {key!r}")
         return True
 
+    def _polar_derive(self, ctx: ThoughtContext, subject_words: list[str],
+                      claim_words: list[str]) -> bool:
+        """Answer a polar question by DERIVING the subject - §11.50.
+
+        "is the dome city climate temperate?" with only "dome city is
+        york" and "york climate is not temperate" held: the chain
+        machinery answers "what is the dome city climate?" and the
+        derived value meets the claim under the same matrix direct
+        facts use - polarity included, absence still never no, and the
+        reply marked derived with its trail so the verdict can be
+        vetoed premise by premise.
+        """
+        if not _POLAR_DERIVES:
+            return False
+        if subject_words and subject_words[-1] in ("not", "never"):
+            # The split landed mid-claim: "dome city climate not" /
+            # "temperate" absorbed the polarity word into the subject
+            # and answered No where the claim agreed. The negator
+            # belongs to the claim; let the next size put it there.
+            return False
+        from ultraquant.reason.inference import infer
+        from ultraquant.shards.router import _informative, normalize_token
+
+        claim_negated = any(w in ("not", "never") for w in claim_words)
+        claimed = " ".join(w for w in claim_words
+                           if w not in ("not", "never", "a", "an", "the"))
+        if not claimed:
+            return False
+        subject = " ".join(subject_words)
+        derived = infer(f"what is the {subject}?", ctx.session.memory)
+        if derived is None:
+            return False
+        if "as a modifier" in derived.answer \
+                or "as modifiers" in derived.answer:
+            # The derivation only converged by reading part of THIS
+            # subject away - which means the split was wrong (the
+            # dropped word belongs to the claim: "tower hardness 490"
+            # derived by dropping '490'). Let a shorter subject try.
+            return False
+        if derived.conclusion is not None:
+            d_key, d_value = derived.conclusion
+            ctx.session.pending_inference = {
+                "key": d_key, "value": d_value,
+                "confidence": derived.confidence,
+                "premises": list(derived.premises),
+                "negated": bool(derived.negated),
+            }
+        fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
+                             in _TOKEN_RE.findall(str(text).lower())
+                             if _informative(tok)}
+        matches = (fold(claimed)
+                   == fold(str(derived.conclusion[1]
+                               if derived.conclusion else "")))
+        suffix = f" (derived, confidence {derived.confidence:.2f})."
+        if not derived.negated:
+            if matches:
+                verdict = "No" if claim_negated else "Yes"
+            else:
+                verdict = "Yes" if claim_negated else "No"
+            ctx.say(f"{verdict} - {derived.answer}{suffix}")
+        elif matches:
+            verdict = "Yes" if claim_negated else "No"
+            ctx.say(f"{verdict} - {derived.answer}{suffix}")
+        else:
+            # A derived negation of one value says nothing about
+            # another - same line as the stored case.
+            ctx.say(f"I don't know - I can only derive that "
+                    f"{derived.answer}{suffix}")
+        ctx.note(self.name,
+                 f"polar question derived through "
+                 f"{len(derived.premises)} premise(s)")
+        return True
+
     def _fact(self, ctx: ThoughtContext) -> None:
         parsed = _parse_statement(ctx.text)
         if parsed is None:
@@ -1233,6 +1314,11 @@ class Reason(Thought):
 #: it off to measure shipped behavior ("not steel" stored as a value,
 #: no polar questions). Sessions run with it on.
 _NEGATION_AWARE = True
+
+#: The §11.50 rung: polar questions with no direct fact may DERIVE
+#: their verdict through the chain machinery. The polar-derive gate's
+#: baseline arm turns it off.
+_POLAR_DERIVES = True
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:
