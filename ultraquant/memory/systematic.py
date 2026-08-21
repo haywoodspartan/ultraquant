@@ -263,9 +263,14 @@ class SystematicMemory:
                 content={"key": gone,
                          "because": f"premise {key!r} was revised"},
             )
+        # §11.64: the episode logs SPOKEN forms, polarity included -
+        # a §11.48 flip's history must read "was not steel", not
+        # "was steel". Old episodes keep their old shape; history
+        # answers read whichever form an episode carries.
+        now_shown = f"not {value}" if negated else str(value)
         self.remember_episode(
             "revision",
-            {"key": key, "old_value": old_value, "new_value": value},
+            {"key": key, "old_value": was, "new_value": now_shown},
             tags=["fact", key],
         )
         return {"outcome": "revised", "was": was, "retracted": retracted}

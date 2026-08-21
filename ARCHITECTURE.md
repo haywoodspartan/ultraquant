@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.45 · 1574 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.46 · 1584 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         96 modules, 1574 tests
+tests/         97 modules, 1584 tests
 ```
 
 ---
@@ -3408,6 +3408,35 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.64 What was: belief history, askable — and never invented
+
+Every change of mind has been an episode since §11.16's era, a spoken
+notice since §11.53, and a queryable provenance since §11.51 — but
+"what was the tower material?" answered with the present: the record
+was write-only. Past-tense questions ("what was X?", "what did X used
+to be?") now answer from the revision episodes — every past belief
+named in order with its count ("It was iron, then steel; it is bronze
+now, 2 revision(s) on record"), polarity spoken where the past was a
+denial ("It was not steel") — which required a data-shape fix found
+in passing: the revision episode logged bare values, so a §11.48
+flip's history would have read "was steel" when the belief was "not
+steel". Episodes now log spoken forms; old episodes keep their shape.
+The line is §11.51's one tense back, at zero tolerance: **history is
+recorded, never invented** — a fact stated once answers "I have no
+record of it ever being different", and an unheld subject gets a
+hedge, never a past.
+
+The gate (`experiments/history_gate.py`) took two runs: the first
+failed its own present floor at 0.431 in both arms identically — the
+builder SHUFFLED its statements, and in a history world the statement
+sequence is the semantics; the harness lesson joins §11.58's article
+keys and §11.63's slot collision (a world must be built the way the
+tested thing actually happens). Order preserved: **PASS, 0.127 ->
+1.000 at 11.16x seed sd, zero histories invented, the present
+untouched at 1.000 in both arms.** The belief store answers in three
+tenses now — what is, what was, and why — all from one record, none
+of it invented.
 
 ### 11.63 The neighbor named: adjacency spoken, never merged
 

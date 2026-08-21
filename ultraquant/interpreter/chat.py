@@ -88,8 +88,14 @@ understands - among others - these forms:
                total height?" / "what is the average height?"
   arithmetic   "what is the sum of the tower height and the bridge
                height?" (named operands; units convert or refuse)
+  history      "what was the tower material?" - every past belief in
+               order from the revision record; a fact stated once has
+               no history, and none is invented
   affirmation  "yes" after a derived answer consolidates it - and a
-               revised premise takes its consolidations down"""
+               revised premise takes its consolidations down
+A near-key statement ("the old tower material is ...") also names the
+held base it sits beside: "I separately hold: tower material is
+iron" - information, never a merge."""
 
 
 class ChatCLI:

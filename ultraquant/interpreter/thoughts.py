@@ -811,6 +811,8 @@ class Reason(Thought):
         if compound is not None:
             self._answer_compound(ctx, compound)
             return
+        if _HISTORY_ANSWERS and self._history_answer(ctx):
+            return
         if _SUPERLATIVES_ON and self._superlative_answer(ctx):
             return
         if _AGGREGATES_ON and self._aggregate_answer(ctx):
@@ -1452,6 +1454,62 @@ class Reason(Thought):
                  f"{word} over {len(members)} {attr} fact(s)")
         return True
 
+    def _history_answer(self, ctx: ThoughtContext) -> bool:
+        """Answer "what was X?" from the revision record - §11.64.
+
+        Every change of mind has been an episode since §11.16's era
+        and a spoken notice since §11.53; this makes the record
+        askable afterward. The line the gate holds: history is
+        recorded, never invented - a fact stated once has none, and
+        the answer says so instead of inventing a past.
+        """
+        lowered = ctx.text.lower().strip().strip("?!. ")
+        subject = None
+        for lead in ("what was ", "what were "):
+            if lowered.startswith(lead):
+                subject = lowered[len(lead):].strip()
+                break
+        if subject is None and lowered.startswith("what did "):
+            rest = lowered[len("what did "):].strip()
+            for tail in (" used to be", " use to be"):
+                if rest.endswith(tail):
+                    subject = rest[:-len(tail)].strip()
+                    break
+        if not subject:
+            return False
+        for article in ("the ", "a ", "an "):
+            if subject.startswith(article):
+                subject = subject[len(article):]
+        if len(subject.split()) < 2:
+            return False
+
+        memory = ctx.session.memory
+        fact = memory.recall_fact(subject)
+        if fact is None:
+            return False
+        episodes = memory.recall_episodes(kind="revision",
+                                          tags=[subject], limit=20)
+        shown = _shown_value(fact)
+        if not episodes:
+            times = int(fact.get("reinforcements", 0))
+            attested = (f", attested {times + 1} time(s)" if times
+                        else "")
+            ctx.say(f"I have no record of {subject} ever being "
+                    f"different: it is {shown}{attested} "
+                    f"(confidence {fact['confidence']:.2f}).")
+            ctx.note(self.name, f"history empty for {subject!r}")
+            return True
+        olds = [str(ep["content"].get("old_value", ""))
+                for ep in reversed(episodes)]
+        trail = ", then ".join(olds)
+        ctx.say(f"It was {trail}; it is {shown} now "
+                f"({len(episodes)} revision(s) on record, confidence "
+                f"{fact['confidence']:.2f}).")
+        ctx.note(self.name,
+                 f"history for {subject!r}: {len(episodes)} "
+                 "revision(s)")
+        return True
+
     def _superlative_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "which {attr} is the {tallest}?" over the whole
         attribute family - §11.56.
@@ -1799,6 +1857,13 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.64 rung: "what was X?" answers from the revision record -
+#: every past belief named in order, the present marked as present,
+#: and a fact stated once has NO history ("no record of it ever being
+#: different") - history is recorded, never invented. The history
+#: gate's baseline arm turns it off.
+_HISTORY_ANSWERS = True
 
 #: The §11.63 rung: a NEW fact whose leading-stripped base key is
 #: already held gets the adjacency spoken ("Noted ... I separately

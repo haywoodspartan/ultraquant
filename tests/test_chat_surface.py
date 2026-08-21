@@ -201,7 +201,10 @@ class HelpFormsTests(unittest.TestCase):
                        "which height is the tallest",
                        "how many height facts",
                        "average height",
-                       "consolidates it"):
+                       "consolidates it",
+                       "what was the tower material",
+                       "none is invented",
+                       "I separately hold"):
             self.assertIn(marker, HELP,
                           f"help text lost the {marker!r} form")
 
