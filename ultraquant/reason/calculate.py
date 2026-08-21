@@ -191,11 +191,17 @@ _PREFIXES = (
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _SIGNED_RE = re.compile(r"-?\d+(?:\.\d+)?")
-_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/]|[a-z']+")
+_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/%]|[a-z']+")
 
 #: When False the module evaluates in binary floating point - the
 #: standard option, implemented honestly, and the gate's baseline arm.
 _EXACT_RATIONALS = True
+
+#: The §11.80 rung: percentages. "20% of 300" is a hundredth part
+#: taken 20 times and then multiplied, both halves structural; a
+#: percentage with nothing to be a percentage OF refuses, because
+#: "300 + 20%" is a convention rather than an arithmetic.
+_PERCENTS_ON = True
 
 #: The §11.79 rung: an operand the store does not HOLD may still be
 #: REACHED, through the same chain machinery §11.55 uses for a
@@ -281,6 +287,7 @@ def _read_structure(text: str, allow_words: bool):
         return None
     items: list = []
     words: list[str] = []
+    dangling_percent = False
     index = 0
     while index < len(raw):
         token = raw[index]
@@ -288,12 +295,33 @@ def _read_structure(text: str, allow_words: bool):
             if words:
                 items.append(("words", words))
                 words = []
+            following = raw[index + 1] if index + 1 < len(raw) else ""
+            if _PERCENTS_ON and following in ("%", "percent"):
+                # §11.80: a percentage is a number divided by a
+                # hundred, and "of" is the multiplication it is
+                # waiting for. Both halves are structural: nothing
+                # here is a special case for percents downstream.
+                items.append(("percent", token))
+                index += 1
+                if (index + 1 < len(raw)
+                        and raw[index + 1] in ("of", "off")):
+                    items.append(("op", "*", "of"))
+                    index += 1
+                else:
+                    dangling_percent = True
+                index += 1
+                continue
             unit = ""
             if (allow_words and index + 1 < len(raw)
                     and _is_unit(raw[index + 1])):
                 unit = normalize_token(raw[index + 1])
                 index += 1
             items.append(("number", token, unit))
+        elif token == "%":
+            # Only reachable when the percent branch above did not
+            # take it - a sign with no number in front of it is not
+            # arithmetic, and with the rung off it never is.
+            return None
         elif token in "()+-*/":
             if words:
                 items.append(("words", words))
@@ -317,9 +345,19 @@ def _read_structure(text: str, allow_words: bool):
     operators = [item for item in items
                  if item[0] == "op" and item[1] in "+-*/"]
     operands = [item for item in items
-                if item[0] in ("number", "words")]
+                if item[0] in ("number", "words", "percent")]
     if not operators or not operands:
         return None
+    if dangling_percent:
+        # "300 + 20%" is a convention, not an arithmetic: twenty per
+        # cent OF WHAT is a question the sentence does not answer,
+        # and picking the left operand for the speaker would be
+        # guessing at their meaning in the one branch that exists to
+        # be exact.
+        raise Undefined(
+            "a percentage needs something to be a percentage of - "
+            "'20% of 300' has an answer, '300 + 20%' has a "
+            "convention")
     return items
 
 
@@ -404,7 +442,13 @@ def _tokenize(text: str, memory=None):
     for item in items:
         if item[0] == "op":
             tokens.append(item[1])
-            echoes.append(item[1])
+            echoes.append(item[2] if len(item) > 2 else item[1])
+        elif item[0] == "percent":
+            hundredths = (Fraction(item[1]) / 100 if _EXACT_RATIONALS
+                          else float(item[1]) / 100)
+            tokens.append(Quantity(hundredths, ""))
+            echoes.append(f"{item[1]}%")
+            resolved += 1
         elif item[0] == "number":
             number = (Fraction(item[1]) if _EXACT_RATIONALS
                       else float(item[1]))

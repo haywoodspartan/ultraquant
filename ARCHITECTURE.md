@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.68 · 1729 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.69 · 1740 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         112 modules, 1729 tests
+tests/         113 modules, 1740 tests
 ```
 
 ---
@@ -3409,6 +3409,45 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.80 A hundredth part, taken
+
+"what is 20% of 300?" is basic arithmetic by any account, and the
+system could not read it — the per-cent sign did not tokenize, so
+the question fell through the whole ladder. It reads now, and reads
+*structurally*: a percentage is a number over a hundred, and "of" is
+the multiplication it is waiting for, so nothing downstream needs a
+special case. That is why percentages compose with everything the
+previous rungs built — "15% of the tower height" is 45 meters
+through §11.78's units, and "20% of the west tower height" reaches
+through §11.79's chain and says so.
+
+**One shape refuses, and it is the interesting one.** "300 + 20%"
+has no answer. Twenty per cent OF WHAT is a question the sentence
+does not answer, and the near-universal convention — take the
+percentage of the left operand, so 360 — is a convention rather than
+an arithmetic. Every calculator that answers 360 is guessing at the
+speaker's meaning, which is exactly what the branch built to be
+exact must not do.
+
+The gate (`experiments/percent_gate.py`) took two runs. **The first
+measured nothing**: the baseline could not read a single percentage
+and the treatment read them all, so every seed returned the same
+contrast and the seed sd was zero — a FAIL under the house rule,
+which is not softened when it is inconvenient. The fix is the one
+§11.35 prescribes: score in the cases nobody can win, here the
+inverse question ("what percent of 300 is 60?", which neither arm
+reads — the reader takes expressions, and that is a sentence).
+**Run two: 0.000 -> 0.832, +0.832 at 17.28x seed sd, zero wrong
+values, zero conventions taken, zero voice splits against the
+spelled-out arithmetic, zero ordinary questions moved** — the 0.168
+being the inverse question, scored zero for both arms.
+
+Criterion 4 says the most about the design: every "N% of X" was also
+asked as "X * N / 100", and the two agreed every time. That is what
+it means for a percentage to be structural rather than a special
+case — the reader turns it into arithmetic the grammar already had,
+so there is no second code path to disagree with the first.
 
 ### 11.79 An operand the store can reach
 

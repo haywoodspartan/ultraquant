@@ -207,6 +207,8 @@ class HelpFormsTests(unittest.TestCase):
                        "what is 3 + 4 * 5?",
                        "rationals: 0.1 + 0.2 is 0.3",
                        "division by",
+                       "what is 20% of 300?",
+                       "convention rather than an arithmetic",
                        "the tower height times 3",
                        "quantity, or a belief",
                        "consolidates it",

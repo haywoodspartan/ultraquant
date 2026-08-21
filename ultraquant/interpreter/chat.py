@@ -98,6 +98,10 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  percentages  "what is 20% of 300?" / "what is 15% of the tower
+               height?" - a hundredth part taken, composing with units
+               and chains; "300 + 20%" refuses, because that shape is a
+               convention rather than an arithmetic
   quantities   "what is the tower height times 3?" / "what is 300
                meters + 2 kilometers?" - an operand may be a number, a
                quantity, or a belief; units convert by definition, a
