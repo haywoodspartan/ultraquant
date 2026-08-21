@@ -1168,6 +1168,8 @@ class Reason(Thought):
 
         if _POLAR_COMPARES and self._polar_compare(ctx, words):
             return True
+        if _POLAR_CHOICES and "or" in words                 and self._polar_choice(ctx, words):
+            return True
 
         memory = ctx.session.memory
         fact = None
@@ -1618,6 +1620,77 @@ class Reason(Thought):
                  f"superlative over {len(comparable)} {attr} fact(s)")
         return True
 
+    def _polar_choice(self, ctx: ThoughtContext,
+                      words: list[str]) -> bool:
+        """Answer "is X steel or iron?" - §11.66.
+
+        The disjuncts are offered VALUES: the held one answers by
+        name, "Neither" answers with the actual, a stored denial rules
+        out its own value without electing another (ruling out is not
+        picking), and an unheld subject falls through to the hedge -
+        absence never picks a side. Before this branch, the compound
+        claim "steel or iron" matched nothing and the matrix answered
+        No to a question whose true answer was on the table.
+        """
+        from ultraquant.shards.router import _informative, normalize_token
+
+        memory = ctx.session.memory
+        fact = None
+        key = ""
+        claim_words: list[str] = []
+        for size in range(len(words) - 1, 0, -1):
+            if "or" not in words[size:]:
+                continue
+            candidate = " ".join(words[:size])
+            record = memory.recall_fact(candidate)
+            if record is not None:
+                fact, key = record, candidate
+                claim_words = words[size:]
+                break
+        if fact is None:
+            return False
+        groups: list[list[str]] = [[]]
+        for word in claim_words:
+            if word == "or":
+                groups.append([])
+            elif word not in ("a", "an", "the"):
+                groups[-1].append(word)
+        alternatives = [" ".join(g) for g in groups if g]
+        if len(alternatives) < 2:
+            return False
+        if any(len(alt.split()) != 1 for alt in alternatives):
+            # Multi-word disjuncts are the registered ceiling: refuse
+            # the branch and let the fallbacks hedge rather than
+            # half-parse a compound alternative.
+            return False
+
+        fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
+                             in _TOKEN_RE.findall(str(text).lower())
+                             if _informative(tok)}
+        value = str(fact.get("value", ""))
+        confidence = f"(confidence {fact['confidence']:.2f})"
+        matched = next((alt for alt in alternatives
+                        if fold(alt) == fold(value)), None)
+        if not fact.get("negated"):
+            if matched is not None:
+                ctx.say(f"{matched.capitalize()} - {key} is {value} "
+                        f"{confidence}.")
+            else:
+                ctx.say(f"Neither - {key} is {value} {confidence}.")
+        elif matched is not None:
+            # Ruling out is not picking: the other disjunct stays
+            # unelected, because a denial of one value affirms nothing
+            # about another.
+            ctx.say(f"Not {value}, at least - I hold only that {key} "
+                    f"is not {value} {confidence}.")
+        else:
+            ctx.say(f"I don't know - I hold only that {key} is not "
+                    f"{value} {confidence}.")
+        ctx.note(self.name,
+                 f"choice question against {key!r} "
+                 f"({len(alternatives)} alternative(s))")
+        return True
+
     def _polar_compare(self, ctx: ThoughtContext,
                        words: list[str]) -> bool:
         """Answer "is A <taller/heavier/...> than B?" - §11.54.
@@ -1875,6 +1948,13 @@ _WHY_ANSWERS = True
 #: counted - instead of behind a bare "Noted:". The revision gate's
 #: baseline arm turns it off.
 _REVISION_ALOUD = True
+
+#: The §11.66 rung: "is X steel or iron?" picks the held disjunct by
+#: name, answers "Neither" with the actual, lets a denial rule out its
+#: own value without electing another, and never chooses over an
+#: unheld subject - absence never picks a side. The choice gate's
+#: baseline arm turns it off.
+_POLAR_CHOICES = True
 
 #: The §11.64 rung: "what was X?" answers from the revision record -
 #: every past belief named in order, the present marked as present,

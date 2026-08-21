@@ -88,6 +88,10 @@ understands - among others - these forms:
                total height?" / "what is the average height?"
   arithmetic   "what is the sum of the tower height and the bridge
                height?" (named operands; units convert or refuse)
+  choices      "is the tower material steel or iron?" - the held
+               disjunct answers by name; "Neither" names the actual; a
+               denial rules out without electing; an unheld subject
+               never picks a side
   history      "what was the tower material?" - every past belief in
                order from the revision record; a fact stated once has
                no history, none is invented, and a retracted

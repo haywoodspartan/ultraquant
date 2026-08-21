@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.48 · 1590 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.49 · 1600 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         98 modules, 1590 tests
+tests/         99 modules, 1600 tests
 ```
 
 ---
@@ -3408,6 +3408,30 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.66 Choices: the held disjunct answers by name
+
+"is the tower material steel or iron?" reached the polar matrix as
+one compound claim, matched nothing, and answered No — to a question
+whose true answer was on the table. Disjunctions have an owner now:
+the offered alternatives are VALUES, and the held one answers by name
+("Iron - tower material is iron"), "Neither" answers with the actual,
+a stored denial rules out its own value without electing another
+("Not steel, at least" — ruling out is not picking, because a denial
+of one value affirms nothing about another), and an unheld subject
+falls through to the hedge. The zero-invention line one more way:
+absence never picks a side. Multi-word disjuncts are the registered
+ceiling — the branch refuses rather than half-parse a compound
+alternative.
+
+The gate (`experiments/choice_gate.py`) ran `_POLAR_CHOICES` off
+against on. **PASS on the first run: 0.235 -> 0.901, +0.667 at 5.92x
+seed sd, zero sides elected without grounds**, plain polar identical
+at 1.000 in both arms — and the baseline's pick-kind zero is the
+shipped wrong No, measured beside the fix. The polar family covers
+assertion, denial, derivation, comparison, and choice: one matrix,
+and absence never says yes, no, or picks a side through any door of
+it.
 
 ### 11.65 What happened: the retraction, askable — the tense family closes
 
