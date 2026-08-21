@@ -93,6 +93,21 @@ class ClauseTests(unittest.TestCase):
             self.session.memory.recall_fact("reading")["value"],
             "1, 2, 3")
 
+    def test_the_semicolon_splits(self) -> None:
+        self._say("the tower width is 40 meters; the bridge width is "
+                  "20 meters")
+        self.assertEqual(
+            self.session.memory.recall_fact("bridge width")["value"],
+            "20 meters")
+
+    def test_or_is_uncertainty_not_two_facts(self) -> None:
+        """The deliberate exclusion: splitting "iron or steel" would
+        fabricate a certainty the speaker never offered."""
+        self._say("the keep material is iron or steel")
+        self.assertEqual(
+            self.session.memory.recall_fact("keep material")["value"],
+            "iron or steel")
+
     def test_an_and_value_survives_whole(self) -> None:
         """A split that fired on any "and" would shred ordinary
         values; it fires only where both sides parse as statements."""

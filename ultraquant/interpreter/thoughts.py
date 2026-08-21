@@ -2336,7 +2336,10 @@ def _parse_clauses(text: str) -> list[tuple[str, str]] | None:
     # one rule, and the both-sides-parse guard protects every idiom
     # and list value ("slow but steady", "red, green") because their
     # right sides carry no verb.
-    joiners = [j for j in (" and ", " but ", ", ")
+    # "or" is deliberately absent: "the material is iron or steel"
+    # states UNCERTAINTY, not two facts, and splitting it would
+    # fabricate certainty - the value is stored verbatim instead.
+    joiners = [j for j in (" and ", " but ", ", ", "; ")
                if j in lowered_all]
     if not joiners:
         return None

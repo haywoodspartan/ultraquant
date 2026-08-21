@@ -65,6 +65,15 @@ and the rule has now protected an idiom, a contrast, and a list
 without ever being told which was which — the guard generalises
 because it tests structure, not vocabulary.
 
+**Run four closed the class**: the semicolon — the last swallowing
+joiner — entered the boundary set, "iron or steel" joined the
+integrity floor, and the verdict held identical once more. One
+boundary is EXCLUDED on purpose and on the record: "or" states
+uncertainty, not two facts — "the material is iron or steel" stores
+its value verbatim, because splitting it would fabricate a certainty
+the speaker never offered. Four joiners split, one refuses, and both
+choices are the same choice: say exactly what was said.
+
 Run it::
 
     python -m ultraquant.experiments.clause_gate
@@ -88,7 +97,7 @@ _NOUNS = ["tower", "bridge", "spire", "tunnel", "gate", "dome", "mill",
 _MATERIALS = ["steel", "iron", "copper", "granite", "oak", "bronze"]
 _AND_VALUES = ["live and learn", "slow and steady", "safe and sound",
                "slow but steady", "small but mighty",
-               "1, 2, 3"]
+               "1, 2, 3", "iron or steel"]
 
 
 @dataclass
@@ -207,7 +216,7 @@ def run_gate(seeds: int = 12) -> ClauseReport:
                             clauses.append(
                                 f"the {e} material is {neg}{v}")
                         joiner = rng.choice((" and ", " but ",
-                                             ", "))
+                                             ", ", "; "))
                         response, _t = run_pipeline(
                             joiner.join(clauses), session)
                         good = True
