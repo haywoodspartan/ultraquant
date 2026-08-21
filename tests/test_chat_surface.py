@@ -204,6 +204,7 @@ class HelpFormsTests(unittest.TestCase):
                        "consolidates it",
                        "what was the tower material",
                        "none is invented",
+                       "names its takedown",
                        "I separately hold"):
             self.assertIn(marker, HELP,
                           f"help text lost the {marker!r} form")

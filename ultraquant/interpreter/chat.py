@@ -90,7 +90,9 @@ understands - among others - these forms:
                height?" (named operands; units convert or refuse)
   history      "what was the tower material?" - every past belief in
                order from the revision record; a fact stated once has
-               no history, and none is invented
+               no history, none is invented, and a retracted
+               conclusion names its takedown and the premise that
+               caused it
   affirmation  "yes" after a derived answer consolidates it - and a
                revised premise takes its consolidations down
 A near-key statement ("the old tower material is ...") also names the
