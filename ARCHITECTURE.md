@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.40 · 1549 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.41 · 1549 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -3408,6 +3408,42 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.60 The drowned bridge that wasn't: a negative result, recorded
+
+After §11.59, the next clock-and-completeness candidate looked
+obvious: bridge retrieval rides `find_facts` top-k ranking, a
+single-token probe ("bronzite") has no bigram to address with, and a
+terminal-slot target ("bronzite base", whose relation word never
+appears in the question) should therefore DROWN once its token ties
+across enough buckets — a silent recall ceiling. A prefix index
+(first informative token -> the two-token prefixes starting with it,
+persistent, add-only, §11.32-style lazy staleness) was built to make
+the candidate set complete by construction.
+
+It was shelved unadopted, because the failure it fixes could not be
+demonstrated. Three increasingly hostile constructions — 20 drowners,
+70 drowners across varied seeds, 70 drowners with per-seed bridge
+values on a flushed store — all recovered the chain in BOTH arms, and
+the instrumented trace showed why the hypothesis was wrong twice
+over: bucket ties sort deterministically by shard id (not by luck),
+which put the target fifth of 58 candidates, and inside consulted
+buckets §11.44's reinforcement tie-break plus alphabetical key order
+rank the short genuine key above every drowner. The §11.37 addressed
+pair-probes, the deterministic tie, and the key ranking jointly cover
+the case the index was designed for. (The trace also surfaced one
+regime honesty note: before a store's first flush, a single-token
+probe with no ranked candidates falls back to scanning every staged
+bucket — retrieval is COMPLETE pre-flush and ranked post-flush, and
+the post-flush regime is the one all three constructions failed to
+break.)
+
+Found is not believed applies to problems exactly as it applies to
+solutions: a mechanism may only enter behind a gate whose baseline
+arm actually fails, and a gain of zero over a healthy baseline is not
+a unit — it is a shelf entry. The index implementation is recorded
+here, not in the tree, so the next hypothesis about bridge drowning
+starts from this measurement instead of re-deriving the hunch.
 
 ### 11.59 The depth clock: licensed by measurement, held to parity
 
