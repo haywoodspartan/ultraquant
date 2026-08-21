@@ -92,17 +92,19 @@ class ComparativeTests(unittest.TestCase):
             "is the tower height taller than the gate material?")
         self.assertIn("holds no number", response)
 
-    def test_derived_operands_refuse_honestly_for_now(self) -> None:
-        """The registered ceiling: the comparator compares RECALLED
-        operands; derivable ones refuse rather than fake it."""
+    def test_derived_operands_now_answer(self) -> None:
+        """§11.54 pinned this refusing as its registered ceiling;
+        §11.55 cashed it - derived operands compare, each marked with
+        its trail (test_compderive pins the full matrix)."""
         self._run("the mill material is steel", self.session)
         self._run("the wall material is iron", self.session)
         self._run("the steel hardness is 500 units", self.session)
         self._run("the iron hardness is 400 units", self.session)
         response = self._ask(
             "is the mill hardness bigger than the wall hardness?")
-        self.assertFalse(response.startswith("Yes"))
-        self.assertFalse(response.startswith("No"))
+        self.assertTrue(response.startswith("Yes"))
+        self.assertIn("derived via steel", response)
+        self.assertIn("derived via iron", response)
 
 
 class GateVerdictTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.35 · 1511 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.36 · 1519 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         88 modules, 1511 tests
+tests/         89 modules, 1519 tests
 ```
 
 ---
@@ -3408,6 +3408,33 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.55 Derived operands compare: three families in one answer
+
+§11.54 registered its ceiling in the same breath as its capability:
+the comparator compares RECALLED operands, and "is the mill hardness
+bigger than the wall hardness?" — both sides derivable through
+material chains, neither stored — refused honestly. This unit cashes
+that ceiling the way §11.52 cashed §11.47's: an operand the store
+does not hold is DERIVED through the chain machinery, under the full
+discipline the question family already carries — §11.50's split rules
+(a modifier-rescued derivation is a wrong split and refuses), §11.48's
+polarity line (a derived denial holds no number to compare, and a
+negated material derives nothing at all), §11.54's honesty extended
+one step: the verdict marks WHICH side was derived and its trail
+("Yes - mill hardness is 500 units (derived via steel), wall hardness
+is 400 units (derived via iron)").
+
+The gate (`experiments/compderive_gate.py`) ran `_COMPARE_DERIVES`
+off against on: both-derived and mixed comparatives, ~25% broken-chain
+comparatives as the unwinnable share, negated materials, with
+stored-operand comparatives and recall as floors. **PASS on the first
+run: 0.000 -> 0.674 at 5.84x seed sd**, every derived side trailed,
+zero verdicts through a broken or denied chain, floors at 1.000 in
+both arms — the flag gated only derivation, exactly as claimed. Three
+families compose in one answer now: the chain machinery supplies the
+operands, the §11.42 table converts them, the comparator delivers a
+verdict checkable at a glance.
 
 ### 11.54 Comparatives: a verdict that was computed, refusals that are named
 

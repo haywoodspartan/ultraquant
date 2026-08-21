@@ -1382,10 +1382,35 @@ class Reason(Thought):
         if not left_key or not right_key:
             return False
 
+        from ultraquant.reason.inference import infer
+
         memory = ctx.session.memory
         sides = {}
+        trails = {}
         for name, key in (("left", left_key), ("right", right_key)):
             record = memory.recall_fact(key)
+            if record is None and _COMPARE_DERIVES:
+                # §11.55: an operand the store does not hold may be
+                # derived - with §11.50's split discipline (no
+                # modifier-rescued subjects) and §11.48's line (a
+                # derived denial holds no number to compare).
+                attempt = infer(f"what is the {key}?", memory)
+                if (attempt is not None
+                        and attempt.conclusion is not None
+                        and "as a modifier" not in attempt.answer
+                        and "as modifiers" not in attempt.answer):
+                    if attempt.negated:
+                        ctx.say(f"I can't compare those: I can only "
+                                f"derive a denial for '{key}' "
+                                f"({key} is not "
+                                f"{attempt.conclusion[1]}).")
+                        ctx.note(self.name, f"comparative refused; "
+                                            f"{key!r} derives negated")
+                        return True
+                    record = {"value": attempt.conclusion[1],
+                              "confidence": attempt.confidence}
+                    trails[name] = ", ".join(
+                        str(v) for _k, v in attempt.premises[:-1])
             if record is None:
                 ctx.say(f"I can't compare those: I hold nothing for "
                         f"'{key}'.")
@@ -1434,8 +1459,12 @@ class Reason(Thought):
             equal = l_num == r_num
         confidence = min(float(l_rec.get("confidence", 0.0)),
                          float(r_rec.get("confidence", 0.0)))
-        both = (f"{l_key} is {l_rec.get('value', '')}, "
-                f"{r_key} is {r_rec.get('value', '')}")
+        l_mark = (f" (derived via {trails['left']})"
+                  if "left" in trails else "")
+        r_mark = (f" (derived via {trails['right']})"
+                  if "right" in trails else "")
+        both = (f"{l_key} is {l_rec.get('value', '')}{l_mark}, "
+                f"{r_key} is {r_rec.get('value', '')}{r_mark}")
         if equal:
             ctx.say(f"No - they are equal: {both}{converted} "
                     f"(confidence {confidence:.2f}).")
@@ -1575,6 +1604,12 @@ _REVISION_ALOUD = True
 #: this branch the polar machinery answered comparatives with a coin
 #: that always said No, and fabricated verdicts over missing operands.
 _POLAR_COMPARES = True
+
+#: The §11.55 rung: a comparative operand the store does not hold may
+#: be DERIVED through the chain machinery (never a denial, never a
+#: modifier-rescued split), the verdict marking which side was derived
+#: and its trail. The compderive gate's baseline arm turns it off.
+_COMPARE_DERIVES = True
 
 
 def _split_polarity(value: str) -> tuple[str, bool]:
