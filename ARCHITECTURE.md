@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.73 · 1786 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.74 · 1792 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         117 modules, 1786 tests
+tests/         118 modules, 1792 tests
 ```
 
 ---
@@ -3409,6 +3409,56 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.85 The arithmetic capstone
+
+§11.76–§11.84 built arithmetic one rung at a time, and every one of
+those gates ran at a small world, which is where mechanisms are
+debuggable. §11.37's lesson governs what has to happen next: found
+is not believed, and clean-room success means nothing until density
+has its say. This is that run, in §11.74's capstone tradition — one
+colliding world of 5,818 facts, every arithmetic form asked against
+it, floors and controls and prices.
+
+**PASS on the first run.** Ten forms at 1.000 (literal, percent,
+power, exact root, enclosed root, quantity, reached operand,
+comparison, polar arithmetic, rounding), **zero fabrications across
+all eight refusal families**, zero false bounds. An operand nobody
+holds, an operand that is a denial, an operand that holds no number,
+a unit times a unit, a division by zero, a percentage of nothing, a
+relation no vocabulary covers, and zero to the power zero were asked
+eighty times between them and answered with a number zero times.
+
+The floors are 1.000 deliberately. Arithmetic is deterministic — an
+expression that evaluates correctly at twenty facts evaluates
+correctly at ten thousand, because nothing about the store enters
+the computation. What density CAN break is the part that touches the
+store, so a miss here would be a mechanism bug rather than a density
+effect, and the floors leave no room to hide one.
+
+**The price line found something, which is what price lines are
+for.** Literal arithmetic — two additions and a multiplication over
+written numbers, touching no belief at all — cost 38.9 ms, which is
+absurd on its face, so it was chased rather than reported:
+
+```
+calculate.evaluate alone :    0.016 ms
+memory.find_facts alone  :    0.190 ms
+whole pipeline           :   26.517 ms
+
+Recall                 28.213 ms      (per stage, at 4,000 facts)
+Learn                   3.063 ms
+Reason                  0.180 ms
+Route / Perceive / Respond  under 0.03 ms each
+```
+
+The arithmetic is a rounding error in its own cost; retrieval is a
+rounding error too; and **the Recall stage is ~90% of the price of a
+question it cannot possibly help with.** "what is 12 + 3 * 4?" names
+no belief, and Recall runs before any branch decides whether the
+question needs recall at all. Registered here with its number, in
+the §11.45 tradition where the frontier clock earned its 3.2x only
+after parity was proved — a measured opportunity, not a change.
 
 ### 11.84 Rounding is a request
 

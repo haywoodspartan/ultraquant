@@ -46,6 +46,7 @@ failures are documented next to the passes
 | **Exact arithmetic** | "what is 3 + 4 * 5?" reads precedence and parentheses structurally and evaluates over exact rationals, not floats: 0.1 + 0.2 is 0.3, one third prints as 1/3 because 0.333… is a different number, and division by zero refuses. Measured against the standard option rather than an absence — the same reader in binary floating point — which printed a number that was not the answer 45 times and answered 8 undefined divisions, once reporting 126,100,789,566,373,888 for an expression whose divisor is zero (0.443 -> 1.000 at 3.69x sd) |
 | **Modifier tolerance** | up to three library-unknown adjectives read away behind one unmoved residual floor, every dropped word named so the reading can be vetoed — three cap moves, the floor untouched, the distinction measured each time |
 | **Revision accountability** | a change of mind is narrated (old belief named, retracted derivations counted), a near-key statement names the held base it sits beside, and agreements are never called revisions (0.000 -> 0.803 at 5.03x sd, zero false notices) |
+| **The arithmetic capstone** | every math form above measured against one 5,818-fact colliding world: ten forms at 1.000, zero fabrications across all eight refusal families (unheld operand, denial, non-numeric, unit times unit, division by zero, percentage of nothing, unknown relation, zero to the zero), zero false bounds. The price line then found something: literal arithmetic cost 38.9 ms, of which the arithmetic itself is 0.016 ms — the Recall stage is ~90% of the price of a question that names no belief. Registered with its number, not yet acted on |
 | **The density capstone** | every question form above measured against one ~10,000-fact colliding world: floors at 1.000, fabrication at zero across every decoy family, every price named (depth-4 chains 347 ms after the frontier clock, recall-backed forms ~1 ms) |
 
 Where a mechanism failed its gate, that is in the book too: the shared-encoder
@@ -64,7 +65,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1786 tests, ~4 min
+python -m unittest discover -s tests      # 1792 tests, ~4 min
 ```
 
 In the chat, try:
@@ -98,7 +99,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1786 tests across 117 modules
+tests/         1792 tests across 118 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
