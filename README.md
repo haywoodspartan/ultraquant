@@ -36,6 +36,7 @@ failures are documented next to the passes
 | **Polarity, end to end** | "is not steel" is belief-of-absence: stored as identity, inhibitory everywhere (denials never bridge chains, never join arithmetic, never win rankings), spoken aloud, and interrogable — yes against belief, no against contrary belief, honest don't-know otherwise; absence is never no (polar 0.273 -> 1.000 at 28.33x sd; the baseline derived through a denial 36 times, measured) |
 | **Four tenses, one record** | what is (recall/derivation), what was (revision history, in order, polarity included), what happened (retractions name their premise), why (provenance: stated, consolidated, or derived) — zero rationalised false premises, zero invented histories or endings across every gate |
 | **Comparatives to aggregates** | pairwise verdicts naming both values (operands derived through chains where unstored, each marked with its trail), setwise superlatives and count/total/average over the enumerated family — scope named, exclusions named, ties named, and a denial never moves a number (the pre-fix comparative coin fabricated 38 verdicts; the owner fabricated zero). The comparative word carries its attribute: "is A taller than B?" and "which is the tallest?" read height out of the word (0.000 -> 0.700 at 9.48x sd), while polysemous words — bigger, highest, even our own "shorter" — refuse to guess a family |
+| **Rounding is a request** | exactness is the default and "to 2 decimal places" is something you ASK for: the arithmetic still runs exactly, only the answer is rounded, at the width requested, and it says so while naming the exact value it came from — "100 / 3 = 33.33, rounded to 2 decimal places; the exact value is 100/3" (0.000 -> 0.802 at 14.51x sd, zero unlabelled approximations). A rounded number that doesn't say it is rounded is the original failure wearing a shorter coat |
 | **Asking whether the arithmetic holds** | "is 2 + 2 = 5?" and "is 3 * 4 greater than 10?" — either side of a comparison may be a number, a quantity, a belief or an expression, and equality pivots like any other comparison (0.341 -> 1.000 at 8.52x sd). The composition is the point: "is the tower height * 2 greater than 500 meters?" multiplies a belief keeping its unit, compares against a quantity nobody stored, and reads the left side as an expression — three rungs built separately meeting in one sentence, because each was built as a rule rather than a case |
 | **A coin that always said No** | found by asking in the words people use: "is the tower height greater than 200 meters?" answered No for a 300-meter tower, and so did every other comparison in both directions — "greater", "more" and "less" were not in the comparative vocabulary, so the questions fell to the polar branch, which compared the claim to the stored value as STRINGS. The missing words joined; more importantly, a comparison the comparative branch declines is now refused by name ("I don't know how to compare by 'wider'") rather than answered (0.383 -> 1.000 at 3.23x sd). The baseline's 0.383 is not a score but the shape of the bug: always-No is right as often as the truth happens to be No, so it measures the worlds, not the system |
 | **Powers, and roots that admit it** | whole powers exact (2^10, 2^-3, 0.1^2 = 0.01 not 0.010000000000000002), rational roots exact — and an irrational root given as PROVED BOUNDS rather than a value it does not have: "sqrt 2 is between 1.414213562 and 1.414213563", computed by integer arithmetic and verified as rationals. The standard option answers 1.4142135623730951, whose square is 2.0000000000000004 (0.702 -> 1.000 at 3.56x sd, zero false bounds — a wrong bracket would be a firmer lie than the float) |
@@ -63,7 +64,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1773 tests, ~4 min
+python -m unittest discover -s tests      # 1786 tests, ~4 min
 ```
 
 In the chat, try:
@@ -97,7 +98,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1773 tests across 116 modules
+tests/         1786 tests across 117 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

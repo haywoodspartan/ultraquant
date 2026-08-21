@@ -41,6 +41,30 @@ plain ratio. Conversions apply §11.42's definitions EXACTLY, read
 back through their decimal spelling: 0.3048 is what a foot is in
 meters, and the double nearest 0.3048 is not.
 
+**Percentages are structural** (§11.80): a percentage is a number
+over a hundred and "of" is the multiplication it waits for, so
+nothing downstream needs a special case - and "300 + 20%" refuses,
+because taking the percentage of the left operand is a convention
+rather than an arithmetic.
+
+**Powers are exact and roots are honest** (§11.81). A whole exponent
+is exact, the sign sits outside the power (-2^2 is -4), and the
+exponent binds tighter than multiplication. A root that is rational
+is given exactly; a root that is not is ENCLOSED - "sqrt 2 is
+between 1.414213562 and 1.414213563" - with both bounds proved by
+integer arithmetic and verified as rationals, because
+1.4142135623730951 is not the square root of two.
+
+**Rounding is a request** (§11.84). Exactness is the default; "to 2
+decimal places" is parsed off the tail of the question, the
+arithmetic still runs exactly, and only the answer is rounded - at
+exactly the width that was asked for, saying that it was rounded and
+naming the exact value it came from. A half rounds away from zero,
+in exact rational arithmetic, so the tie rule is a decision rather
+than an artefact. A request this module cannot serve (significant
+figures) is refused by name rather than read as part of the
+expression.
+
 Two lines hold, in the house's tradition. Division by zero REFUSES
 aloud - it is undefined, and a calculator that returns something for
 it is lying about arithmetic itself. And the reader would rather
@@ -48,7 +72,8 @@ decline than guess: without a memory, any token that is not a
 number, an operator or a parenthesis means "not my question"; with
 one, an expression where NOTHING resolves means the same, so "what
 is the plus size?" - which reads "plus" as an operator - falls
-through untouched. A math branch that swallowed "what is the tower
+through untouched; and a polar lead ("is 2 + 2 equal to 4?") belongs
+to §11.83, not here. A math branch that swallowed "what is the tower
 height?" would be a worse bug than having no math.
 """
 
@@ -328,12 +353,44 @@ _SPOKEN_POWERS = (
     (re.compile(r"\bcubed\b"), "^ 3"),
 )
 
+#: A rounding REQUEST, parsed off the tail of a question. Exactness
+#: is the default; rounding is something a speaker asks for, and an
+#: answer that was rounded says so.
+_WORD_PLACES = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                "ten": 10}
+_ROUNDING_RES = (
+    (re.compile(r"[, ]*(?:rounded\s+)?to\s+(\d+|one|two|three|four|"
+                r"five|six|seven|eight|nine|ten)\s+"
+                r"(?:decimal\s+)?places?\s*$"), None),
+    (re.compile(r"[, ]*(?:rounded\s+)?to\s+the\s+nearest\s+"
+                r"(?:whole\s+number|integer)\s*$"), 0),
+)
+
+#: Rounding requests this module does NOT serve. Named rather than
+#: ignored: a request it cannot honour should be refused by name,
+#: not read as part of the expression and refused about the word
+#: "to".
+_UNSUPPORTED_ROUNDING = re.compile(
+    r"[, ]*(?:rounded\s+)?to\s+(?:\d+|one|two|three|four|five|six|"
+    r"seven|eight|nine|ten)\s+(?:significant\s+figures?|"
+    r"sig\s*figs?)\s*$"
+    r"|[, ]*(?:rounded\s+)?to\s+the\s+nearest\s+"
+    r"(?:ten|hundred|thousand|tenth|hundredth)\s*$")
+
 #: Past this, the answer has more digits than an answer has.
 _MAX_EXPONENT = 1000
 
 #: When False the module evaluates in binary floating point - the
 #: standard option, implemented honestly, and the gate's baseline arm.
 _EXACT_RATIONALS = True
+
+#: The §11.84 rung: exactness is the default and rounding is a
+#: REQUEST. "to 2 decimal places" is parsed off the tail of the
+#: question, the arithmetic still runs exactly, and only the answer
+#: is rounded - which it says, naming the exact value it came from.
+#: The rounding gate's baseline arm turns it off.
+_ROUNDING_ON = True
 
 #: The §11.81 rung: powers and roots. Whole exponents are exact;
 #: a root that IS rational is given exactly; a root that is not is
@@ -379,6 +436,9 @@ class MathResult:
     premises: list = field(default_factory=list)
     confidence: float | None = None
     bounds: tuple | None = None
+    rounded_to: int | None = None
+    was_rounded: bool = False
+    exact_shown: str = ""
 
     @property
     def answered(self) -> bool:
@@ -809,6 +869,59 @@ def _is_unary_at(tokens: list[str], index: int) -> bool:
             or tokens[index - 1] in _ROOT_DEGREES)
 
 
+def _fixed(value: Fraction, places: int) -> str:
+    """A rational printed at exactly ``places`` decimals.
+
+    A request for two decimal places is answered in two decimal
+    places: "10.00", not "10". The exact renderer prints the
+    shortest true form, which is right when nobody named a
+    precision and wrong when somebody did - the padding is part of
+    the answer, because it says how far the claim goes.
+    """
+    if places == 0:
+        return str(value.numerator // value.denominator)
+    scaled = value * (10 ** places)
+    whole = scaled.numerator // scaled.denominator
+    digits = str(abs(whole)).rjust(places + 1, "0")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{digits[:-places]}.{digits[-places:]}"
+
+
+def _round_to(value: Fraction, places: int) -> Fraction:
+    """``value`` rounded to ``places`` decimals, half away from zero.
+
+    Exact rational arithmetic, so the tie rule is a decision rather
+    than an artefact of how a float happened to land: a half rounds
+    away from zero, which is the rule people are taught and expect.
+    """
+    scale = 10 ** places
+    shifted = value * scale
+    floor = shifted.numerator // shifted.denominator
+    remainder = shifted - floor
+    if remainder > Fraction(1, 2):
+        floor += 1
+    elif remainder == Fraction(1, 2):
+        floor += 1 if value >= 0 else 0
+    return Fraction(floor, scale)
+
+
+def _rounded_root(value: Fraction, degree: int, places: int):
+    """A root rounded to ``places``, proved rather than approximated.
+
+    The root is enclosed at increasing precision until BOTH bounds
+    round to the same decimal; then that decimal is the correct
+    rounding, and it is the correct rounding because two proved
+    bounds agree on it, not because a float looked like it.
+    """
+    extra = places + 3
+    while True:
+        low, high = _enclose(value, degree, extra)
+        down, up = _round_to(low, places), _round_to(high, places)
+        if down == up:
+            return down
+        extra += 3
+
+
 def read_quantity(text: str) -> Quantity | None:
     """A bare written operand - "200" or "200 meters" - or None.
 
@@ -847,6 +960,22 @@ def evaluate(text: str, memory=None) -> MathResult | None:
     stripped = strip_question(text)
     if not stripped:
         return None
+    places = None
+    if _ROUNDING_ON:
+        for pattern, fixed in _ROUNDING_RES:
+            match = pattern.search(stripped)
+            if match is not None:
+                places = (fixed if fixed is not None
+                          else _WORD_PLACES.get(match.group(1))
+                          or int(match.group(1)))
+                stripped = stripped[:match.start()].strip()
+                break
+    if places is None and _ROUNDING_ON:
+        if _UNSUPPORTED_ROUNDING.search(stripped):
+            return MathResult(
+                refusal="I can round to a number of decimal places "
+                        "or to the nearest whole number; that is a "
+                        "different rule and I do not have it")
     if stripped.startswith(("is ", "are ", "was ", "were ")):
         # A polar lead asks whether something HOLDS, which is
         # §11.83's question and not this one. Reading it here made
@@ -877,6 +1006,17 @@ def evaluate(text: str, memory=None) -> MathResult | None:
             expression=_echo(echoes), premises=premises,
             confidence=confidence)
     except _Irrational as irrational:
+        if places is not None:
+            # A precision was ASKED for, so the enclosure collapses
+            # to the decimal both of its bounds agree on.
+            value = _rounded_root(irrational.value,
+                                  irrational.degree, places)
+            return MathResult(shown=_fixed(value, places),
+                              expression=_echo(echoes),
+                              rounded_to=places, was_rounded=True,
+                              exact_shown="irrational",
+                              premises=premises,
+                              confidence=confidence)
         low, high = _enclose(irrational.value, irrational.degree)
         return MathResult(expression=_echo(echoes),
                           bounds=(render_exact(low),
@@ -890,6 +1030,17 @@ def evaluate(text: str, memory=None) -> MathResult | None:
         return None
     if reader.at != len(reader.tokens):
         return None
+    if places is not None and isinstance(value.value, Fraction):
+        exact = value.value
+        value = Quantity(_round_to(exact, places), value.unit)
+        padded = _fixed(value.value, places)
+        shown = (f"{padded} {value.unit}s" if value.unit else padded)
+        return MathResult(shown=shown,
+                          expression=_echo(echoes),
+                          rounded_to=places,
+                          was_rounded=value.value != exact,
+                          exact_shown=render_exact(exact),
+                          premises=premises, confidence=confidence)
     shown = _show(value)
     return MathResult(shown=shown, expression=_echo(echoes),
                       fractional="/" in render_exact(value.value),

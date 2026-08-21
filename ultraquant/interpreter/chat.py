@@ -98,6 +98,9 @@ understands - among others - these forms:
                rationals: 0.1 + 0.2 is 0.3, one third prints as 1/3
                because 0.333... is a different number, and division by
                zero refuses rather than name a number
+  rounding     "what is 100 / 3 to 2 decimal places?" - exactness is
+               the default and rounding is a request; the answer says
+               it was rounded and names the exact value it came from
   is-it-so     "is 2 + 2 = 5?" / "is 3 * 4 greater than 10?" / "is the
                tower height * 2 greater than 500 meters?" - either side
                may be a number, a quantity, a belief or an expression,

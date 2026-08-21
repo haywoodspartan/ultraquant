@@ -207,6 +207,8 @@ class HelpFormsTests(unittest.TestCase):
                        "what is 3 + 4 * 5?",
                        "rationals: 0.1 + 0.2 is 0.3",
                        "division by",
+                       "to 2 decimal places?",
+                       "it was rounded and names the exact value",
                        "is 2 + 2 = 5?",
                        "may be a number, a quantity, a belief or an",
                        "what is 2 ^ 10?",

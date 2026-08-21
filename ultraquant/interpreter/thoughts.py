@@ -1755,6 +1755,23 @@ class Reason(Thought):
             ctx.note(self.name,
                      f"arithmetic enclosed {result.expression!r}")
             return True
+        if result.rounded_to is not None:
+            where = ("the nearest whole number"
+                     if result.rounded_to == 0
+                     else f"{result.rounded_to} decimal place"
+                          f"{'' if result.rounded_to == 1 else 's'}")
+            if result.was_rounded:
+                exact = ("irrational"
+                         if result.exact_shown == "irrational"
+                         else result.exact_shown)
+                tail = (f" - rounded to {where}; the exact value is "
+                        f"{exact}")
+            else:
+                tail = f" - exact at {where}, so nothing was rounded"
+            ctx.say(f"{result.expression} = {result.shown}{tail}.")
+            ctx.note(self.name,
+                     f"arithmetic rounded {result.expression!r}")
+            return True
         exact = (" (exact - that value has no decimal form)"
                  if result.fractional else "")
         ctx.say(f"{result.expression} = {result.shown}{exact} - "
@@ -1793,6 +1810,28 @@ class Reason(Thought):
                     "those are proved bounds, not the number.")
             ctx.note(self.name,
                      f"quantity arithmetic enclosed "
+                     f"{result.expression!r}")
+            return True
+        if result.rounded_to is not None:
+            where = ("the nearest whole number"
+                     if result.rounded_to == 0
+                     else f"{result.rounded_to} decimal place"
+                          f"{'' if result.rounded_to == 1 else 's'}")
+            if result.was_rounded:
+                exact = ("irrational"
+                         if result.exact_shown == "irrational"
+                         else result.exact_shown)
+                tail = (f" - rounded to {where}; the exact value is "
+                        f"{exact}")
+            else:
+                tail = f" - exact at {where}, so nothing was rounded"
+            trail = "; ".join(f"{key} is {shown}"
+                              for key, shown in result.premises)
+            source = f"; {trail}" if trail else ""
+            ctx.say(f"{result.expression} = {result.shown}{tail}"
+                    f"{source}.")
+            ctx.note(self.name,
+                     f"quantity arithmetic rounded "
                      f"{result.expression!r}")
             return True
         if not result.premises:

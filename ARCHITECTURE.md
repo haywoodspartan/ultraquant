@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.72 · 1773 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.73 · 1786 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         116 modules, 1773 tests
+tests/         117 modules, 1786 tests
 ```
 
 ---
@@ -3409,6 +3409,52 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.84 Rounding is a request
+
+§11.76 made exactness the rule, and by itself that is a little
+unhelpful: sometimes two decimal places is exactly what a person
+wants, and they are not confused about what they are asking for. So
+rounding is a REQUEST — "to 2 decimal places", "to four decimal
+places", "to the nearest whole number" are parsed off the tail of
+the question, the arithmetic still runs exactly, and only the ANSWER
+is rounded. Three properties keep this from undoing §11.76:
+
+- The answer says it was rounded and names what from: "100 / 3 =
+  33.33 — rounded to 2 decimal places; the exact value is 100/3."
+- A value needing no rounding says that instead: "1 / 2 = 0.50 —
+  exact at 2 decimal places, so nothing was rounded."
+- Nothing is rounded unless it was asked for. Without a request,
+  100/3 stays a fraction and sqrt 2 stays an enclosure.
+
+The tie rule is a decision rather than an artefact: a half rounds
+away from zero in exact rational arithmetic, so 0.125 is 0.13 and
+-0.125 is -0.13. A rounded ROOT is proved rather than approximated —
+the root is enclosed at increasing precision until both bounds round
+to the same decimal, so the answer is right because two proved
+bounds agree on it. And a request this rung cannot serve is refused
+by name: "I can round to a number of decimal places or to the
+nearest whole number; that is a different rule and I do not have
+it," rather than reading "to" as an operand and refusing about the
+wrong word.
+
+The gate (`experiments/rounding_gate.py`) took three runs, and **the
+mechanism was wrong once, the harness twice.** Run one: "to 2
+decimal places" was answering "0.5" and "10", printing the shortest
+exact form when somebody had named a precision — a request for two
+decimal places is answered in two decimal places, because the
+padding says how far the claim goes. The same run also exposed the
+harness marking every division as needing rounding, when 300 / 6 is
+exactly 50: **whether a case rounds is arithmetic, not a label the
+gate gets to choose.** Run two came back clean and failed anyway on
+zero variance, fixed §11.35's way. **Run three: 0.000 -> 0.802,
++0.802 at 14.51x seed sd, zero wrong roundings, zero unlabelled
+approximations, zero unrequested answers moved** — the 0.198 being
+the significant-figures ceiling, scored zero for both arms.
+
+Criterion 3 is what keeps §11.76 intact. A rounded number that does
+not say it is rounded is exactly the failure this subject was built
+to refuse: **it is 1.4142135623730951 wearing a shorter coat.**
 
 ### 11.83 Asking whether the arithmetic holds
 
