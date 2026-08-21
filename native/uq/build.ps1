@@ -2,6 +2,10 @@
 #
 # No external dependencies, matching the pure-Python tier's own rule:
 # if the Python side needs no numpy, the native side needs no GMP.
+#
+# Objects land in _build because the compiler is run FROM there - a
+# trailing backslash inside /Fo escapes its own quote, which is a
+# trap worth avoiding rather than out-quoting.
 param([string]$Tool = "all")
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -18,7 +22,7 @@ $inc = Join-Path $here "include"
 $sources = @(Get-ChildItem (Join-Path $here "src") -Filter *.cpp |
              ForEach-Object { $_.FullName })
 
-$tools = @{
+$tools = [ordered]@{
     "bigint_probe" = "uq_bigint_probe.exe"
     "calc_probe"   = "uq_calc.exe"
 }
@@ -29,10 +33,13 @@ foreach ($name in $tools.Keys) {
     if (-not (Test-Path $toolPath)) { continue }
     $exe = Join-Path $out $tools[$name]
     $files = ($sources + $toolPath | ForEach-Object { '"' + $_ + '"' }) -join " "
-    $line = '"' + $vs + '" >nul 2>&1 && cl /nologo /std:c++17 /EHsc /O2 /W4 ' +
-            '/Zc:__cplusplus /I "' + $inc + '" ' + $files +
-            ' /Fe:"' + $exe + '" /Fo:"' + $out + '\"'
-    cmd /c $line | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "build failed: $name" }
+    $line = '"' + $vs + '" >nul 2>&1 && cd /d "' + $out + '" && ' +
+            'cl /nologo /std:c++17 /EHsc /O2 /W4 /Zc:__cplusplus ' +
+            '/I "' + $inc + '" ' + $files + ' /Fe:"' + $exe + '"'
+    $output = cmd /c $line 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $output | Select-Object -First 30 | ForEach-Object { Write-Host $_ }
+        throw "build failed: $name"
+    }
     Write-Host ("built " + $tools[$name])
 }

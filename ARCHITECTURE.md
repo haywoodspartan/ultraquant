@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.77 · 1816 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.78 · 1825 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         121 modules, 1816 tests
+tests/         122 modules, 1825 tests
 ```
 
 ---
@@ -3409,6 +3409,64 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.89 The same sentence, from a different language
+
+§11.88 gave the native tier integers that agree with Python's. This
+rung asks the harder question: does the whole arithmetic READER
+agree — tokeniser, grammar, unit table, rounding rules, refusal
+sentences, and the exact spelling of every answer?
+`native/uq/src/calculate.cpp` is the port; the gate
+(`experiments/nativecalc_gate.py`) is the reason to believe it.
+
+**Parity is checked as a RECORD, not as a value.** Two tiers that
+both answer "4" have proved very little. These have to agree on the
+expression echo (with the precedence visible), the rendered value
+("0.3" and "1/3", never a decimal that would be a different number),
+whether a rounding happened and what the exact value was before it,
+the bounds of an irrational root, and the WORDING of every refusal.
+And on the quiet line that matters most: **a native tier that
+answers more than Python is exactly as wrong as one that answers
+less**, so every input Python declines must be declined natively
+too.
+
+**Run one caught exactly what the gate exists for.** Eleven records
+out of 3,000 differed, all the same shape, none of them a wrong
+number:
+
+```
+[list] 'list the maximum of 22 meters and 51 kilograms'
+    python: refuse|no definition I hold connects meters and kilograms
+    native: refuse|no definition I hold connects kilograms and meters
+```
+
+Both refused. Both refused for the right reason. They named the
+units in opposite ORDER — because the Python tier computes the
+running total before branching on the operation, so a mixed-unit
+list refuses in the order the failing ADDITION met the units, not
+the order a comparison would. A gate comparing values would have
+called it a pass; a gate asking "did both refuse" would have called
+it a pass. It is not one: the wording of a refusal is what this
+system hands the person asking, and two tiers handing over different
+sentences have not reproduced each other.
+
+**Run two: 3,000 questions, zero records differed**, with coverage
+reported so a green run cannot come from a corpus that quietly
+stopped testing something — literal 506, rounding 430, list 415,
+root 393, not-arithmetic 376, power 338, percent 291, spoken
+operator 251 — and zero differences again at three further seeds.
+The 376 non-arithmetic inputs ("what is the tower height?", "hello
+there", "is 2 + 2 = 4?", "what is 5?") were declined by both tiers
+every time.
+
+One implementation note worth keeping, because it cost a debugging
+pass: the C++ regex literals for the spoken-power rewrites survived
+being written as raw strings, while two ordinary string literals in
+the list reader lost their doubled backslashes in transit and
+compiled to `\s` (one backslash) — a pattern that matches the letter "s". MSVC said
+so (`warning C4129`), the list path went silently dead, and the fix
+was to make every regex in the file a raw literal so the escaping
+question cannot be asked twice.
 
 ### 11.88 A native tier that has to agree
 

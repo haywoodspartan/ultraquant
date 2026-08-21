@@ -34,6 +34,8 @@ accelerator DLLs, nothing degrades without it.
 | piece | source | gate |
 |---|---|---|
 | arbitrary-precision integers | `src/bigint.cpp` | `nativebigint_gate` |
+| exact rationals | `src/rational.cpp` | (through the reader) |
+| the arithmetic reader | `src/calculate.cpp` | `nativecalc_gate` |
 
 Arbitrary precision comes first because C++ has none and the system
 leans on Python's everywhere it matters — `2 ^ 1000` is a 302-digit
@@ -47,3 +49,12 @@ C++, because that is where a port disagrees silently: **floor
 division** (Python rounds toward negative infinity and the remainder
 takes the divisor's sign; C++ truncates toward zero) and **integer
 roots** (bisection over integers, no float anywhere near a value).
+
+## A note on regexes
+
+Every regex in this tree is a **raw string literal**. Two ordinary
+literals in the list reader once lost their doubled backslashes in
+transit and compiled to a pattern matching the letter "s"; the list
+path went silently dead and MSVC's `warning C4129` was the only
+witness. Raw literals mean the escaping question cannot be asked
+twice.
