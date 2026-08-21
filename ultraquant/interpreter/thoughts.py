@@ -1366,6 +1366,26 @@ class Reason(Thought):
         if not claimed:
             return False
 
+        if _COMPARISON_GUARD and "than" in claim_words:
+            # §11.82: this is a COMPARISON, and §11.54 owns
+            # comparisons. Reaching here means that branch declined -
+            # the word is one this system cannot compare by - and a
+            # comparison is not answered by checking whether the
+            # stored value happens to spell the comparison out.
+            # Before this line, "is the tower height greater than 200
+            # meters?" answered "No - tower height is 300 meters, not
+            # greater than 200 meters", and so did every other
+            # comparison in both directions: a coin that always said
+            # No, which is exactly what §11.54 was written to end.
+            at = claim_words.index("than")
+            word = claim_words[at - 1] if at else "that"
+            ctx.say(f"I can't tell: I don't know how to compare by "
+                    f"'{word}'. I hold that {key} is "
+                    f"{_shown_value(fact)}.")
+            ctx.note(self.name,
+                     f"comparison refused; unknown relation {word!r}")
+            return True
+
         fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
                              in _TOKEN_RE.findall(str(text).lower())
                              if _informative(tok)}
@@ -2016,6 +2036,7 @@ class Reason(Thought):
         memory = ctx.session.memory
         sides = {}
         trails = {}
+        literals: set[str] = set()
         for name, key in (("left", left_key), ("right", right_key)):
             record = memory.recall_fact(key)
             if record is None and _IMPLIED_ATTRS_ON:
@@ -2051,6 +2072,20 @@ class Reason(Thought):
                               "confidence": attempt.confidence}
                     trails[name] = ", ".join(
                         str(v) for _k, v in attempt.premises[:-1])
+            if record is None and _COMPARISON_GUARD:
+                # §11.82: the side may be a written quantity rather
+                # than a key. "greater than 200 meters" names no
+                # belief and needs none - the number is right there
+                # in the question, and refusing to read it was why
+                # every comparison against a literal fell through to
+                # the polar branch's fabricated No.
+                from ultraquant.reason import calculate
+
+                written = calculate.read_quantity(key)
+                if written is not None:
+                    record = {"value": _shown_quantity(written),
+                              "confidence": 1.0}
+                    literals.add(name)
             if record is None:
                 ctx.say(f"I can't compare those: I hold nothing for "
                         f"'{key}'.")
@@ -2103,8 +2138,14 @@ class Reason(Thought):
                   if "left" in trails else "")
         r_mark = (f" (derived via {trails['right']})"
                   if "right" in trails else "")
-        both = (f"{l_key} is {l_rec.get('value', '')}{l_mark}, "
-                f"{r_key} is {r_rec.get('value', '')}{r_mark}")
+        # A written quantity is its own name: "200 meters is 200
+        # meters" would be a strange thing to read back.
+        left_piece = (f"{l_rec.get('value', '')}" if "left" in literals
+                      else f"{l_key} is {l_rec.get('value', '')}")
+        right_piece = (f"{r_rec.get('value', '')}"
+                       if "right" in literals
+                       else f"{r_key} is {r_rec.get('value', '')}")
+        both = f"{left_piece}{l_mark}, {right_piece}{r_mark}"
         if equal:
             ctx.say(f"No - they are equal: {both}{converted} "
                     f"(confidence {confidence:.2f}).")
@@ -2409,6 +2450,15 @@ _IMPLIED_ATTRS_ON = True
 #: option, honestly implemented.
 _ARITHMETIC_ON = True
 
+#: The §11.82 rung: a comparison is answered by comparing, or
+#: refused - never by checking whether the stored value happens to
+#: spell the comparison out. With it off, "is the tower height
+#: greater than 200 meters?" answers "No - tower height is 300
+#: meters, not greater than 200 meters", and so does every other
+#: comparison in both directions. The comparison gate's baseline arm
+#: turns it off and takes back the words §11.82 added.
+_COMPARISON_GUARD = True
+
 #: The §11.78 rung: arithmetic whose operands may be quantities
 #: ("300 meters") or held beliefs ("the tower height"), units riding
 #: the operators - same-family conversions applied through exact
@@ -2432,6 +2482,14 @@ def _is_arithmetic(text: str) -> bool:
     from ultraquant.reason import calculate
 
     return calculate.evaluate(text) is not None
+
+
+def _shown_quantity(quantity) -> str:
+    """A written quantity as a stored value would read."""
+    from ultraquant.reason.calculate import render_exact
+
+    text = render_exact(quantity.value)
+    return f"{text} {quantity.unit}s" if quantity.unit else text
 
 
 def _attr_family(memory, attr: str):

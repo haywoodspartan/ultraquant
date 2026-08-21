@@ -62,6 +62,13 @@ _COMBINE_WORDS = {
     "larger": "larger", "higher": "larger", "heavier": "larger",
     "shorter": "smaller", "smaller": "smaller", "lower": "smaller",
     "lighter": "smaller",
+    # §11.82: the words people actually reach for when they are not
+    # naming an attribute. Their absence did not make the question
+    # refuse - it made the polar branch answer it as a value
+    # mismatch, and "300 meters" is never the string "greater than
+    # 200 meters", so the answer was always No.
+    "greater": "larger", "more": "larger",
+    "less": "smaller", "fewer": "smaller",
 }
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")

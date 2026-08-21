@@ -809,6 +809,29 @@ def _is_unary_at(tokens: list[str], index: int) -> bool:
             or tokens[index - 1] in _ROOT_DEGREES)
 
 
+def read_quantity(text: str) -> Quantity | None:
+    """A bare written operand - "200" or "200 meters" - or None.
+
+    §11.82 needs this so a comparison can have a written right-hand
+    side: "is the tower height greater than 200 meters?" compares a
+    belief with a quantity nobody stored. Deliberately narrow - a
+    number, optionally followed by one known unit, and nothing else -
+    because anything looser would start reading keys, and keys are
+    the caller's business.
+    """
+    tokens = _TOKEN_RE.findall(text.strip().lower())
+    if not tokens or not _NUMBER_RE.fullmatch(tokens[0]):
+        return None
+    if len(tokens) == 1:
+        return Quantity(Fraction(tokens[0]), "")
+    if len(tokens) == 2 and _is_unit(tokens[1]):
+        from ultraquant.shards.router import normalize_token
+
+        return Quantity(Fraction(tokens[0]),
+                        normalize_token(tokens[1]))
+    return None
+
+
 def evaluate(text: str, memory=None) -> MathResult | None:
     """Evaluate an arithmetic question, or None if it is not one.
 

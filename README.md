@@ -36,6 +36,7 @@ failures are documented next to the passes
 | **Polarity, end to end** | "is not steel" is belief-of-absence: stored as identity, inhibitory everywhere (denials never bridge chains, never join arithmetic, never win rankings), spoken aloud, and interrogable — yes against belief, no against contrary belief, honest don't-know otherwise; absence is never no (polar 0.273 -> 1.000 at 28.33x sd; the baseline derived through a denial 36 times, measured) |
 | **Four tenses, one record** | what is (recall/derivation), what was (revision history, in order, polarity included), what happened (retractions name their premise), why (provenance: stated, consolidated, or derived) — zero rationalised false premises, zero invented histories or endings across every gate |
 | **Comparatives to aggregates** | pairwise verdicts naming both values (operands derived through chains where unstored, each marked with its trail), setwise superlatives and count/total/average over the enumerated family — scope named, exclusions named, ties named, and a denial never moves a number (the pre-fix comparative coin fabricated 38 verdicts; the owner fabricated zero). The comparative word carries its attribute: "is A taller than B?" and "which is the tallest?" read height out of the word (0.000 -> 0.700 at 9.48x sd), while polysemous words — bigger, highest, even our own "shorter" — refuse to guess a family |
+| **A coin that always said No** | found by asking in the words people use: "is the tower height greater than 200 meters?" answered No for a 300-meter tower, and so did every other comparison in both directions — "greater", "more" and "less" were not in the comparative vocabulary, so the questions fell to the polar branch, which compared the claim to the stored value as STRINGS. The missing words joined; more importantly, a comparison the comparative branch declines is now refused by name ("I don't know how to compare by 'wider'") rather than answered (0.383 -> 1.000 at 3.23x sd). The baseline's 0.383 is not a score but the shape of the bug: always-No is right as often as the truth happens to be No, so it measures the worlds, not the system |
 | **Powers, and roots that admit it** | whole powers exact (2^10, 2^-3, 0.1^2 = 0.01 not 0.010000000000000002), rational roots exact — and an irrational root given as PROVED BOUNDS rather than a value it does not have: "sqrt 2 is between 1.414213562 and 1.414213563", computed by integer arithmetic and verified as rationals. The standard option answers 1.4142135623730951, whose square is 2.0000000000000004 (0.702 -> 1.000 at 3.56x sd, zero false bounds — a wrong bracket would be a firmer lie than the float) |
 | **Percentages, structurally** | "what is 20% of 300?" reads as a hundredth part taken and "of" as the multiplication it waits for, so percentages compose with units and chains without a special case anywhere downstream — "20% of the west tower height" is 180 meters, derived via spirekind (0.000 -> 0.832 at 17.28x sd). "300 + 20%" REFUSES: every calculator answers 360 by convention, and a convention is a guess at the speaker's meaning, which is the one thing an exact branch must not make |
 | **Arithmetic over what is believed** | an operand may be a written number, a quantity ("300 meters"), or a held belief ("the tower height"): units ride the operators, converting by definition and reading in the larger unit, a length over a length is a ratio, and meters times meters refuses rather than invent a unit (0.000 -> 0.800 at 18.46x sd, zero wrong values, zero ordinary questions moved). That ceiling is now closed: an operand the store does not hold but can REACH goes through the chain machinery under the same guards as a comparative operand, marked where it is used (0.662 -> 1.000 at 3.64x sd, zero derived denials given a number). And "one matrix, one voice" became a measured line — every two-belief sum asked twice, through this rung and through the older combine path, required to agree on number and unit |
@@ -61,7 +62,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1752 tests, ~4 min
+python -m unittest discover -s tests      # 1762 tests, ~4 min
 ```
 
 In the chat, try:
@@ -95,7 +96,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1752 tests across 114 modules
+tests/         1762 tests across 115 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design

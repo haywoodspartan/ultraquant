@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.70 · 1752 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.71 · 1762 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         114 modules, 1752 tests
+tests/         115 modules, 1762 tests
 ```
 
 ---
@@ -3409,6 +3409,56 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.82 A coin that always said No
+
+Found by asking the shipped system a question in the words people
+actually use, with `tower height 300 meters` and `keep height 100
+meters` in the store:
+
+```
+> is the tower height greater than 200 meters?
+  No - tower height is 300 meters, not greater than 200 meters
+> is the tower height greater than 500 meters?
+  No - tower height is 300 meters, not greater than 500 meters
+> is the tower height less than 500 meters?
+  No - tower height is 300 meters, not less than 500 meters
+```
+
+Every one No, in every direction, and three of those six probes were
+wrong. §11.54 owns comparatives and had ended exactly this failure —
+"taller than" answered correctly throughout the same probe — but
+"greater", "more" and "less" were not in its vocabulary, so the
+questions fell past it to the polar branch, which compares the CLAIM
+to the stored VALUE as strings. "300 meters" is never the string
+"greater than 200 meters", so the answer was always No. **§11.54's
+coin had not been removed; it had been narrowed to the words nobody
+had thought of yet.**
+
+Two fixes, and the second is the one that lasts. The missing words
+join the vocabulary (greater, more, less, fewer). And **a comparison
+the comparative branch declined is REFUSED, not answered**: if
+"than" is in the claim and §11.54 did not take the question, the
+relation is one this system cannot compare by, and it says so — "I
+can't tell: I don't know how to compare by 'wider'." Adding four
+words fixes four words; that line fixes the ones nobody has thought
+of yet. A third thing came free: the right-hand side may be a
+WRITTEN quantity rather than a key, since §11.78's reader already
+knows how to read "200 meters" and convert it.
+
+The gate (`experiments/comparison_gate.py`) runs against the system
+exactly as it shipped — guard off, words removed. **PASS on the
+first run: 0.383 -> 1.000, +0.617 at 3.23x seed sd, zero wrong
+verdicts, zero unknown relations answered, zero old-vocabulary
+answers moved, zero plain polar answers moved.**
+
+The baseline's 0.383 is not a score, it is the shape of the bug: a
+branch that always says No is right exactly as often as the truth
+happens to be No, so **the number measures the worlds, not the
+system**. That is what makes this failure mode dangerous rather than
+merely wrong — it looks like a system with opinions, it is right in
+nearly two cases out of five, and nothing about a single answer
+distinguishes a computed No from a No that was never computed.
 
 ### 11.81 A root that has no value still has a place
 
