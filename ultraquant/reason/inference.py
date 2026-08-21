@@ -585,6 +585,14 @@ def _library_unknown(token: str, memory) -> bool:
     return True
 
 
+#: How many library-unknown tokens the inference path may read as
+#: decoration. §11.36 shipped at one and recorded double-modifier
+#: questions refusing at 0.333; §11.46 moved the cap to two behind the
+#: residual floor (at least two known informative tokens must survive
+#: the drop). The floor, not the cap, is the safety line.
+_MAX_MODIFIERS = 2
+
+
 def infer(text: str, memory) -> Inference | None:
     """Derive an answer from stored facts, or None.
 
@@ -609,21 +617,34 @@ def infer(text: str, memory) -> Inference | None:
 
     # Adjective tolerance, on the INFERENCE path only (§11.35's registered
     # claim). "the weathered tower conductivity" fails whole because no
-    # key holds "weathered"; dropping ONE library-unknown token and
-    # retrying is safe HERE because convergence still demands a bridge -
-    # "the melting point of tungsten" minus "tungsten" leaves tokens whose
+    # key holds "weathered"; dropping library-unknown tokens and retrying
+    # is safe HERE because convergence still demands a bridge - "the
+    # melting point of tungsten" minus "tungsten" leaves tokens whose
     # coverage is all-direct, which the spread already refuses as plain
     # recall's territory. The same drop on the exact/keyword path would
     # assert steel's number for tungsten, which is exactly the fabrication
     # the demotion rule exists to prevent - so recall never gets it.
-    unknown = [tok for tok in question_tokens
-               if _library_unknown(tok, memory)]
-    if len(unknown) == 1 and len(question_tokens) >= 3:
-        residual = question_tokens - set(unknown)
+    # Up to _MAX_MODIFIERS tokens may decorate, behind the residual
+    # floor: at least two known informative tokens must survive, so a
+    # question that is mostly unknown refuses rather than being read
+    # away ("the ancient obelisk density" thins to one token and dies).
+    unknown_set = {tok for tok in question_tokens
+                   if _library_unknown(tok, memory)}
+    residual = question_tokens - unknown_set
+    if (unknown_set and len(unknown_set) <= _MAX_MODIFIERS
+            and len(residual) >= 2):
         tolerated = _spread(residual, memory,
                             ordered=[tok for tok in ordered
-                                     if tok not in unknown])
+                                     if tok not in unknown_set])
         if tolerated is not None:
-            tolerated.answer += f" (reading '{unknown[0]}' as a modifier)"
+            named = [tok for tok in dict.fromkeys(ordered)
+                     if tok in unknown_set]
+            named += sorted(unknown_set - set(named))
+            if len(named) == 1:
+                tolerated.answer += (f" (reading '{named[0]}' as a "
+                                     "modifier)")
+            else:
+                joined = " and ".join(f"'{tok}'" for tok in named)
+                tolerated.answer += f" (reading {joined} as modifiers)"
             return tolerated
     return None

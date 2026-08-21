@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.26 · 1405 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.27 · 1417 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -222,7 +222,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         79 modules, 1405 tests
+tests/         80 modules, 1417 tests
 ```
 
 ---
@@ -3408,6 +3408,47 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.46 Two adjectives may decorate: the cap moves, the floor stays
+
+§11.36 shipped adjective tolerance at exactly one dropped token and
+recorded its honest ceiling: double-modifier questions refused at
+0.333, "because two unknown tokens is no longer a decoration". That
+ceiling was a registered candidate, and this unit moved it — the
+inference path now drops at most TWO library-unknown tokens
+(`_MAX_MODIFIERS`), and the safety line moved with it. The single-drop
+guard ("len >= 3") generalises to a **residual floor**: at least two
+known informative tokens must survive the drop, so "the old weathered
+tower conductivity" reads both adjectives away and converges through
+`tower material -> steel`, while "the ancient obelisk density" thins
+to one token and refuses — a question that is mostly unknown is not
+decorated, it is not understood. Convergence still demands a bridge
+(the §11.35 structural argument, unchanged), every answer names every
+word it read away in question order ("reading 'crumbling' and
+'weathered' as modifiers") so the reading stays vetoable, and the
+single-drop wording is untouched. The curiosity path's positional
+droppable rule stays at one: its unknown-counting is structurally
+different (the asked attribute is itself library-unknown there), and
+extending it is its own claim or none.
+
+The gate (`experiments/multimodifier_gate.py`) ran the shipped cap-1
+as its baseline arm against cap-2, all claim-worlds double-modifier,
+~25% triple-modifier worlds as the pre-registered unwinnable share,
+and two decoys in every world. **Its first run indicted the harness,
+not the mechanism**: 24/24 decoys "asserted" in BOTH arms — including
+the baseline running shipped behavior that measured zero in §11.36 —
+because the check counted any response containing the value, and
+§11.29's demote hedge ("I don't hold that exactly. Nearest I hold:
+…") names the value under its own key without asserting it for the
+ghost. The registered word is "asserted"; the harness was corrected to
+§11.36's operationalisation of it, worlds and seeds untouched. Then:
+**baseline 0.000, extended 0.583, +0.583 at 1.13x seed sd — a narrow
+pass, declared narrowly** in §11.13's tradition, and narrow for an
+honest reason: the RNG dealt 5/12 triple worlds (42% against the
+intended ~25%), each scoring zero in both arms by design. Zero decoy
+assertions of either form, every answer named both words. The
+triple-modifier ceiling is recorded the way §11.36 recorded its own:
+the next rung is a registered candidate, not a promise.
 
 ### 11.45 The VRAM tier: the storage split completes, at parity first
 

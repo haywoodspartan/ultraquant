@@ -1,9 +1,12 @@
-"""Adjective tolerance: one unknown token may decorate, never substitute.
+"""Adjective tolerance: unknown tokens may decorate, never substitute.
 
-§11.35's registered claim, closed: the inference path drops at most one
-library-unknown token and retries the spread, safe because convergence
+§11.35's registered claim, closed: the inference path drops
+library-unknown tokens and retries the spread, safe because convergence
 still demands a bridge — while the recall path never gets the drop,
-because there it would assert steel's number for tungsten.
+because there it would assert steel's number for tungsten. §11.36
+shipped the cap at one; §11.46 moved it to two behind the residual
+floor (test_multimodifier pins that rung — this file pins what
+survived the move unchanged).
 """
 
 from __future__ import annotations
@@ -46,12 +49,16 @@ class ModifierToleranceTests(unittest.TestCase):
         self.assertIsNone(infer("what is the melting point of tungsten?",
                                 self.memory))
 
-    def test_two_unknown_tokens_refuse(self) -> None:
-        """Two unknowns is not decoration; it is a question the library
-        does not understand, and saying so beats guessing."""
-        self.assertIsNone(infer(
+    def test_two_unknown_tokens_now_read_through(self) -> None:
+        """§11.36 pinned this refusing; §11.46 moved the cap to two
+        behind the residual floor, and the gate measured the move."""
+        result = infer(
             "what is the weathered crumbling tower melting point?",
-            self.memory))
+            self.memory)
+        self.assertIsNotNone(result)
+        self.assertIn("1370", result.answer)
+        self.assertIn("reading 'weathered' and 'crumbling' as modifiers",
+                      result.answer)
 
     def test_a_clean_question_carries_no_modifier_label(self) -> None:
         result = infer("what is the tower melting point?", self.memory)
