@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.67 · 1721 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.68 · 1729 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -223,7 +223,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         111 modules, 1721 tests
+tests/         112 modules, 1729 tests
 ```
 
 ---
@@ -3409,6 +3409,40 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.79 An operand the store can reach
+
+§11.78 closed with a ceiling on the record, and it was really a
+disagreement. One store answered two questions about the same fact
+two different ways:
+
+```
+> is the west tower taller than the south tower?
+  Yes - west tower height is 900 meters (derived via spirekind),
+  south tower height is 450 meters
+> what is the west tower height * 2?
+  I can't compute that: I hold nothing for 'west tower height'
+```
+
+Both sentences are about `west tower height`. §11.55 reaches it
+through `west tower kind is spirekind`; the arithmetic said it did
+not exist. That is §11.75's failure again — one matrix, two voices —
+so the arithmetic operand now goes through the same chain machinery
+under the same three guards (no modifier-rescued subject, no derived
+denial, no empty conclusion), is marked in the same words ("derived
+via spirekind"), and carries its diluted confidence into the
+minimum: a number reached through two facts is not as good as a
+number that was stated, and the answer says so.
+
+The gate (`experiments/derivedoperand_gate.py`) ran `_DERIVE_OPERANDS`
+off against on. **PASS on the first run: 0.662 -> 1.000, +0.338 at
+3.64x seed sd, zero wrong values, zero derived denials given a
+number, zero voice splits against the chain machinery, zero held
+operands moved.** The fourth line is the one the rung exists for:
+every derived operand was asked twice — once inside the arithmetic,
+once on its own — and required to be the same number. The ceiling is
+closed in the direction that removes a disagreement rather than
+adding a capability.
 
 ### 11.78 Arithmetic over what is believed
 

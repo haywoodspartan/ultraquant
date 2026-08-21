@@ -197,6 +197,13 @@ _TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/]|[a-z']+")
 #: standard option, implemented honestly, and the gate's baseline arm.
 _EXACT_RATIONALS = True
 
+#: The §11.79 rung: an operand the store does not HOLD may still be
+#: REACHED, through the same chain machinery §11.55 uses for a
+#: comparative operand, under the same three guards. The
+#: derived-operand gate's baseline arm turns it off, leaving §11.78's
+#: held-outright rule in place.
+_DERIVE_OPERANDS = True
+
 
 @dataclass
 class MathResult:
@@ -332,6 +339,33 @@ def _resolve(words: list[str], memory, premises: list,
         # refusing there would eat an ordinary question.
         raise _NotArithmetic
     record = memory.recall_fact(key)
+    trail = ""
+    if record is None and _DERIVE_OPERANDS:
+        # §11.79: the store may not HOLD the operand and still reach
+        # it. §11.55 already derives a comparative operand this way,
+        # and the two must not disagree about what a store knows:
+        # "is the west tower taller than the south tower?" reaching
+        # through `west tower kind is spirekind` while "the west
+        # tower height * 2" refuses would be one matrix with two
+        # voices. The same three guards ride along - no modifier-
+        # rescued subject, no derived denial, no empty conclusion.
+        from ultraquant.reason.inference import infer
+
+        attempt = infer(f"what is the {key}?", memory)
+        if (attempt is not None and attempt.conclusion is not None
+                and "as a modifier" not in attempt.answer
+                and "as modifiers" not in attempt.answer):
+            if attempt.negated:
+                raise Undefined(
+                    f"I can only derive a denial for '{key}' ({key} "
+                    f"is not {attempt.conclusion[1]}), and a denial "
+                    "holds no number")
+            bridges = ", ".join(str(value)
+                                for _k, value in attempt.premises[:-1])
+            trail = f" (derived via {bridges})" if bridges else \
+                    " (derived)"
+            record = {"value": attempt.conclusion[1],
+                      "confidence": attempt.confidence}
     if record is None:
         raise Undefined(f"I hold nothing for '{key}'")
     if record.get("negated"):
@@ -343,7 +377,7 @@ def _resolve(words: list[str], memory, premises: list,
     match = _SIGNED_RE.search(shown)
     if match is None:
         raise Undefined(f"'{key}' holds no number ({shown})")
-    premises.append((key, shown))
+    premises.append((key, shown + trail))
     confidences.append(float(record.get("confidence", 0.0)))
     number = (Fraction(match.group()) if _EXACT_RATIONALS
               else float(match.group()))
