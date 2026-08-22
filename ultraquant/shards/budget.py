@@ -44,6 +44,17 @@ class ShardCache:
         self.misses: int = 0
         self.evictions: int = 0
 
+    def is_resident(self, shard_id: str) -> bool:
+        """Whether this shard is in RAM, WITHOUT making it so.
+
+        Read-only on purpose: it does not touch the recency order, so
+        asking cannot change what gets evicted next. §11.104 calls it
+        before each consultation to tell a read that cost a page-in
+        from one that cost nothing, and a probe that promoted its own
+        subject would make that count wrong.
+        """
+        return shard_id in self._entries
+
     # ------------------------------------------------------------------ #
     # core operation
     # ------------------------------------------------------------------ #

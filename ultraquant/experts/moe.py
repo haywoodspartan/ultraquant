@@ -210,6 +210,39 @@ class ExpertPool:
         idx, conf = net.predict(list(features))
         return labels[idx], conf
 
+    def predict_uncertain(self, category: str, features: list[float],
+                          floor: float = 0.0, margin_floor: float = 0.0):
+        """Predict, and say how much the expert actually knew.
+
+        The same paging as :meth:`predict` - the expert is fetched
+        through the cache, so calling this COSTS a read on a miss and
+        nothing on a hit. That cost is the point: §11.104 spends
+        reads only while they are still buying evidence.
+
+        Returns:
+            ``(label, Prediction)`` with the whole distribution, its
+            entropy in bits, and whether it fell below the floors.
+        """
+        from ultraquant.model.uncertainty import describe
+
+        sid = self.shard_id(category)
+        if not self.has_expert(category):
+            raise KeyError(
+                f"no expert for category {category!r}; call ensure_expert first"
+            )
+        payload = self.cache.get(sid, self._loader(sid))
+        net = self._rebuild_net(payload["net"])
+        labels = payload["labels"]
+        expected = int(payload["net"]["config"]["input_dim"])
+        if len(features) != expected:
+            raise ValueError(
+                f"expert {category!r} takes {expected} features, got "
+                f"{len(features)}; this pattern belongs to a different modality"
+            )
+        result = describe(net.predict_distribution(list(features)),
+                          floor, margin_floor)
+        return labels[result.label], result
+
     def _invalidate_vram(self, sid: str) -> None:
         """Take a rewritten expert's resident layers down with it."""
         vram = getattr(self, "vram", None)

@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.92 · 2006 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.93 · 2020 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -228,7 +228,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         137 modules, 2006 tests
+tests/         138 modules, 2020 tests
 ```
 
 ---
@@ -3414,6 +3414,76 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.104 Reading until you know enough (failed, kept)
+
+The thesis this whole library rests on, finally put behind a gate: a
+dense model spends its entire parameter space on every token, and it
+should not have to. Asked "what is 2 + 2" a transformer does the
+same billions of multiply-accumulates it does for a question at the
+edge of its competence, because a dense forward pass has no way to
+do less. **Cost is a property of the model, not of the question.**
+
+The library has had the routing and the paging for a long time. What
+it never had was the STOPPING - `predict` then `prefetch` is one
+shot, and whether its guess was too much or nowhere near enough, it
+reads exactly that. `shards/enough.py` is the loop: experts
+consulted in router order, and after each one the answer's own
+evidence in bits decides whether to spend another.
+
+**FAILED - and the two halves of the result point opposite ways.**
+
+**The sharding half is vindicated, and it is the bigger claim.**
+Reading a fixed **3 of 12** experts scores **0.9900** - identical to
+reading all twelve.
+
+| experts read | 1 | 2 | **3** | 4 | 12 |
+|---|---:|---:|---:|---:|---:|
+| accuracy | 0.9450 | 0.9733 | **0.9900** | 0.9917 | 0.9900 |
+
+**A quarter of the library buys all of the accuracy.** That is the
+claim a dense model structurally cannot make, and it is now measured
+rather than asserted.
+
+**The stopping half is refuted.** Adaptive recall was beaten by a
+plain constant, three separate ways: against `round(mean reads)`
+(0.9667 vs 0.9833), across a sweep of twelve settings of router
+noise and evidence floor (**lost at 11 of 12**), and against the
+fixed-k curve interpolated at adaptive's own 2.54 reads (0.9667 vs
+**0.9823**). The third is the one that counts, because run two's
+comparison had been unfair in adaptive's FAVOUR - `round(2.54) = 3`
+gave the constant a bigger read budget than the thing it was
+competing with.
+
+**Run one failed differently and the fix did not rescue it.** The
+loop first returned the first expert to clear the floor. The sweep
+showed why that loses: first-past-the-post against best-of-k is not
+a contest about cost, it is a contest about **comparison**, and
+stopping at the first adequate answer throws away exactly what the
+constant was quietly buying. Run two kept the best and confirmed
+nothing better followed - it read twice as much (1.25 to 2.54) and
+still lost.
+
+Criterion 1 says the same thing from the other side: reads varied
+with sd 0.64 then 0.76, under the one-read bar. **The cost is very
+nearly constant, so the loop is an expensive way of computing a
+number that could have been a parameter.**
+
+**Criterion 5 failed outright and found a real bug.** Of recalls
+that stopped on "plateau", only **11.8%** were questions the full
+scan could not answer either - the rule abandons answerable
+questions almost nine times in ten. That is a bug wearing a policy's
+clothes, which is what the criterion was written to catch.
+
+**The limitation, stated as a limitation and not as a defence.** In
+this world every question has the same shape, so questions do not
+differ in how much reading they need, and adaptive stopping can only
+pay where that varies. Building a world with heterogeneous
+difficulty and reporting THAT would be searching for a setting that
+passes - the move the sweep exists to refuse. The honest statement:
+**on questions of uniform difficulty a constant k beats
+entropy-driven stopping, and the condition under which stopping
+might pay is untested here.**
 
 ### 11.103 An encoder that refuses its own output
 
