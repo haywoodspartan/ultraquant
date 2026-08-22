@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **94 entries**, when the
+This file was split out of ARCHITECTURE.md at **95 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.105](#11105-ultraquant-against-a-transformer-on-the-same-facts) | UltraQuant against a transformer, on the same facts |
 | [11.104](#11104-reading-until-you-know-enough-failed-kept) | Reading until you know enough (failed, kept) |
 | [11.103](#11103-an-encoder-that-refuses-its-own-output) | An encoder that refuses its own output |
 | [11.102](#11102-a-prediction-layer-that-says-how-much-it-knows-failed-kept) | A prediction layer that says how much it knows (failed, kept) |
@@ -120,7 +121,6 @@ which is not numeric — the index is sorted newest first, so use it.**
 | [11.13](#1113-distilling-a-transformer-into-the-router-offline) | Distilling a transformer into the router, offline |
 | [11.12](#1112-llmls-a-panel-of-local-models-and-what-their-agreement-is-worth) | LLMLS: a panel of local models, and what their agreement is worth |
 | [11.11](#1111-an-external-encoder-was-tried-and-the-gate-failed-on-its-own-control) | An external encoder was tried, and the gate failed on its own control |
-
 ---
 
 ### 11.11 An external encoder was tried, and the gate failed on its own control
@@ -794,6 +794,70 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.105 UltraQuant against a transformer, on the same facts
+
+ARCHITECTURE.md §12.3 said this repository had never compared
+UltraQuant to a transformer, and that the strongest claim it made was
+therefore the one with no gate behind it. This is that gate, and
+**the claim it was built to establish did not survive it.**
+
+**The comparison was built to be hard to rig**, because the obvious
+version is not: choosing tasks this system was designed for and
+reporting a win would measure only the choosing. Three guards. The
+identical nine facts go to both, word for word, in the transformer's
+prompt. A **world-knowledge family the transformer is expected to
+win** is in the battery, and criterion 3 FAILS the gate if it does
+not - a battery where the opponent never wins is not a battery.
+And scoring is generous to free text: correct if the expected value
+appears anywhere, refused if any recognisable refusal phrase does.
+
+Against **qwen/qwen3.8-27b**:
+
+| family | UltraQuant | transformer |
+|---|---:|---:|
+| held facts | 100% | 100% |
+| derived (two-fact chains) | **100%** | 67% |
+| arithmetic | 100% | 100% |
+| world knowledge | 0% | **100%** |
+| **fabrication on unheld subjects** | **0%** | **0%** |
+
+**The transformer fabricated nothing.** Asked about five subjects the
+facts never mention, it declined all five - and declined them again
+when the run was repeated with the permission to decline REMOVED from
+its system message (4 refused, 1 empty, 0 asserted).
+
+**So §12.1's refusal claim was wrong, and it was wrong by conflating
+two levels.** "A softmax always emits; abstention is not expressible
+in its output shape" is true of a **classifier head** - that is what
+§11.102 measured, and an untrained network reporting 0.184 of 3.00
+bits is a real property a bare argmax cannot give you. It is not true
+of a **language model**, whose output is text, and for which "I do not
+know" is an ordinary sentence. §12.1 now says the narrower thing.
+
+**A detector bug was caught, pointing the flattering way.** Run one
+classified answers as refused or asserted, with no third case - so an
+EMPTY answer, which one question produced, was scored as a
+confabulation that had not happened. That inflated the transformer's
+fabrication rate by 20 points on a five-question family, in the
+direction favouring this system. `classify` now returns three
+outcomes and criterion 4 covers all of them. **An instrument whose
+error flatters its owner is the one to check first.**
+
+**What UltraQuant won was not the claim under test.** On two-fact
+chains - "the tower material is steel", "steel hardness is high", so
+what is the tower hardness? - it scored **100% against 67%**. Three
+questions, so an observation rather than a result.
+
+**Limits, severe and to be read with the table.** One model, one
+setting, twenty-four questions. The arithmetic family did not
+discriminate at all: the cases chosen are ones a 27B model handles,
+and a battery separating exact rational arithmetic from floating
+point would have to be built deliberately - picking pathological
+cases to make the point would be exactly the rigging the design
+guards against. The world-knowledge family exists to keep the
+comparison honest, and UltraQuant scores zero on it by construction:
+a real limitation of the architecture, not an artifact of the test.
 
 ### 11.104 Reading until you know enough (failed, kept)
 

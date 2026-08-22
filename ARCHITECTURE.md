@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.94 · 2024 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.95 · 2038 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         138 modules, 2024 tests
+tests/         139 modules, 2038 tests
 ```
 
 ---
@@ -2806,13 +2806,23 @@ is bounded by a byte budget rather than by the model's size, which is
 the mechanism behind the 1:6,200 resident-to-stored ratio in
 [§4.1.1](#411-routing-a-pattern-that-contains-no-words).
 
-**Refusal.** A softmax always emits; abstention is not expressible in
-its output shape. Every tier here can decline, and each refusal is
-measured:
+**Refusal — and this claim has been narrowed by measurement.** It
+originally read "a softmax always emits; abstention is not expressible
+in its output shape." [§11.105](JOURNAL.md#11105-ultraquant-against-a-transformer-on-the-same-facts)
+ran the comparison and that was wrong, by conflating two levels: a
+softmax over fixed classes genuinely has no abstain class, but a
+language model's output is TEXT and *"I do not know"* is an ordinary
+sentence. **Asked about five subjects it had not been told, a 27B
+transformer declined all five — and declined them again with the
+permission to decline removed from its prompt.**
+
+What survives is the narrower and still-real claim: **a classifier
+head has no abstain class, and an uncertainty measure has to be built
+rather than read off the argmax.** Each refusal below is measured:
 
 | tier | what it refuses | measured |
 |---|---|---|
-| facts | verdicts about subjects nobody holds | 0 fabricated verdicts over 109 questions ([§11.97](JOURNAL.md)) |
+| facts | verdicts about subjects nobody holds | 0 fabricated verdicts over 109 questions ([§11.97](JOURNAL.md)) — matched by the transformer at 0 over 5 |
 | predictions | classes below an evidence floor | untrained net reports **0.184 of 3.00 bits**; 98.8% of non-glyph noise declined ([§11.102](JOURNAL.md#11102-a-prediction-layer-that-says-how-much-it-knows-failed-kept)) |
 | encoders | its own output, with no reference available | destroyed tower caught at **0.979 attention entropy** against 0.617 healthy ([§11.103](JOURNAL.md#11103-an-encoder-that-refuses-its-own-output)) |
 
@@ -2863,18 +2873,39 @@ otherwise. Facts must be told rather than read at corpus scale, and the
 pure-Python tier is slow: 42 M MAC/s against 7.35 G on the resident GPU
 path.
 
-### 12.3 What has never been measured
+### 12.3 The head-to-head, and what it settled
 
-**Nothing in this repository compares UltraQuant against a transformer
-head to head.** Every gate compares it to itself — Python against
-native, f16 against ternary — or to a standard *component*: max-softmax,
-the 64-bit sketch, the naive codec. Language models appear in
-`interpreter/llmls.py` only as *teachers*, a panel whose agreement
-enters quarantine, never as competitors.
+This section used to say that nothing here had ever compared
+UltraQuant to a transformer, and that the strongest claim it made was
+therefore the one with no gate behind it.
+[§11.105](JOURNAL.md#11105-ultraquant-against-a-transformer-on-the-same-facts)
+ran it. Both systems were given the identical nine facts; the
+transformer got them in its prompt, word for word.
 
-So the strongest claim this architecture makes is the one with no gate
-behind it. The axes are specific enough to measure — fabrication rate
-on questions neither system holds, arithmetic exactness, correction
-latency, resident bytes per fact, whether an answer can be vetoed
-premise by premise — and until that runs, §12.1 is a set of properties
-this system has and not a comparison it has won.
+| family | UltraQuant | qwen/qwen3.8-27b |
+|---|---:|---:|
+| held facts | 100% | 100% |
+| derived (two-fact chains) | **100%** | 67% |
+| arithmetic | 100% | 100% |
+| world knowledge | 0% | **100%** |
+| fabrication on unheld subjects | **0%** | **0%** |
+
+**The headline claim lost.** The transformer fabricated nothing, with
+or without permission to decline, which is why §12.1's refusal claim
+is narrower than it was.
+
+**What UltraQuant won was not the claim under test**: two-fact chains,
+100% against 67%. Three questions, so an observation rather than a
+result.
+
+**What the battery could not separate**: arithmetic, at 100% against
+100%. A battery that distinguishes exact rational arithmetic from
+floating point would have to be built deliberately, and picking
+pathological cases to make the point would be the rigging this gate
+was designed to avoid.
+
+**What is still unmeasured**: correction latency, resident bytes per
+fact, and whether an answer can be vetoed premise by premise — the
+axes where the architectures differ most structurally and where no
+comparison has been run. One model, one setting, twenty-four
+questions is a beginning and not a benchmark.

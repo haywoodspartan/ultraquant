@@ -12,11 +12,12 @@ way a brain recalls rather than reloads. Measured on a twelve-expert library,
 
 Two other things a dense model cannot do, and this one is gated on:
 
-- **It can refuse.** A softmax always emits; abstention is not expressible in
-  its output shape. Here every tier declines below a measured floor — an
-  untrained network reports **0.184 of 3.00 bits** and says so, and a wrecked
-  encoder is caught by its own attention entropy with no reference to compare
-  against.
+- **It can say how much it knows, in bits.** An untrained network reports
+  **0.184 of 3.00 bits** and declines; a wrecked encoder is caught by its own
+  attention entropy with no reference to compare against. (A chat model can
+  also say *"I do not know"* — measured, and the stronger version of this
+  claim was withdrawn because of it. What a softmax over fixed classes cannot
+  do is carry an abstain class, which is a narrower thing.)
 - **It can be corrected.** A fact and a hallucination are the same weights in a
   transformer, and fixing either means retraining. Here a claim carries
   confidence, polarity and a revision history, web intake is quarantined as
@@ -26,10 +27,16 @@ Optional C++/CUDA accelerators and real quantum hardware are strictly
 accelerants — the pure-Python tier defines the semantics and every other tier is
 gated against it.
 
-**Scope, up front: this is not AGI, it does not claim quantum advantage, and it
-has never been benchmarked head-to-head against a transformer** — see
-[ARCHITECTURE.md §12](ARCHITECTURE.md#12-how-this-differs-from-a-dense-transformer-measured),
-which collects what the measurements settled and what they did not.
+**Scope, up front: this is not AGI and it does not claim quantum advantage.**
+It has now been measured head-to-head against a 27B transformer given the
+identical facts — and **the refusal claim above lost**: the transformer
+fabricated nothing on subjects it had not been told, with or without
+permission to decline. What survives is narrower and still real (a classifier
+head has no abstain class), what UltraQuant won was something else entirely
+(two-fact chains, 100% against 67%), and the whole comparison is one model and
+twenty-four questions.
+[ARCHITECTURE.md §12](ARCHITECTURE.md#12-how-this-differs-from-a-dense-transformer-measured)
+carries the table and the correction.
 
 ## What it does
 
@@ -134,6 +141,7 @@ The conversion path was measured rather than assumed, and the measurement closed
 |---|---|
 | **The density capstone** | every question form above measured against one ~10,000-fact colliding world: floors at 1.000, fabrication at zero across every decoy family, every price named (depth-4 chains 347 ms after the frontier clock, recall-backed forms ~1 ms) |
 
+| **Measured against a real transformer** | both given the identical nine facts, the transformer's in its prompt word for word, with a world-knowledge family it is *expected* to win because a battery whose opponent never wins is not a battery. Held facts 100%/100%, derived chains **100%/67%**, arithmetic 100%/100%, world knowledge 0%/**100%** — and fabrication on unheld subjects **0%/0%**. The headline claim lost; the correction is in the book |
 
 ### The failures, which are kept
 
@@ -171,7 +179,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2024 tests, ~4 min
+python -m unittest discover -s tests      # 2038 tests, ~4 min
 ```
 
 In the chat, try:
@@ -210,7 +218,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2024 tests across 138 modules
+tests/         2038 tests across 139 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:
