@@ -181,6 +181,39 @@ class UltraQuantNet:
         best = max(range(len(probs)), key=lambda k: probs[k])
         return best, probs[best]
 
+    def predict_distribution(self, x: list[float]) -> list[float]:
+        """The whole softmax, not just its tallest bar.
+
+        :meth:`predict` discards everything except the argmax and its
+        probability, which is the standard thing to report and the
+        standard thing to be misled by - a network that has learned
+        nothing still produces both. See
+        :mod:`ultraquant.model.uncertainty` for what the rest of the
+        distribution says.
+        """
+        return self._softmax(self.forward(x))
+
+    def predict_with_uncertainty(self, x: list[float],
+                                 floor: float = 0.0,
+                                 margin_floor: float = 0.0):
+        """A prediction that carries its own entropy, in bits.
+
+        Args:
+            x: Input vector.
+            floor: Bits of evidence below which the layer declines to
+                name a class at all. Zero accepts everything, which
+                is what :meth:`predict` does silently.
+            margin_floor: Gap to the runner-up below which it
+                declines. The two catch different failures; see
+                :mod:`ultraquant.model.uncertainty`.
+
+        Returns:
+            An :class:`~ultraquant.model.uncertainty.Prediction`.
+        """
+        from ultraquant.model.uncertainty import describe
+
+        return describe(self.predict_distribution(x), floor, margin_floor)
+
     def predict_vram(self, x: list[float], cache,
                      key_prefix: str) -> tuple[int, float] | None:
         """:meth:`predict` over :meth:`forward_vram`, or None to fall back."""

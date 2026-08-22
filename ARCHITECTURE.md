@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.90 · 1968 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.91 · 1989 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -205,7 +205,8 @@ ultraquant/
                ansatz · vqc · kernel · noise · search ·        trainable circuits, kernels,
                analysis · encodings · benchmark_kernels ·      mitigation, Grover, cloud,
                bluequbit                                       the hard-map experiment
-  model/       quantize · network                              ternary weights, STE training
+  model/       quantize · network · uncertainty                 ternary weights, STE training,
+                                                              predictions that know their own bits
   memory/      systematic                                      episodic / semantic / working
   archive/     artchive                                        tamper-evident T-snapshots
   pattern/     recognition                                     glyph dataset + recognizer
@@ -227,7 +228,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         135 modules, 1968 tests
+tests/         136 modules, 1989 tests
 ```
 
 ---
@@ -3413,6 +3414,74 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.102 A prediction layer that says how much it knows (failed, kept)
+
+`UltraQuantNet.predict` returned the argmax and its softmax
+probability. That is the standard thing to report and the standard
+thing to be misled by: an argmax always exists, so a network that
+has learned nothing still names a class and still puts a number
+beside it. Shown something that is not a glyph at all, the
+recognizer answered "stripes_h, 0.31" and nothing in the reply said
+the question was never answerable.
+
+That broke a line the rest of the system keeps everywhere else.
+§11.48 refuses to answer "is X Y?" about a subject nobody holds; the
+pipeline says "I don't know" in a dozen places. The prediction layer
+was the one component that could not, because its output shape had
+no room for it. `model/uncertainty.py` gives it room: entropy in
+BITS, the evidence `log2(n) - H` that grows with knowledge rather
+than shrinking with it, the margin to the runner-up, and floors
+below which the layer declines.
+
+**FAILED criterion 2: entropy is the WORST of the three measures at
+the job it was proposed for.** Ranking the same predictions and
+discarding the least certain fifth - margin 0.0078, max-softmax
+0.0130, entropy **0.0260**. Entropy loses to the plain baseline it
+was meant to improve on, and loses again to `margin`, which came
+from the same new module. The reason is structural: **entropy is
+moved by the whole tail**, so a confident, correct prediction with a
+little probability spread across the other seven classes scores as
+uncertain, while max-softmax and margin look only at the top, which
+is what decides whether the argmax is right.
+
+**Criteria 3, 4 and 5 passed, and they are what entropy is actually
+for.** An untrained recognizer reports **0.184 of 3.00 bits** - it
+says it knows nothing. Max-softmax on the same predictions reads
+0.191, which means something only once the reader knows chance is
+0.125 on eight classes, and that comparison is not in the number. A
+floor of 1.774 bits fitted on one split keeps 79.8% of another at
+**0.0178 error against 0.0750** for everything - declining the
+least-certain fifth cuts errors 4.2x - and **98.8% of non-glyph
+noise is declined against 20.2% of real glyphs.**
+
+**So the measures divide by which failure they catch**, at matched
+coverage:
+
+| floor on | accepted error | noise declined |
+|---|---:|---:|
+| evidence | 0.0229 | **98.5%** |
+| margin | **0.0077** | 93.8% |
+| weaker of both | 0.0222 | 98.5% |
+
+**`margin` catches wrong predictions; `evidence` catches inputs the
+network has never seen.** A hard in-distribution case is a two-way
+confusion - small margin, respectable evidence. An
+out-of-distribution input spreads everywhere - low evidence, and a
+margin that can still be accidentally wide. Both floors ship,
+separately, because neither is the other.
+
+**Requiring both was tried and does not compose**: taking the weaker
+of the two lands at evidence's error rate with none of margin's
+gain, because whichever measure ranks a sample lower dominates, and
+that is usually evidence. Recorded so it is not retried.
+
+The comparison table was run AFTER the criteria were fixed and is
+reported rather than gated. The registered question was "does
+entropy beat max-softmax", the answer is no, and dressing the
+follow-up up as a pass would be scoring the coin after the throw.
+The unit ships anyway, because a failed criterion produced a better
+design than the one it was testing.
 
 ### 11.101 The 27-block encoder
 

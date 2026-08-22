@@ -256,6 +256,23 @@ class PatternRecognizer:
         self.net = UltraQuantNet(30, list(self.hidden), len(LABELS), seed=seed)
         self.memory = SystematicMemory(memory_path)
 
+        #: Bits of evidence required before a class is named - the
+        #: "was this question answerable" test. Zero means "name a
+        #: class whatever happens", which is what a recognizer
+        #: without an uncertainty measure does. The entropy gate
+        #: fitted 1.774 bits for 80% coverage on this task; it stays
+        #: zero here because a floor belongs to a deployment, not to
+        #: a constructor.
+        self.evidence_floor: float = 0.0
+
+        #: Gap to the runner-up required - the "is this answer
+        #: trustworthy" test. Separate from the evidence floor
+        #: because the gate measured them catching different
+        #: failures: margin found wrong predictions (0.0077 accepted
+        #: error against 0.0229), evidence found inputs never seen
+        #: (98.5% of noise declined against 93.8%).
+        self.margin_floor: float = 0.0
+
     # -- feature extraction --------------------------------------------------
 
     def features(self, x: list[float]) -> list[float]:
@@ -398,6 +415,54 @@ class PatternRecognizer:
         bits = [1 if v >= 0.5 else 0 for v in flat]
         self.memory.store_signature(label, bits)
         return label, confidence
+
+    def recognize_with_uncertainty(
+        self, rows_or_flat: list[str] | list[float],
+        floor: float | None = None,
+        margin_floor: float | None = None,
+    ):
+        """Classify a glyph, or decline when too little is known.
+
+        The declining is the point. :meth:`recognize` always names a
+        class, because an argmax always exists - so a recognizer
+        shown something that is not a glyph at all answers "diamond"
+        with a probability beside it and nothing in the reply says
+        the question was never answerable. This returns the whole
+        distribution's entropy in bits and refuses below a floor.
+
+        Args:
+            rows_or_flat: The glyph to classify.
+            floor: Bits of evidence required to name a class.
+                Defaults to :attr:`evidence_floor`.
+            margin_floor: Gap to the runner-up required. Defaults to
+                :attr:`margin_floor`. Two floors rather than one
+                because the gate measured them catching different
+                failures - see :mod:`ultraquant.model.uncertainty`.
+
+        Returns:
+            Tuple ``(label_or_None, Prediction)``. The label is None
+            when the layer declined; the prediction still carries the
+            argmax it would have given, so a caller that wants the
+            guess anyway can have it and know what it cost.
+        """
+        flat = self._as_flat(rows_or_flat)
+        limit = self.evidence_floor if floor is None else floor
+        gap = self.margin_floor if margin_floor is None else margin_floor
+        result = self.net.predict_with_uncertainty(self.features(flat),
+                                                   limit, gap)
+        label = None if result.declined else LABELS[result.label]
+        self.memory.remember_episode(
+            "recognition",
+            {"label": label or "(declined)",
+             "confidence": result.probability,
+             "evidence_bits": round(result.evidence, 4),
+             "declined": result.declined, "mode": self.mode},
+            tags=["recognition", label or "declined"],
+        )
+        if label is not None:
+            bits = [1 if v >= 0.5 else 0 for v in flat]
+            self.memory.store_signature(label, bits)
+        return label, result
 
     # -- snapshots -----------------------------------------------------------
 
