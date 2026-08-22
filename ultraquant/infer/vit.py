@@ -265,7 +265,7 @@ def patch_embed(planes: list, embedding: PatchEmbedding,
 
 
 def apply_block(stream: list, weights: BlockWeights,
-                config: VisionConfig) -> list:
+                config: VisionConfig, trace: dict | None = None) -> list:
     """One pre-norm block: attention, then the feed-forward.
 
     Pre-norm - `ln1` before attention and `ln2` before the MLP, with
@@ -283,7 +283,26 @@ def apply_block(stream: list, weights: BlockWeights,
     queries = [token[:width] for token in fused]
     keys = [token[width:2 * width] for token in fused]
     values = [token[2 * width:] for token in fused]
-    attended = ops.multi_head_attention(queries, keys, values, config.heads)
+    if trace is None:
+        attended = ops.multi_head_attention(queries, keys, values,
+                                            config.heads)
+    else:
+        # The same computation, with the attention distributions kept.
+        # They are the only genuine probability distributions inside a
+        # transformer, and §11.103 asks whether their entropy can tell
+        # a working tower from a destroyed one WITHOUT the original to
+        # compare against.
+        q_heads = ops.split_heads(queries, config.heads)
+        k_heads = ops.split_heads(keys, config.heads)
+        v_heads = ops.split_heads(values, config.heads)
+        rows: list = []
+        per_head: list = []
+        for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
+            weights_here = ops.attention_weights(q_head, k_head)
+            rows.extend(weights_here)
+            per_head.append(ops.attention(q_head, k_head, v_head))
+        attended = ops.merge_heads(per_head)
+        trace.setdefault("attention_rows", []).append(rows)
     attended = [ops.linear(weights.out_w, weights.out_b, token)
                 for token in attended]
     stream = [ops.add(token, delta) for token, delta in zip(stream, attended)]

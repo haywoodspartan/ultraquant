@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.91 · 1989 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.92 · 2006 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is an ultra-quantized (ternary-weight) hybrid quantum/classical pattern
 model with a catalogued, pageable shard library and an interactive interpreter.
@@ -215,7 +215,7 @@ ultraquant/
   shards/      vault · budget · router · sketch · scale_demo   the pageable library
   experts/     moe                                             per-category experts
   forge/       corpus · trainer · forge · build                grow a model from scratch
-  infer/       ops · vit                                      norms · attention ·
+  infer/       ops · vit · confidence                         norms · attention ·
                                                               activations
   convert/     gguf · ternary · pack · library · glyph · load   a trained transformer,
                                                               packed into the vault
@@ -228,7 +228,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         136 modules, 1989 tests
+tests/         137 modules, 2006 tests
 ```
 
 ---
@@ -3414,6 +3414,76 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.103 An encoder that refuses its own output
+
+§11.101 measured what ternary conversion does to a 27-block tower:
+the projected output ends at cosine 0.0185 to the f16 original - not
+degraded, uncorrelated. **And the tower did not notice.** Every
+activation stayed finite, every shape stayed right, and it emitted
+plausible numbers all the way through. The only thing that knew was
+the f16 reference, which in a real deployment does not exist.
+
+§11.102 solved that for the prediction layer, where the output IS a
+distribution. An encoder's output is not - it is a list of real
+vectors, and there is no softmax to take the entropy of.
+
+**But the attention rows are distributions, and they are the only
+genuine ones inside a transformer.** Each is a softmax over
+positions; its entropy, normalised by `log2(seq)` so 0 is perfect
+focus and 1 is attending to everything equally, says how much
+structure the tower found - from the forward pass alone, with
+nothing to compare against. `infer/confidence.py` fits a band on
+healthy runs ONLY, because that is the deployment situation: you
+have the model you shipped and no oracle.
+
+**Run one failed on the detector rather than on the measure.** The
+held-out healthy tower was REFUSED. The band had been fitted on two
+runs whose entropies sat 0.017 apart, with a width proportional to
+that observed spread - so the band was 0.017 wide. **A band fitted
+on two runs is a band the width of the gap between them**, which is
+a detector that has learned the two runs it saw rather than what
+healthy looks like. `fit_band` now refuses fewer than three traces
+outright, uses mean +/- 4 sd, and floors the assumed spread at 2% of
+the mean.
+
+**Run two, five images, four fitted and one held out: PASS.** Mean
+attention entropy 0.6170 healthy against **0.9787** broken; the
+held-out healthy tower accepted, the ternary tower refused.
+
+**Criterion 4 is where the unit earned its keep**, because it forced
+each measure to be judged alone:
+
+| measure alone | accepts healthy | refuses broken |
+|---|:--|:--|
+| attention entropy | yes | **yes** |
+| peak residual RMS | yes | **NO** |
+
+**Attention entropy does all the work; peak residual RMS contributes
+nothing.** In run one RMS appeared to catch the broken tower, but
+that was the too-tight band - given a properly fitted one, 53.969
+sits comfortably inside the healthy range and the ternary tower is
+ACCEPTED on that measure. Peak RMS is the closest thing here to what
+production monitoring actually watches, and on a tower reduced to
+cosine 0.0185 it notices nothing. The non-finite check notices
+nothing either. Both stay in the conjunction, because they may catch
+failures this one did not exercise, but the record says which fired.
+
+**The per-block profile is why it works, and it is legible.** The
+healthy tower's attention entropy rises to 0.91 in the first blocks,
+falls to about 0.30 by block 21 as the tower learns what to look at,
+then broadens again. The ternary tower starts at 0.83 and climbs
+monotonically to **0.997**:
+
+| block | 0 | 5 | 10 | 21 | 26 |
+|---|---:|---:|---:|---:|---:|
+| healthy | 0.65 | 0.76 | 0.64 | **0.30** | 0.66 |
+| ternary | 0.83 | 0.98 | 0.98 | **0.99** | 1.00 |
+
+**The converted tower never becomes selective.** At 0.997 of maximum
+entropy it attends to every position equally - which is to say
+attends to nothing - and that is a far more legible account of what
+ternary conversion did than "cosine 0.0185" was.
 
 ### 11.102 A prediction layer that says how much it knows (failed, kept)
 

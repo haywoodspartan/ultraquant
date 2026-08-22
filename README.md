@@ -63,6 +63,7 @@ failures are documented next to the passes
 | **The operations between the matmuls** | what an MLP never needed: LayerNorm and RMSNorm, softmax, both GELUs, SiLU, the contiguous head split, and scaled dot-product attention with a causal mask — shared, because a vision encoder and a text decoder do not disagree about what a LayerNorm is. Each is checked against its own definition computed at **50 significant digits** (erf by its own Taylor series, π as a literal), because a softmax with the wrong denominator still sums to one and no property test sees it. **Worst gap 3.80e-15 against a 1e-12 tolerance**, zero causal leaks, zero head-split errors. Run one found a fully masked row coming out NaN, and two criteria that measured float64 rather than the code |
 | **The 27-block encoder** (failed, kept) | the real vision tower assembled from the real checkpoint — 27 blocks, 1152 wide, 16 heads, every hyperparameter read from the file (the epsilon is 1e-6, not the 1e-5 default) and one block of weights resident at a time, because twenty-seven is ten gigabytes in Python lists. It answers the question the repo had asserted three times and never measured: ternary conversion across a stack. **Cosine to the f16 tower falls 0.95 → 0.49 in five blocks and ends at 0.0185** — not degraded, uncorrelated. Two findings beat the headline: the last hidden state reads **0.87** and the projected output **0.0185**, because massive activations hide the disagreement until the final norm divides them out; and quantisation damages the output *more than a dropped attention residual does*, which is why nothing here validates wiring at depth |
 | **A prediction layer that says how much it knows** (failed, kept) | the argmax always exists, so a network that has learned nothing still names a class and puts a number beside it. The layer now reports **entropy in bits** — an untrained recognizer says **0.184 of 3.00 bits**, where max-softmax says 0.191 and only means something if you already know chance is 0.125 — and declines below a measured floor: **98.8% of non-glyph noise refused against 20.2% of real glyphs**, error cut 0.0750 → 0.0178. It FAILED its own criterion: entropy ranks errors *worse* than plain max-softmax (0.0260 vs 0.0130) because it is moved by the whole tail. The failure produced the design — **margin catches wrong predictions, evidence catches inputs never seen**, and combining them was measured and does not compose |
+| **An encoder that refuses its own output** | the converted tower of the previous row produced uncorrelated output and *did not notice* — every activation finite, every shape right. An encoder's output is not a distribution, but its **attention rows are**, and their entropy is computable from the forward pass with no reference. Fitted on healthy runs only: mean attention entropy **0.617 healthy against 0.979 destroyed**, held-out healthy accepted, ternary refused. Judged alone, **attention entropy does all the work and peak residual RMS none of it** — the closest thing to what production monitoring actually watches notices nothing, and neither does the non-finite check. The converted tower never becomes selective: 0.997 of maximum entropy is attending to everything, which is attending to nothing |
 
 Where a mechanism failed its gate, that is in the book too: the shared-encoder
 stage failed twice, honestly, and reordered the roadmap; hypervector retrieval
@@ -86,7 +87,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 1989 tests, ~4 min
+python -m unittest discover -s tests      # 2006 tests, ~4 min
 ```
 
 In the chat, try:
@@ -120,12 +121,12 @@ ultraquant/
   convert/     GGUF reader - ternary conversion - trit packing - shard
                writer - tensor glyphs - the loader back into a network
   infer/       the operations between the matmuls - norms, attention,
-               activations - and the 27-block vision encoder
+               activations - the 27-block encoder - and its refusal
   forge/       build libraries from scratch - deployment languages - seed facts
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         1989 tests across 136 modules
+tests/         2006 tests across 137 modules
 ```
 
 The deep documentation is [ARCHITECTURE.md](ARCHITECTURE.md): design
