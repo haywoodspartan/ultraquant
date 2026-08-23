@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 5.00 · 2093 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 5.01 · 2109 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         143 modules, 2093 tests
+tests/         144 modules, 2109 tests
 ```
 
 ---
@@ -2902,13 +2902,21 @@ advantage does not survive the vocabulary permutation, so what was
 copied is meaning rather than capacity. It FAILS its own bar, which
 demanded 86%.
 
+**The vocabulary ceiling turned out not to be one.**
+[§11.111](JOURNAL.md#11111-the-ceiling-was-a-corpus-and-the-corpus-was-here)
+distilled over the repository's own documentation — 1,221 sentences,
+3,245 words, no label or test item taken from it — and the penalty on
+text using withheld words fell **+0.144 → +0.000** at a hundred extra
+sentences, with overall accuracy *rising* 0.397 → 0.487. It was a
+corpus problem, and the corpus was already here.
+
 **What is still not done.** Learning the geometry rather than
 importing it — §11.5 and §11.11 tried and did not succeed, and
-nothing here contradicts them. The hard ceiling is vocabulary: on
-text using words withheld from distillation the encoder scores 0.350
-against 0.500 on text avoiding them. It knows the words it was shown
-and has nothing for the rest, and widening that needs a corpus this
-library does not have.
+nothing here contradicts them. And 1,401 words is not a vocabulary in
+any general sense: it is this repository talking about itself. The
+withheld words still have no input column and never route by their
+own meaning; what improved is the encoder placing a sentence from its
+remaining words.
 
 **Importing a representation does not work.** The conversion kit reads
 a real transformer and puts it into the ternary tier, and the measured

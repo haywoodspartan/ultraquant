@@ -114,14 +114,29 @@ class DistilledEncoder:
 
     def encode(self, x: list) -> list:
         """The shared representation of one input vector."""
-        h = [math.tanh(sum(w * v for w, v in zip(row, x)) + b)
+        active = [i for i, v in enumerate(x) if v]
+        h = [math.tanh(sum(row[i] * x[i] for i in active) + b)
              for row, b in zip(self.w1, self.b1)]
         return [sum(w * v for w, v in zip(row, h)) + b
                 for row, b in zip(self.w2, self.b2)]
 
-    def _step(self, x: list, target: list, lr: float) -> float:
-        """One SGD step of mean squared error against the teacher."""
-        pre = [sum(w * v for w, v in zip(row, x)) + b
+    def _step(self, x: list, target: list, lr: float,
+              active: list | None = None) -> float:
+        """One SGD step of mean squared error against the teacher.
+
+        `active` is the indices of the non-zero inputs, and passing it
+        is not an optimisation in the ordinary sense - it is what
+        makes a wide vocabulary usable at all. Bag-of-words is
+        extremely sparse: a sentence has perhaps eight content words
+        against a vocabulary of three thousand. The forward and
+        backward passes originally walked the whole width regardless,
+        which is a 375x waste at that size and turned a fifty-minute
+        measurement into a projected three-hour one before it was
+        noticed.
+        """
+        if active is None:
+            active = [i for i, v in enumerate(x) if v]
+        pre = [sum(row[i] * x[i] for i in active) + b
                for row, b in zip(self.w1, self.b1)]
         h = [math.tanh(v) for v in pre]
         out = [sum(w * v for w, v in zip(row, h)) + b
@@ -141,9 +156,8 @@ class DistilledEncoder:
         for j in range(self.hidden):
             g = grad_h[j] * (1.0 - h[j] * h[j])
             row = self.w1[j]
-            for i, v in enumerate(x):
-                if v:
-                    row[i] -= lr * g * v
+            for i in active:
+                row[i] -= lr * g * x[i]
             self.b1[j] -= lr * g
         return loss
 
@@ -158,9 +172,12 @@ class DistilledEncoder:
         """
         rng = random.Random(seed)
         order = list(range(len(xs)))
+        # Computed once, not once per epoch: the sparsity pattern of
+        # an input does not change while it is being learned from.
+        active = [[i for i, v in enumerate(x) if v] for x in xs]
         loss = 0.0
         for _ in range(epochs):
             rng.shuffle(order)
-            loss = sum(self._step(xs[i], targets[i], lr)
+            loss = sum(self._step(xs[i], targets[i], lr, active[i])
                        for i in order) / len(order)
         return loss

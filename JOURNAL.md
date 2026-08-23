@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **100 entries**, when the
+This file was split out of ARCHITECTURE.md at **101 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.111](#11111-the-ceiling-was-a-corpus-and-the-corpus-was-here) | The ceiling was a corpus, and the corpus was here |
 | [11.110](#11110-owning-the-representation-that-was-borrowed-failed-kept) | Owning the representation that was borrowed (failed, kept) |
 | [11.109](#11109-stage-1-in-the-domain-it-was-told-to-try) | Stage 1, in the domain it was told to try |
 | [11.108](#11108-the-edge-was-semantic-after-all) | The edge was semantic after all |
@@ -799,6 +800,66 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.111 The ceiling was a corpus, and the corpus was here
+
+§11.110 kept 58% of a borrowed representation and measured what
+bounds the approach: on text using words withheld from distillation
+the encoder scored **0.350 against 0.500** on text avoiding them. It
+knows the words it was shown and has nothing for the rest.
+
+That is a corpus problem, and this repository has one. Not a
+pretraining corpus - nobody should call 1,221 sentences that - but
+real English prose over **3,245 distinct content words**, forty-one
+times the test vocabulary, already written. `model/prose.py` mines
+ARCHITECTURE.md, JOURNAL.md and README.md; no label, category or test
+item comes from it.
+
+**PASSED:**
+
+| extra prose | vocab | seen | unseen | penalty |
+|---:|---:|---:|---:|---:|
+| 0 | 60 | 0.469 | 0.325 | **+0.144** |
+| 100 | 673 | 0.500 | 0.500 | **+0.000** |
+| 300 | 1401 | 0.500 | 0.475 | +0.025 |
+
+Penalty drop **+0.119 at seed sd 0.031**, and overall accuracy ROSE
+from 0.397 to 0.487. At a hundred sentences the penalty is exactly
+zero.
+
+**Run one reported the opposite and criterion 4 caught it.** The
+penalty fell further - to **-0.056** - while seen accuracy collapsed
+to **0.094**, below the 0.167 chance floor. The boundary "receded"
+because the encoder had become uniformly useless, and a +0.225
+penalty drop would have read as a triumph without the criterion that
+demanded accuracy hold.
+
+**The cause was criterion 2, written wrong.** It held total SGD steps
+constant, so more sentences meant fewer epochs. Fidelity to the
+teacher on the task texts tracked epochs almost exactly - **0.9243 at
+4166 epochs, 0.6172 at 635, 0.2675 at 235.** A criterion written to
+prevent a confound had created a worse one, and the experiment was
+measuring the training budget rather than the corpus. Constant epochs
+cost more compute at larger sizes and that is the correct thing to
+spend.
+
+**A performance defect had to be fixed before the question could be
+asked.** The encoder's backward pass walked the full input width -
+fine at 79 words, a **375x waste** at 3,000, where a sentence has
+perhaps eight. It turned a fifty-minute run into a projected
+three-hour one. The sparse update is bit-identical to the dense one,
+checked rather than assumed.
+
+**What this establishes**: §11.110's ceiling was not a property of
+distillation. **The vocabulary boundary is a corpus problem, and this
+repository's own documentation is enough corpus to remove it** - a
+hundred sentences, with the teacher paid once for four seconds.
+
+**What it does not**: the withheld words still have no column and
+never route by their own meaning; what improved is the encoder
+placing a sentence from its remaining words. And 1,401 words is not a
+vocabulary in any general sense - it is this repository talking about
+itself.
 
 ### 11.110 Owning the representation that was borrowed (failed, kept)
 
