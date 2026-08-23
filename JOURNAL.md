@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **99 entries**, when the
+This file was split out of ARCHITECTURE.md at **100 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.110](#11110-owning-the-representation-that-was-borrowed-failed-kept) | Owning the representation that was borrowed (failed, kept) |
 | [11.109](#11109-stage-1-in-the-domain-it-was-told-to-try) | Stage 1, in the domain it was told to try |
 | [11.108](#11108-the-edge-was-semantic-after-all) | The edge was semantic after all |
 | [11.107](#11107-three-defects-measured-before-they-were-fixed) | Three defects, measured before they were fixed |
@@ -798,6 +799,72 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.110 Owning the representation that was borrowed (failed, kept)
+
+§11.109 met Stage 1's criterion and named what was still missing: the
+representation is pretrained and reached **over the network on every
+query**. This distils it into a from-scratch encoder so that it is
+not.
+
+**What is not attempted, said first.** Learning that geometry from
+nothing. The teacher's semantics come from an enormous pretraining
+corpus; this library's built-in vocabulary is 25 words and the test
+corpus 79. §11.5 and §11.11 tried to learn a shared representation
+from the data alone and did not succeed, and nothing here
+contradicts them. What is attempted is the trade §11.13 made for the
+router: **pay the teacher once, offline, and own the result.**
+
+**FAILED criterion 2 — and both things holding it back were mine.**
+
+| run | epochs | projection | kept of the borrowed margin | semantic? |
+|---:|---:|---:|---:|:--|
+| 1 | 400 | 128 | **-12%** | inside noise |
+| 2 | 4000 | 128 | **+42%** | inside noise |
+| 3 | 4000 | 256 | **+58%** | **+0.062 at sd 0.041 — yes** |
+
+**Run one looked like a refutation and was an unfinished copy.** The
+distilled encoder scored *below* bag-of-words. Rather than conclude
+the method does not transfer, the question asked was whether the copy
+had been made: correlation between the encoder's pairwise cosines and
+the teacher's was **0.683** at 400 epochs, 0.921 at 1500, **0.988** at
+4000.
+
+**Run two showed the second constraint was the projection.** At 0.988
+fidelity to what it was *given*, the copy still kept only 42% - so
+the loss was upstream, in a 768-to-128 projection keeping 0.875 of
+the structure. At 256 (0.927) the kept fraction rose to 58% **and the
+semantic control went from uninterpretable to passing**. The encoder
+was never the binding constraint.
+
+**Run three:** bag-of-words 0.312, distilled **0.417**, borrowed
+0.493. Criterion 3 passes - the distilled advantage does not survive
+the vocabulary permutation, so what was copied is meaning rather than
+capacity.
+
+**Criterion 2 fails, and the bar deserves comment.** Written as "at
+least half... by more than the seed sd" and implemented exactly so:
+`0.5 x 0.181 + 0.066 = 0.157`, which as a share of the borrowed
+margin is **86%**, not half. Wording and implementation agree; the
+loose part was reading "at least half" as meaning half. **58% is a
+fail against the bar as registered**, and the lesson is about writing
+criteria - an sd term added to a fractional bar changes what the
+fraction means.
+
+**The boundary is real and bounds everything here.** On text using
+any of 19 words withheld from distillation the encoder scores
+**0.350** against **0.500** on text avoiding them. It knows the
+geometry of words it was shown and has nothing for the rest.
+
+**Cost:** 248 seconds once, then **622 microseconds per encode
+against the teacher's 8.9 ms** - fourteen times faster, with the
+network unplugged for the entire evaluation.
+
+**What this leaves:** 58% of a borrowed advantage, owned outright and
+running offline; the remaining 42% attributable to a projection that
+can be widened and a vocabulary that cannot be without a larger
+corpus. Two apparent refutations turned out to be a training budget
+and a projection width. **Neither was a wall.**
 
 ### 11.109 Stage 1, in the domain it was told to try
 

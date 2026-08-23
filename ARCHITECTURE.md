@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.99 · 2077 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 5.00 · 2093 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         142 modules, 2077 tests
+tests/         143 modules, 2093 tests
 ```
 
 ---
@@ -2892,12 +2892,23 @@ advantage again not surviving the permutation. **A shared
 representation buys few-shot transfer here, and the transfer is
 semantic.**
 
-**What is still not done**, and it is the whole of what remains on
-this axis: the representation is `nomic-embed-text-v1.5`, pretrained
-and reached over the network. §11.5 and §11.11 tried to *learn* one
-and did not succeed. The criterion is met with a borrowed
-representation; the encoder is not built, and nothing in the pipeline
-depends on the borrowed one — it is a measurement, not a dependency.
+**Owning it is 58% done and measured.**
+[§11.110](JOURNAL.md#11110-owning-the-representation-that-was-borrowed-failed-kept)
+distilled the teacher's geometry into a from-scratch encoder — the
+trade §11.13 already made for the router: pay once, offline, then
+touch nothing. It keeps **58%** of the borrowed advantage at **622 µs
+per encode against the teacher's 8.9 ms**, and the distilled
+advantage does not survive the vocabulary permutation, so what was
+copied is meaning rather than capacity. It FAILS its own bar, which
+demanded 86%.
+
+**What is still not done.** Learning the geometry rather than
+importing it — §11.5 and §11.11 tried and did not succeed, and
+nothing here contradicts them. The hard ceiling is vocabulary: on
+text using words withheld from distillation the encoder scores 0.350
+against 0.500 on text avoiding them. It knows the words it was shown
+and has nothing for the rest, and widening that needs a corpus this
+library does not have.
 
 **Importing a representation does not work.** The conversion kit reads
 a real transformer and puts it into the ternary tier, and the measured

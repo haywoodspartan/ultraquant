@@ -154,6 +154,7 @@ battery.
 | **What it costs to change your mind** | the three axes the architecture doc listed as unmeasured — correction accuracy, auditability, premise veto — measured against the same 27B model. **Two came back ties**: both track 20 accumulating corrections at 100%, both cite their premises, both follow a corrected premise through a chain. Only the cost differs, and asymptotically: **26 bytes flat against 1691 and growing ~82 per correction**. Run one reported the transformer collapsing to 20% — that was a reasoning model starved of tokens by my own harness, the second instrument error in two units to point the flattering way |
 | **The edge was semantic after all** | the shared-representation question that failed twice, resolved with a control that proves its own faithfulness: a **vocabulary bijection** leaves lexical routing *mathematically unchanged* (0.222 in both conditions, eight permutations) while destroying meaning. The embedding's margin goes **+0.556 → +0.042** — **92% of it is semantic**, +0.514 at 4.8× noise. Registered before the run, using the exact test the previous unit named and honourably declined to apply after the fact. It establishes Stage 1's *premise*, not Stage 1 |
 | **Stage 1, in the domain it was told to try** | the last unpassed stage on the staged path to generality. Its criterion, quoted not paraphrased, re-run on text: five examples per class, leave-one-out over a corpus written for something else. **bag-of-words 0.296 against embedding 0.463, margin +0.167 at seed sd 0.099** — and the advantage does not survive a vocabulary permutation, so the transfer is semantic. Both margins clear their bars *thinly*. **The criterion is met with a borrowed representation; the encoder is not built** |
+| **Owning the borrowed representation** (failed, kept) | the semantic advantage cost a network round trip on every query. Distilled into a from-scratch encoder it keeps **58% of it at 622 µs against the teacher's 8.9 ms**, with the network unplugged for the whole evaluation — and the copied advantage still dies under a vocabulary permutation, so what transferred is meaning. It FAILS a bar that read as "half" and computed as 86%. The trajectory is the finding: **−12% → +42% → +58%**, and both things holding it back were mine — an unfinished training budget and a projection width, not walls |
 
 ### Defects, fixed after they were measured
 
@@ -205,7 +206,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2077 tests, ~4 min
+python -m unittest discover -s tests      # 2093 tests, ~4 min
 ```
 
 In the chat, try:
@@ -244,7 +245,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2077 tests across 142 modules
+tests/         2093 tests across 143 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:
