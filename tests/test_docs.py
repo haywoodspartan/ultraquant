@@ -47,8 +47,14 @@ class FeatureTableTests(unittest.TestCase):
         # separator; a run that starts with a content row is the
         # orphaned tail of an earlier table.
         for begin, end in runs:
-            if end - begin < 2:
-                continue
+            # A run of ONE row cannot carry a header and a separator,
+            # so it is an orphan by construction. The first version of
+            # this pin skipped short runs and let exactly that ship:
+            # a single row rendering as raw pipe-text, through a
+            # commit, unnoticed.
+            self.assertGreaterEqual(
+                end - begin, 2,
+                f"a lone table row at line {begin + 1} has no header")
             separator = lines[begin + 1]
             self.assertTrue(
                 set(separator.replace("|", "").replace(" ", ""))

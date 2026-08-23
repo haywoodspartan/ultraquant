@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.95 · 2038 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.96 · 2050 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         139 modules, 2038 tests
+tests/         140 modules, 2050 tests
 ```
 
 ---
@@ -2904,8 +2904,24 @@ floating point would have to be built deliberately, and picking
 pathological cases to make the point would be the rigging this gate
 was designed to avoid.
 
-**What is still unmeasured**: correction latency, resident bytes per
-fact, and whether an answer can be vetoed premise by premise — the
-axes where the architectures differ most structurally and where no
-comparison has been run. One model, one setting, twenty-four
-questions is a beginning and not a benchmark.
+**The other three axes have now been measured too**, in
+[§11.106](JOURNAL.md#11106-what-it-costs-to-change-your-mind), and two
+of them are ties:
+
+| axis | result |
+|---|---|
+| correction accuracy at 20 revisions | **100% / 100%** — a tie |
+| auditability (does it cite premises?) | **both do** — a tie, though only one does it unasked |
+| premise veto (correct a premise, re-derive) | **both follow it** |
+| bytes carried per query at 20 corrections | **26 flat / 1691 growing** — linear against constant |
+
+Only the cost differs, and it is asymptotic: the context grows about
+82 bytes per correction where the store does not grow at all. That is
+structural, and it is also worth 1.7 KB at twenty corrections, which
+a context window measured in tens of thousands of tokens does not
+notice. **The slope is measured; the crossover is not.**
+
+**What is still unmeasured**: everything at scale. One model, one
+setting, twenty-four questions and twenty corrections is a beginning
+and not a benchmark, and every difference this architecture claims is
+a claim about what happens when the numbers get large.

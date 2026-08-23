@@ -141,7 +141,17 @@ The conversion path was measured rather than assumed, and the measurement closed
 |---|---|
 | **The density capstone** | every question form above measured against one ~10,000-fact colliding world: floors at 1.000, fabrication at zero across every decoy family, every price named (depth-4 chains 347 ms after the frontier clock, recall-backed forms ~1 ms) |
 
+
+### Measured against a real transformer
+
+Both systems given the identical facts, with a family the transformer is
+*expected* to win, because a battery whose opponent never wins is not a
+battery.
+
+| capability | the measurement behind it |
+|---|---|
 | **Measured against a real transformer** | both given the identical nine facts, the transformer's in its prompt word for word, with a world-knowledge family it is *expected* to win because a battery whose opponent never wins is not a battery. Held facts 100%/100%, derived chains **100%/67%**, arithmetic 100%/100%, world knowledge 0%/**100%** — and fabrication on unheld subjects **0%/0%**. The headline claim lost; the correction is in the book |
+| **What it costs to change your mind** | the three axes the architecture doc listed as unmeasured — correction accuracy, auditability, premise veto — measured against the same 27B model. **Two came back ties**: both track 20 accumulating corrections at 100%, both cite their premises, both follow a corrected premise through a chain. Only the cost differs, and asymptotically: **26 bytes flat against 1691 and growing ~82 per correction**. Run one reported the transformer collapsing to 20% — that was a reasoning model starved of tokens by my own harness, the second instrument error in two units to point the flattering way |
 
 ### The failures, which are kept
 
@@ -179,7 +189,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2038 tests, ~4 min
+python -m unittest discover -s tests      # 2050 tests, ~4 min
 ```
 
 In the chat, try:
@@ -218,7 +228,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2038 tests across 139 modules
+tests/         2050 tests across 140 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

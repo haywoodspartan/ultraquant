@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **95 entries**, when the
+This file was split out of ARCHITECTURE.md at **96 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.106](#11106-what-it-costs-to-change-your-mind) | What it costs to change your mind |
 | [11.105](#11105-ultraquant-against-a-transformer-on-the-same-facts) | UltraQuant against a transformer, on the same facts |
 | [11.104](#11104-reading-until-you-know-enough-failed-kept) | Reading until you know enough (failed, kept) |
 | [11.103](#11103-an-encoder-that-refuses-its-own-output) | An encoder that refuses its own output |
@@ -794,6 +795,63 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.106 What it costs to change your mind
+
+§12.3 named three axes where these architectures differ most
+structurally and where nothing had been measured: **correction
+latency, resident bytes per fact, and whether an answer can be vetoed
+premise by premise.** This measures all three. **Two came back ties,
+and the most useful thing in the unit is a measurement error it
+caught in its own favour.**
+
+**Run one reported the transformer collapsing** - 100%, 60%, 30%,
+**20%** as corrections accumulated. That would have been a
+spectacular result for this architecture and was entirely an artifact
+of the harness. The failures were not wrong answers, they were
+**EMPTY** ones: `qwen3.8-27b` is a reasoning model, `complete` was
+called without `reasoning_effort`, and an 80-token ceiling left it
+thinking until the budget ran out. `interpreter/llmls.py` had already
+documented this exact failure - *"gemma spent all 400 tokens thinking
+on every panel question"* - and passes `NO_REASONING` for it. This
+gate did not.
+
+**That is the second time an instrument error pointed the flattering
+way**, after §11.105's empty-answer bug. When a comparison favours
+the thing you built, check the instrument before believing the
+result. Empties are counted separately now.
+
+**Run two, corrected:**
+
+| corrections | UQ accuracy | LLM accuracy | UQ bytes/query | LLM bytes/query |
+|---:|---:|---:|---:|---:|
+| 1 | 100% | 100% | 25 | 125 |
+| 5 | 100% | 100% | 25 | 434 |
+| 10 | 100% | 100% | 26 | 839 |
+| 20 | 100% | 100% | 26 | **1691** |
+
+**Correction accuracy: a tie.** A 27B model tracks twenty
+accumulating in-context corrections without a miss.
+
+**Auditability: a tie.** Asked which facts it used, the transformer
+lists them. UltraQuant names its premises unasked, which is a
+difference in default rather than in capability.
+
+**Bytes per fact: the one real difference, and it is asymptotic.**
+The context grew **13.5x across a 20x increase in corrections** -
+linear, about 82 bytes each - while the store stayed flat at 25 to 26.
+The difference is structural and genuine. It is also worth 1.7 KB at
+twenty corrections, which a context window measured in tens of
+thousands of tokens does not notice. **The crossover is somewhere in
+the thousands and this gate did not measure it**, so what is
+established is the slope, not the wall.
+
+**The premise veto worked for both.** Derive "the anvil hardness is
+high" from two facts, correct one premise, re-derive: both returned
+"low", both citing the corrected premise.
+
+A thinner result than §12.3 implied was waiting, and it is the
+result.
 
 ### 11.105 UltraQuant against a transformer, on the same facts
 
