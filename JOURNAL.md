@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **97 entries**, when the
+This file was split out of ARCHITECTURE.md at **98 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.108](#11108-the-edge-was-semantic-after-all) | The edge was semantic after all |
 | [11.107](#11107-three-defects-measured-before-they-were-fixed) | Three defects, measured before they were fixed |
 | [11.106](#11106-what-it-costs-to-change-your-mind) | What it costs to change your mind |
 | [11.105](#11105-ultraquant-against-a-transformer-on-the-same-facts) | UltraQuant against a transformer, on the same facts |
@@ -796,6 +797,80 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.108 The edge was semantic after all
+
+§11.2 named two things missing from this architecture: composition
+and a shared representation. Composition landed at Stage 2. **Shared
+representation had failed twice** - §11.5 on pixels, where raw
+features were already near-ideal, and §11.11 on text, where the
+effect was large and the control was not clean enough to read it.
+
+§11.11 measured **paraphrase +0.533 at 5.66x seed sd**, reported FAIL
+because its partial-overlap control also moved, wrote down the test
+that would resolve it, and refused to use it:
+
+> *"A difference-in-differences would read +0.446 and pass easily.
+> That is probably the better-specified test... But it was formulated
+> AFTER seeing the numbers, and adopting a criterion because it
+> converts a fail into a pass is the goalpost move §11.5 refused."*
+
+**So it was registered in advance, with a control built for it.**
+
+**The control: a consistent bijection onto unrelated real words.**
+Every content word becomes a different real English word, the same
+way everywhere. What that does and does not disturb is the entire
+design:
+
+* **Lexical routing is mathematically unchanged** - token overlap is
+  invariant under a bijection. So lexical accuracy must come out
+  identical, and criterion 1 checks it. **A control that proves its
+  own faithfulness** is what the partial-overlap control could never
+  offer.
+* **Capacity is unchanged** - real words in, well-formed 768-dim
+  vectors out.
+* **Meaning is destroyed** - "a box outline" and "a square shape"
+  become unrelated sentences.
+
+A capacity advantage survives that. A semantic one cannot.
+
+**PASSED on all four criteria:**
+
+| | real | permuted |
+|---|---:|---:|
+| lexical | 0.222 | **0.222** |
+| embedding | **0.778** | 0.264 |
+| margin | **+0.556** | +0.042 |
+
+**Difference +0.514 at seed sd 0.107 - 4.8x the noise.** Lexical came
+out identical across eight independent permutations, so the control
+held exactly. **92% of the embedding's advantage disappears when the
+meaning does.** And the permuted embedding still beats chance (0.264
+against 0.167), so the control did not win by demolition - though
+that margin is modest and should be read as modest.
+
+**What this settles and what it does not.**
+
+It settles §11.11: the effect was real, and the test that shows it is
+the one that unit named and honourably declined to apply after the
+fact.
+
+**It does not pass Stage 1**, and the temptation to say so should be
+named rather than resisted quietly. Stage 1's gate is **few-shot
+transfer**; this is **routing**. What is established is the PREMISE
+Stage 1 rests on - that a shared representation carries structure raw
+features do not, and that the structure is semantic rather than
+capacity. Whether it buys transfer is a different measurement.
+
+**And the representation is not ours.** `nomic-embed-text-v1.5` is
+pretrained and reached over the network. §11.5 and §11.11 tried to
+LEARN a shared representation and did not succeed; this measures that
+a good one exists and helps. A system whose shared representation is
+an external service has bought transfer at the cost of the
+from-scratch principle, and that trade is not made here - nothing in
+the pipeline depends on this. It is a measurement, not a dependency.
+
+Six categories, eighteen paraphrases, one embedding model.
 
 ### 11.107 Three defects, measured before they were fixed
 

@@ -152,6 +152,7 @@ battery.
 |---|---|
 | **Measured against a real transformer** | both given the identical nine facts, the transformer's in its prompt word for word, with a world-knowledge family it is *expected* to win because a battery whose opponent never wins is not a battery. Held facts 100%/100%, derived chains **100%/67%**, arithmetic 100%/100%, world knowledge 0%/**100%** — and fabrication on unheld subjects **0%/0%**. The headline claim lost; the correction is in the book |
 | **What it costs to change your mind** | the three axes the architecture doc listed as unmeasured — correction accuracy, auditability, premise veto — measured against the same 27B model. **Two came back ties**: both track 20 accumulating corrections at 100%, both cite their premises, both follow a corrected premise through a chain. Only the cost differs, and asymptotically: **26 bytes flat against 1691 and growing ~82 per correction**. Run one reported the transformer collapsing to 20% — that was a reasoning model starved of tokens by my own harness, the second instrument error in two units to point the flattering way |
+| **The edge was semantic after all** | the shared-representation question that failed twice, resolved with a control that proves its own faithfulness: a **vocabulary bijection** leaves lexical routing *mathematically unchanged* (0.222 in both conditions, eight permutations) while destroying meaning. The embedding's margin goes **+0.556 → +0.042** — **92% of it is semantic**, +0.514 at 4.8× noise. Registered before the run, using the exact test the previous unit named and honourably declined to apply after the fact. It establishes Stage 1's *premise*, not Stage 1 |
 
 ### Defects, fixed after they were measured
 
@@ -166,11 +167,16 @@ battery.
 A gate that cannot fail measures nothing, so the ones that failed are in the
 record beside the ones that passed:
 
-- **The shared encoder failed twice** and reordered the roadmap. It is still
-  the open gap — the retry measured a large real effect (paraphrase **+0.533 at
-  5.66× seed sd**) and was recorded as a FAIL anyway, because its control moved
-  too and the margin became uninterpretable. The rescue that would have passed
-  it was declined for being formulated after the numbers were seen.
+- **The shared encoder failed twice**, and the second failure has now been
+  resolved. The retry measured a large real effect (paraphrase **+0.533 at
+  5.66× seed sd**) and was recorded as a FAIL because its control moved too;
+  the rescue that would have passed it was declined for being formulated after
+  the numbers were seen. Registered in advance with a purpose-built control — a
+  vocabulary bijection that leaves lexical routing *mathematically unchanged* —
+  **92% of the embedding's advantage disappears when the meaning does**
+  (+0.514 at 4.8× noise). The edge is semantic. That establishes the premise
+  Stage 1 rests on, not Stage 1 itself, and the representation is a pretrained
+  external model rather than one this system learned.
 - **Importing a transformer does not import its representation.** 0.467
   relative output error per layer compounds over 27 blocks to **cosine
   0.0185** — not degraded, uncorrelated. Measured, not extrapolated.
@@ -197,7 +203,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2053 tests, ~4 min
+python -m unittest discover -s tests      # 2064 tests, ~4 min
 ```
 
 In the chat, try:
@@ -236,7 +242,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2053 tests across 140 modules
+tests/         2064 tests across 141 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

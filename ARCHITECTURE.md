@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.97 · 2053 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.98 · 2064 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         140 modules, 2053 tests
+tests/         141 modules, 2064 tests
 ```
 
 ---
@@ -2844,16 +2844,35 @@ for irrational roots rather than a decimal that looks exact and is not.
 
 ### 12.2 Where it is not
 
-**Shared representation is the open gap.** [§11.2](#112-the-two-things-actually-missing)
-named exactly two things missing: composition and shared
-representation. Composition was solved at
-[Stage 2](#116-stage-2-was-run-and-it-passed). Shared representation
-failed at [Stage 1](#115-stage-1-was-run-and-it-failed), and the retry
-in the domain that stage named — text, where lexical overlap genuinely
-is a poor representation — measured **paraphrase +0.533 at 5.66× seed
-sd** but was recorded as a FAIL because its control also moved. The
-effect is real and large; what is missing is a control clean enough to
+**Shared representation: the premise is now established, the stage is
+not.** [§11.2](#112-the-two-things-actually-missing) named exactly two
+things missing: composition and shared representation. Composition was
+solved at [Stage 2](#116-stage-2-was-run-and-it-passed). Shared
+representation failed at
+[Stage 1](#115-stage-1-was-run-and-it-failed) on pixels and again at
+§11.11 on text, where the effect was large and the control could not
 interpret it.
+
+[§11.108](JOURNAL.md#11108-the-edge-was-semantic-after-all) resolved
+that with a control that proves its own faithfulness — a bijection
+over the vocabulary, which leaves lexical routing *mathematically
+unchanged* while destroying meaning:
+
+| | real | permuted |
+|---|---:|---:|
+| lexical | 0.222 | **0.222** (identical, eight permutations) |
+| embedding | **0.778** | 0.264 |
+| margin | **+0.556** | +0.042 |
+
+**92% of the advantage disappears when the meaning does** — +0.514 at
+4.8× the seed noise. The edge is semantic, not capacity.
+
+Two things that does **not** mean. It does not pass Stage 1, whose
+gate is **few-shot transfer** where this is **routing**; what is
+established is the premise Stage 1 rests on. And the representation
+is a pretrained external model, not one this system learned — §11.5
+and §11.11 tried to learn one and did not succeed. Nothing in the
+pipeline depends on it: it is a measurement, not a dependency.
 
 **Importing a representation does not work.** The conversion kit reads
 a real transformer and puts it into the ternary tier, and the measured
