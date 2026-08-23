@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 4.98 · 2064 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 4.99 · 2077 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -246,7 +246,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         141 modules, 2064 tests
+tests/         142 modules, 2077 tests
 ```
 
 ---
@@ -1647,7 +1647,7 @@ where the honest conclusion was that the data-loading wall is real.
 ```mermaid
 flowchart TD
     S0["Stage 0 — modality-agnostic library<br/><b>DONE</b>"] --> S1
-    S1["Stage 1 — shared learned encoder<br/><b>RUN — FAILED</b>"] --> S2
+    S1["Stage 1 — shared representation<br/><b>criterion MET, encoder not built</b>"] --> S2
     S2["Stage 2 — blackboard working memory<br/><b>RUN — PASSED</b>"] --> S3
     S3["Stage 3 — self-proposed concepts<br/><b>RUN — PASSED</b>"] --> S4
     S4["Stage 4 — goal-directed action<br/><b>RUN — PASSED</b>"] --> S5
@@ -1660,9 +1660,9 @@ flowchart TD
     G5{"novel sentences<br/>that are correct?"} -.-> S5
 
     classDef done fill:#1f3d2b,stroke:#3ac98a,color:#d3f5e6
-    classDef dead fill:#3d1f1f,stroke:#c93a3a,color:#f5d3d3
+    classDef part fill:#3d371f,stroke:#c9a83a,color:#f5eed3
     class S0,S2,S3,S4,S5 done
-    class S1 dead
+    class S1 part
 ```
 
 **Stage 0 — the library stops being single-modality.** *Done.* `ExpertPool` no
@@ -1681,8 +1681,25 @@ category is available to the next.
 *Gate: a held-out category trained on 5 examples through the encoder beats the
 same category trained on 5 raw-pixel examples, by a margin larger than seed
 variance.*
-**Run. FAILED — see [§11.5](#115-stage-1-was-run-and-it-failed).** The stage is
-abandoned in this form, and the failure changed the order of what follows.
+**Run on pixels. FAILED — see [§11.5](#115-stage-1-was-run-and-it-failed).**
+The stage was abandoned in that form, and the failure changed the order of what
+follows. §11.5 also named where to retry: *"a perceptual domain where the raw
+features are a poor representation"*.
+
+**Re-run there, and the criterion is MET** —
+[§11.109](JOURNAL.md#11109-stage-1-in-the-domain-it-was-told-to-try), on text,
+five examples per class: bag-of-words 0.296 against embedding 0.463, margin
+**+0.167 at seed sd 0.099**, and the advantage does not survive a vocabulary
+permutation (+0.162 at sd 0.130), so the transfer is semantic rather than
+capacity. Both margins clear their bars thinly, and six categories is small.
+
+**The stage is not closed, and the reason is exact.** Stage 1 is *a shared
+encoder this system builds*; the representation measured is `nomic-embed-
+text-v1.5`, pretrained and reached over the network. **The criterion is met
+with a borrowed representation; the mechanism is not built.** What has changed
+is that it is no longer an open question whether a shared representation would
+help here — it is measured that it does, so learning one is a well-motivated
+engineering problem rather than a bet.
 
 **Stage 2 — a blackboard.** A per-input working structure that several experts
 write into and a combiner reads, replacing single-expert dispatch. This is the
@@ -2867,12 +2884,20 @@ unchanged* while destroying meaning:
 **92% of the advantage disappears when the meaning does** — +0.514 at
 4.8× the seed noise. The edge is semantic, not capacity.
 
-Two things that does **not** mean. It does not pass Stage 1, whose
-gate is **few-shot transfer** where this is **routing**; what is
-established is the premise Stage 1 rests on. And the representation
-is a pretrained external model, not one this system learned — §11.5
-and §11.11 tried to learn one and did not succeed. Nothing in the
-pipeline depends on it: it is a measurement, not a dependency.
+[§11.109](JOURNAL.md#11109-stage-1-in-the-domain-it-was-told-to-try)
+then ran **Stage 1's own criterion** on that premise — five examples
+per class, leave-one-out — and met it: bag-of-words 0.296 against
+embedding 0.463, margin **+0.167 at seed sd 0.099**, with the
+advantage again not surviving the permutation. **A shared
+representation buys few-shot transfer here, and the transfer is
+semantic.**
+
+**What is still not done**, and it is the whole of what remains on
+this axis: the representation is `nomic-embed-text-v1.5`, pretrained
+and reached over the network. §11.5 and §11.11 tried to *learn* one
+and did not succeed. The criterion is met with a borrowed
+representation; the encoder is not built, and nothing in the pipeline
+depends on the borrowed one — it is a measurement, not a dependency.
 
 **Importing a representation does not work.** The conversion kit reads
 a real transformer and puts it into the ternary tier, and the measured

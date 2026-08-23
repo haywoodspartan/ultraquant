@@ -94,9 +94,20 @@ class GateVerdictTests(unittest.TestCase):
         self.assertIn("difference-in-differences", self.doc)
 
     def test_the_result_is_recorded(self) -> None:
-        self.assertIn("+0.514 at seed sd 0.107", self.doc)
-        self.assertIn("92% of the embedding's advantage disappears",
+        self.assertIn("+0.472 at seed sd 0.127", self.doc)
+        self.assertIn("85% of the embedding's advantage disappears",
                       self.doc)
+
+    def test_the_leak_and_its_correction_are_kept(self) -> None:
+        """Run one's control let real meaning through untranslated."""
+        self.assertIn("passed through untranslated", self.doc)
+        self.assertIn("run one (leaky)", self.doc)
+        self.assertIn("+0.514 at 4.8x before", self.doc)
+
+    def test_why_criterion_one_missed_the_leak_is_explained(self):
+        """A symmetric leak is invisible to a faithfulness check."""
+        self.assertIn("the leak was CONSISTENT", self.doc)
+        self.assertIn("cannot see a leak that is symmetric", self.doc)
 
     def test_stage_one_is_not_claimed(self) -> None:
         """Routing is not few-shot transfer, and the doc says so."""

@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **98 entries**, when the
+This file was split out of ARCHITECTURE.md at **99 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.109](#11109-stage-1-in-the-domain-it-was-told-to-try) | Stage 1, in the domain it was told to try |
 | [11.108](#11108-the-edge-was-semantic-after-all) | The edge was semantic after all |
 | [11.107](#11107-three-defects-measured-before-they-were-fixed) | Three defects, measured before they were fixed |
 | [11.106](#11106-what-it-costs-to-change-your-mind) | What it costs to change your mind |
@@ -797,6 +798,79 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.109 Stage 1, in the domain it was told to try
+
+§11.3 states Stage 1's gate before the work, so the answer cannot be
+adjusted afterwards: *"a held-out category trained on 5 examples
+through the encoder beats the same category trained on 5 raw-pixel
+examples, by a margin larger than seed variance."* §11.5 ran it on
+pixels, it FAILED, and it named where to go: raw pixels were already
+near-ideal for strokes, so a re-encoding could only lose - and a
+shared representation should pay in *"a perceptual domain where the
+raw features are a poor representation"*. §11.108 established that
+text is such a domain and that the advantage there is semantic.
+
+So: Stage 1's criterion, unchanged, in the domain that failure
+pointed at. **The only liberty is the translation**, stated rather
+than slipped in: "raw pixels" becomes binary bag-of-words over the
+corpus vocabulary, and "through the encoder" becomes the pretrained
+embedding.
+
+**Five examples means five, from a corpus written for something
+else.** Every category has exactly six texts, so leave-one-out gives
+5 train and 1 test with no sampling and nothing newly written.
+Hand-writing extra paraphrases for a gate that rewards paraphrase
+handling is how a deck gets stacked without anybody deciding to.
+
+**PASSED**, six seeds, six folds:
+
+| | real | permuted |
+|---|---:|---:|
+| bag-of-words | 0.296 | **0.296** |
+| embedding | **0.463** | 0.301 |
+| margin | **+0.167** | +0.005 |
+
+Margin **+0.167 at seed sd 0.099**; difference **+0.162 at sd
+0.130**. Both clear their bars and **both clear them thinly** - 1.7x
+and 1.25x. Six categories, thirty-six test items per seed. Reading
+those as large would be the error this project is arranged against.
+
+**Two harness defects were caught by the criteria before the result
+was believed, and they are worth more than the pass.**
+
+Criterion 3 failed first: bag-of-words scored 0.296 real against
+0.269 permuted, where a bijection guarantees equality. The permuted
+vocabulary had been sorted independently, so feature index i meant a
+different word in each condition and the two "identical" arms were
+different arithmetic against the same seeded weights.
+
+Before that, the vocabulary-size assertion **found a leak in
+§11.108's control** - `permute` split on whitespace, so
+"equal-sided" matched no key and passed through untranslated,
+leaving real English meaning inside the condition that exists to have
+none. §11.108's numbers are corrected there (+0.514 at 4.8x becomes
++0.472 at 3.7x; 92% semantic becomes 85%). **A gate found a defect in
+the gate before it**, which is the only reason this one can be read.
+
+**What this settles.** §11.2 named two things missing: composition,
+solved at Stage 2, and shared representation, which failed at Stage 1
+and was recorded as abandoned in that form. **A shared representation
+does buy few-shot transfer, and the transfer is semantic rather than
+capacity.**
+
+**What it does not settle, and the distinction is exact.** Stage 1 is
+*"a shared encoder... one representation over the feature space"* -
+one this system **builds**. `nomic-embed-text-v1.5` is pretrained and
+reached over the network. **The criterion is met with a borrowed
+representation; the mechanism is not built.**
+
+What changes is why that matters. Before this run it was an open
+question whether a shared representation would help this system at
+all - §11.5 said no on pixels, §11.11 could not read the answer on
+text. It is now measured that it does. **Learning one is a
+well-motivated engineering problem rather than a bet**, which is a
+different and much better place to be stuck.
 
 ### 11.108 The edge was semantic after all
 

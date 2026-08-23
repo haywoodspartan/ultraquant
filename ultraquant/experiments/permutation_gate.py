@@ -71,15 +71,38 @@ semantic one does not. That is the whole design.
    is measuring the wrong thing and cannot be credited. This is the
    guard against a control that wins by demolition.
 
-**PASSED on all four criteria.**
+**PASSED on all four criteria — and run one had a leak in the
+control, found by the NEXT unit's assertion and corrected here.**
 
-| | real | permuted |
-|---|---:|---:|
-| lexical | 0.222 | **0.222** |
-| embedding | **0.778** | 0.264 |
-| margin | **+0.556** | +0.042 |
+§11.109 asserted that the permutation must not change the vocabulary
+size, and it did. `permute` had split on whitespace and stripped
+punctuation to form its lookup key, so `"equal-sided"` became
+`"equalsided"`, matched nothing, and **passed through untranslated** -
+real English meaning left sitting inside the control condition.
+`_tokens` splits that into two tokens; the substitution now works on
+the same alphanumeric runs, so the two agree by construction rather
+than by luck.
 
-**difference +0.514 at seed sd 0.107 — 4.8x the noise.**
+Criterion 1 did not catch it, and it is worth saying why: the leak
+was CONSISTENT, appearing in the permuted category text and the
+permuted query alike, so token overlap stayed identical and lexical
+still scored 0.222 in both conditions. A faithfulness check on the
+lexical arm cannot see a leak that is symmetric. The vocabulary-size
+assertion can, and it belongs here too now.
+
+Corrected numbers, eight permutations:
+
+| | real | permuted | run one (leaky) |
+|---|---:|---:|---:|
+| lexical | 0.222 | **0.222** | 0.222 |
+| embedding | **0.778** | 0.306 | 0.264 |
+| margin | **+0.556** | +0.083 | +0.042 |
+
+**difference +0.472 at seed sd 0.127 — 3.7x the noise**, against
++0.514 at 4.8x before. The conclusion does not move: **85% of the
+embedding's advantage is semantic** (was 92%). The leak flattered the
+result by roughly seven points of it, which is the direction a leak
+of surviving meaning would be expected to push.
 
 **Criterion 1 held exactly**, which is the part that makes the rest
 readable: lexical scored 0.222 in both conditions, identically, over
@@ -88,12 +111,12 @@ lexical could see, and that is not asserted from the design — it is
 measured, and the design is why it could be.
 
 **The edge is semantic.** Destroy the meaning and hold everything
-else constant, and **92% of the embedding's advantage disappears**
-(+0.556 to +0.042). A pure-capacity account predicts the margin
+else constant, and **85% of the embedding's advantage disappears**
+(+0.556 to +0.083). A pure-capacity account predicts the margin
 survives; it does not.
 
 **Criterion 4 held**, so the control did not win by demolition: the
-permuted embedding still routes at 0.264 against a chance floor of
+permuted embedding still routes at 0.306 against a chance floor of
 0.167. It is a modest margin and worth reading as one — some capacity
 survives, and it is small.
 
@@ -140,6 +163,7 @@ from __future__ import annotations
 
 import math
 import random
+import re
 import statistics
 from dataclasses import dataclass, field
 
@@ -205,18 +229,25 @@ def build_permutation(seed: int = 0) -> dict:
 
 
 def permute(text: str, mapping: dict) -> str:
-    """Rewrite `text` word by word, leaving stopwords and shape alone.
+    """Rewrite `text`, mapping exactly the runs `_tokens` sees.
 
     Stopwords stay because they carry no category signal either way -
     `_tokens` drops them, so mapping them would change nothing lexical
     and would only make the permuted text read less like English to
     the embedding model.
+
+    **This substitutes alphanumeric RUNS, not whitespace words**, and
+    the difference was a real leak. The first version split on spaces
+    and stripped punctuation to look each word up, so "equal-sided"
+    became the single key "equalsided", which is in no mapping - and
+    the phrase passed through **untranslated**, leaving real English
+    meaning inside the control condition. `_tokens` splits it into
+    "equal" and "sided"; this now does the same, so the two agree by
+    construction rather than by luck.
     """
-    out = []
-    for raw in text.split():
-        bare = "".join(c.lower() for c in raw if c.isalnum())
-        out.append(mapping.get(bare, raw))
-    return " ".join(out)
+    return re.sub(r"[a-z0-9]+",
+                  lambda m: mapping.get(m.group(), m.group()),
+                  text.lower())
 
 
 def permuted_categories(mapping: dict) -> dict:
