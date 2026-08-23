@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **96 entries**, when the
+This file was split out of ARCHITECTURE.md at **97 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.107](#11107-three-defects-measured-before-they-were-fixed) | Three defects, measured before they were fixed |
 | [11.106](#11106-what-it-costs-to-change-your-mind) | What it costs to change your mind |
 | [11.105](#11105-ultraquant-against-a-transformer-on-the-same-facts) | UltraQuant against a transformer, on the same facts |
 | [11.104](#11104-reading-until-you-know-enough-failed-kept) | Reading until you know enough (failed, kept) |
@@ -795,6 +796,65 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.107 Three defects, measured before they were fixed
+
+Three things were known to be wrong and shipped anyway, each recorded
+in an earlier unit and then left. None was a missing capability; all
+three were things the record already said were broken, which makes
+them worse than absences.
+
+**The plateau rule only ever cost accuracy.** §11.104 measured
+**11.8% of its plateaus as justified** - it abandoned answerable
+questions nearly nine times in ten - and it stayed in the code. Swept
+before removing it:
+
+| stall reads | reads | accuracy | plateaus | justified |
+|---:|---:|---:|---:|---:|
+| 2 (as shipped) | 2.56 | 0.9741 | 2.6% | 14.3% |
+| 3 | 2.59 | 0.9815 | 1.9% | 20.0% |
+| 5 | 2.63 | **1.0000** | 0.0% | 100.0% |
+| off | 2.63 | **1.0000** | 0.0% | 100.0% |
+
+At every setting where it fires it fires **wrongly**, and at the
+setting where it is justified it **never fires** - so "5" and "off"
+are one policy written two ways, and the 100% is vacuous. It bought
+2.7% fewer reads for 2.6 points of accuracy. **A rule that is only
+ever wrong is deleted rather than tuned**, and the sweep is kept in
+`shards/enough.py` so nobody adds it back by reasoning.
+
+**The float spelling was worth asking about, and less than the
+phrasing implied.** §11.98 measured 86.5 bits/weight for
+exactly-stored floats, called it "JSON writing decimal digits, a
+spelling problem rather than an information one", and parked it.
+Measured on the same weights: JSON decimals **82.75**, packed float64
+in base64 **66.91**, float32 **34.75**. float32 does not round-trip,
+so it was refused - criterion 1 has no tolerance to widen. Shipping
+the packed form took the shard from **86.500 to 72.531 bits/weight**,
+and the gate re-ran with zero differing logits.
+
+That is 16% through the whole shard, not the order of magnitude
+"spelling problem" suggested. The remaining cost is float64 itself,
+which is information rather than spelling, and the note now says so.
+The old `"floats"` payload is still read, because a stored shard
+outlives the code that wrote it.
+
+**The flaky test was not reproduced, and what was found instead was
+a leak.** One failure in roughly ten full-suite runs, never seen
+again. Every test seeds its randomness, and the network tests are
+mocked - the only real sockets in the suite are threaded
+`ThreadingHTTPServer` instances in three modules, and **four of their
+teardowns called `shutdown()` without `server_close()`**, which is
+what the ResourceWarnings in every run had been reporting.
+`test_codeweb.py` already did it correctly; four sites did not. Fixed,
+and those modules now run clean under `-W error::ResourceWarning`.
+
+**Whether that was the flake is unproven and is not claimed.** Leaked
+descriptors accumulating across a two-thousand-test suite is a
+genuine flake mechanism and this was a real defect worth fixing on
+its own terms, but the failure was seen once and never reproduced, so
+the honest statement is that a leak was found and closed while
+looking for something else.
 
 ### 11.106 What it costs to change your mind
 

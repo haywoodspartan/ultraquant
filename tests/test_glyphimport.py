@@ -44,7 +44,12 @@ class RoundTripTests(unittest.TestCase):
         rng = random.Random(5)
         layer = TernaryLinear(12, 6, rng, quantized=False)
         payload = load.store_layer(self.vault, layer, "t:head", "pattern")
-        self.assertEqual(payload.get("packing"), "floats")
+        # The property, not the spelling: whatever the float format is
+        # called, it must not be the trit codec. §11.107 changed the
+        # spelling from "floats" to packed "float64" and this pin
+        # should not have to change with it.
+        self.assertNotIn(payload.get("packing"), ("base243", "ints"))
+        self.assertNotIn("trits", payload)
         back = load.load_layer(self.vault, "t:head")
         self.assertEqual(layer.w, back.w,
                          "an exact layer must arrive exact")
@@ -104,8 +109,14 @@ class GateVerdictTests(unittest.TestCase):
         self.assertIn("Trits are how you store a ternary matrix", self.doc)
 
     def test_the_cost_is_broken_out_rather_than_averaged(self) -> None:
-        self.assertIn("6.208", self.doc)
-        self.assertIn("86.500", self.doc)
+        self.assertIn("6.450", self.doc)
+        self.assertIn("72.531", self.doc)
+
+    def test_the_spelling_saving_is_recorded_with_its_size(self) -> None:
+        """§11.107 asked the question this gate had parked."""
+        self.assertIn("86.500 until", self.doc)
+        self.assertIn("float32 would have been 34.75 and is not exact",
+                      self.doc)
 
     def test_the_gate_still_passes(self) -> None:
         report = glyphimport_gate.run_gate(epochs=8, seed=3)

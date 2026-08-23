@@ -96,27 +96,37 @@ Run two:
 | ternary layers idempotent | **1/1** |
 
 **Criterion 5, the cost, and it is not a flattering number.** 1,216
-weights in 3,606 bytes is 23.7 bits/weight - but the blend hides the
+weights in 3,188 bytes is 21.0 bits/weight - but the blend hides the
 trade, so it is broken out:
 
 | | weights | bytes | bits/weight |
 |---|---:|---:|---:|
-| ternary | 960 | 745 | **6.208** |
-| exact floats | 256 | 2,768 | **86.500** |
+| ternary | 960 | 774 | **6.450** |
+| exact floats | 256 | 2,321 | **72.531** |
 
-The exactly-stored head is 21% of the weights and 77% of the bytes.
+The exactly-stored head is 21% of the weights and 73% of the bytes.
 That is what criterion 1 costs, paid deliberately and named here
-rather than averaged away. And the ternary rate is itself 3.4x
+rather than averaged away.
+
+**The float figure was 86.500 until §11.107 acted on the note
+below.** The head was stored as a JSON list of decimals; packed
+float64 in base64 is **72.531**, a 16% saving with the round-trip
+still bit-exact - float32 would have been 34.75 and is not exact, so
+it was refused. Criterion 1 was re-run and still reports zero
+differing logits. And the ternary rate is itself 3.4x
 §11.96's 1.820, for a reason that is not the codec: at 960 weights
 the per-shard metadata - name, shape, scales, base64 padding, zlib
 header, sha256 - is most of the shard. §11.96's number was measured
 over 1,018,016 weights, and the two are not comparable at face
 value.
 
-Neither number is optimised here, and one of them plainly could be:
-86.5 bits/weight is JSON writing decimal digits, which is a spelling
-problem rather than an information one. It is recorded as the next
-question rather than quietly left as an achievement.
+That note used to end here saying 86.5 bits/weight was JSON writing
+decimal digits - a spelling problem rather than an information one -
+and recording it as the next question. **§11.107 asked it.** The
+answer was 19% on the weights alone and 16% through the whole shard,
+which is worth having and is not the order of magnitude the phrasing
+implied. The remaining cost is float64 itself, and that is
+information rather than spelling.
 
 Run it::
 

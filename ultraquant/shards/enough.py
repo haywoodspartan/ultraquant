@@ -24,11 +24,29 @@ bits - decides whether to spend another. Three ways to stop:
 
 * **confident** - evidence cleared the floor. The question is
   answered and the remaining shards are never touched.
-* **plateau** - the last few reads bought less than `_STALL_BITS`
-  between them. More reading is not working, and saying so is more
-  useful than reading everything to arrive at the same doubt.
 * **budget** - the cap was reached. This is the transformer's only
   mode, made explicit and made a failure rather than a default.
+
+**There used to be a third: "plateau"**, which stopped when the last
+few reads bought less than `_STALL_BITS` between them. §11.104
+measured only **11.8% of its plateaus as justified** - it abandoned
+answerable questions nearly nine times in ten - and §11.107 swept it
+before removing it:
+
+===============  =======  ==========  =========  ===========
+stall reads      reads    accuracy    plateaus   justified
+===============  =======  ==========  =========  ===========
+2 (as shipped)   2.56     0.9741      2.6%       14.3%
+3                2.59     0.9815      1.9%       20.0%
+5                2.63     1.0000      0.0%       100.0%
+off              2.63     1.0000      0.0%       100.0%
+===============  =======  ==========  =========  ===========
+
+At every setting where it fires it fires wrongly, and at the setting
+where it is justified it never fires - so "5" and "off" are the same
+policy written two ways. It cost 2.6 points of accuracy to save 2.7%
+of the reads. **A rule that is only ever wrong is deleted rather than
+tuned**, and the numbers are here so nobody adds it back.
 
 **Nothing here is free.** The loop trades reads for certainty, and
 every one of those trades is measurable: reads spent, evidence
@@ -44,15 +62,11 @@ from dataclasses import dataclass, field
 
 __all__ = ["Consultation", "Recall", "recall_until_enough"]
 
-#: Bits of evidence a tranche must buy to count as progress. Below
-#: this, the reads are no longer paying and the loop stops rather
-#: than grinding through the tail of the ranking.
+#: Bits of evidence a read must buy to count as progress. Still used,
+#: but only to decide whether the BEST answer so far has settled -
+#: never to abandon a question. See the module note on the plateau
+#: rule that was removed.
 _STALL_BITS = 0.05
-
-#: Consecutive non-paying reads before the loop calls it a plateau.
-#: One is noise; two in a row is a trend on a ranked list, where the
-#: candidates only get worse.
-_STALL_READS = 2
 
 
 @dataclass
@@ -84,7 +98,7 @@ class Recall:
         label: The answer, or None when nothing cleared the floor.
         category: Which expert produced it.
         evidence: Its evidence in bits.
-        stopped: "confident", "plateau", or "budget".
+        stopped: "confident" or "budget".
         consultations: Every expert asked, in order.
         available: How many the router offered.
     """
@@ -140,7 +154,6 @@ def recall_until_enough(pool, categories: list, features: list,
     cap = len(categories) if max_reads is None else min(max_reads,
                                                         len(categories))
     best_evidence = 0.0
-    stalls = 0
 
     for category in categories[:cap]:
         # Whether this costs a read is decided BEFORE the call, since
@@ -178,11 +191,6 @@ def recall_until_enough(pool, categories: list, features: list,
         if best_evidence >= floor and not improved:
             recall.evidence = best_evidence
             recall.stopped = "confident"
-            return recall
-
-        stalls = stalls + 1 if not improved else 0
-        if stalls >= _STALL_READS and best_evidence < floor:
-            recall.stopped = "plateau"
             return recall
 
     recall.stopped = "budget"

@@ -99,7 +99,32 @@ class LoopTests(unittest.TestCase):
         recall = enough.recall_until_enough(
             pool, [f"c{i}" for i in range(4)], [0.0], floor=1.9)
         self.assertIsNone(recall.label)
-        self.assertIn(recall.stopped, ("plateau", "budget"))
+        self.assertEqual(recall.stopped, "budget")
+
+    def test_the_plateau_rule_stays_deleted(self) -> None:
+        """It was only ever wrong; §11.107 has the numbers.
+
+        At every stall setting where it fired it fired wrongly, and at
+        the setting where it was justified it never fired. Adding it
+        back means re-running that sweep, not reasoning about it.
+        """
+        import inspect
+
+        source = inspect.getsource(enough.recall_until_enough)
+        self.assertNotIn("plateau", source)
+        self.assertNotIn("stalls", source)
+        self.assertFalse(hasattr(enough, "_STALL_READS"))
+
+    def test_reading_continues_past_an_unhelpful_expert(self) -> None:
+        """The behaviour the plateau rule used to cut short."""
+        pool = self._pool({"a": ("alpha", _peaked(0.28)),
+                           "b": ("beta", _peaked(0.28)),
+                           "c": ("gamma", _peaked(0.28)),
+                           "d": ("delta", _peaked(0.99))})
+        recall = enough.recall_until_enough(pool, ["a", "b", "c", "d"],
+                                            [0.0], floor=1.0)
+        self.assertEqual(recall.label, "delta",
+                         "gave up before reaching the expert that knew")
 
     def test_a_missing_expert_is_skipped_not_fatal(self) -> None:
         pool = self._pool({"b": ("beta", _peaked(0.97))})

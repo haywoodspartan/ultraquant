@@ -207,6 +207,7 @@ class ResearchTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.server.shutdown()
+        cls.server.server_close()
 
     def setUp(self) -> None:
         from ultraquant.interpreter.learning import LearningSession
@@ -311,6 +312,7 @@ class IntakeQualityTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         for server in cls.servers:
             server.shutdown()
+            server.server_close()
 
     def setUp(self) -> None:
         from ultraquant.interpreter.learning import LearningSession
@@ -396,6 +398,7 @@ class IntakeQualityTests(unittest.TestCase):
                           "the defining sentence must win, not the example")
         finally:
             server.shutdown()
+            server.server_close()
 
     def test_the_bare_term_recalls_after_resolution(self) -> None:
         """Live failure: a question about 'code' was closed with the fact

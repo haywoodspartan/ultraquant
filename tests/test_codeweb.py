@@ -520,6 +520,7 @@ class SubjectSupportTests(unittest.TestCase):
         finally:
             for server in servers:
                 server.shutdown()
+                server.server_close()
 
 
 class ContradictionTests(unittest.TestCase):
