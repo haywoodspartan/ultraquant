@@ -834,16 +834,44 @@ than a loop that costs more to arrive at the same place.
 | coverage disagreements | 0 |
 | changed by the suggester's absence | 0 |
 
-**Nothing was dropped** - which is the failure a unification is
-actually at risk of, and the reason criterion 1 is the one worth
-failing on. **Cost scales with the question**, 1.50 against 2.00 -
-the thesis at the retrieval layer, and a 33% difference on a
-four-fact world, so directional rather than a headline. And the
-expensive route was **never** paid on a question the cheap ones had
-covered, which is the entire reason for ordering them.
+**Run one passed against the wrong baseline, which is the most
+useful thing here.** Criterion 1 asked whether the composition lost
+anything *against `find_facts`*. It did not, and the gate passed -
+**while the engine was missing the exact-key route entirely.** The
+pipeline does not retrieve through the index first: `Recall` forms
+candidate keys from the question's own text and looks them up
+directly, finding keys no index query returns. An engine without that
+route could never have replaced the code it was built to unify, and a
+criterion measured against the wrong baseline certified it anyway.
 
-Coverage is reported, never decided: this layer has no refusal
-machinery and must not appear to.
+Strengthened to the pipeline's own retrieval it failed at once - 12
+keys lost across 12 worlds. Adding the exact route fixed the
+completeness **and halved the cost of an easy question**, because a
+dict lookup that covers the question ends the search immediately.
+
+**A second confusion had to be separated before it could pass
+honestly.** "Find everything the pipeline finds" and "stop early" are
+contradictory as stated - stopping drops keys BY DESIGN, and that is
+the saving. The criterion is now two: the **routes** must lose
+nothing run exhaustively, and the **policy** must never drop a key
+that COVERS the question. Conflating them is what let the missing
+route hide.
+
+**Run two, all five:** 0 keys lost by the routes, 0 covering keys
+dropped, **1.00 examined on easy questions against 2.00 on hard**, 0
+of 24 semantic calls wasted, 0 coverage disagreements, 0 changed by
+the suggester's absence.
+
+Cost scaling with the question is the thesis at this layer - on a
+four-fact world, so directional rather than a headline. Coverage is
+reported, never decided: this layer has no refusal machinery and must
+not appear to.
+
+**The engine is now a genuine superset of what the pipeline
+retrieves, which is the precondition for replacing it. That
+replacement has not been done** - the pipeline still calls the five
+mechanisms directly, and swapping it touches the most heavily gated
+code in the system.
 
 ### 11.112 The suggester, with the network unplugged
 

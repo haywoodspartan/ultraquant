@@ -156,7 +156,7 @@ battery.
 | **Stage 1, in the domain it was told to try** | the last unpassed stage on the staged path to generality. Its criterion, quoted not paraphrased, re-run on text: five examples per class, leave-one-out over a corpus written for something else. **bag-of-words 0.296 against embedding 0.463, margin +0.167 at seed sd 0.099** — and the advantage does not survive a vocabulary permutation, so the transfer is semantic. Both margins clear their bars *thinly*. **The criterion is met with a borrowed representation; the encoder is not built** |
 | **Owning the borrowed representation** (failed, kept) | the semantic advantage cost a network round trip on every query. Distilled into a from-scratch encoder it keeps **58% of it at 622 µs against the teacher's 8.9 ms**, with the network unplugged for the whole evaluation — and the copied advantage still dies under a vocabulary permutation, so what transferred is meaning. It FAILS a bar that read as "half" and computed as 86%. The trajectory is the finding: **−12% → +42% → +58%**, and both things holding it back were mine — an unfinished training budget and a projection width, not walls |
 | **The ceiling was a corpus, and the corpus was here** | the distilled encoder knew only the words it was shown — 0.350 on text using withheld words against 0.500 on text avoiding them. Distilling over the repository's **own documentation** (1,221 sentences, 3,245 words, no label or test item taken from it) takes the penalty **+0.144 → +0.000** while overall accuracy *rises*. Run one said the opposite — the penalty vanished because accuracy collapsed below chance — and the criterion demanding accuracy hold is the only reason that was not read as a triumph |
-| **On-demand retrieval, with the bill attached** | five retrieval mechanisms that existed separately — index ranking, phrase reach, the semantic suggester, shard prediction, the byte budget — composed into one call that answers *what did this question cost?* **0 keys lost against the index alone**, and cost scales with the question: **1.50 keys examined on index-answerable questions against 2.00 on harder ones**, with the expensive route paid **0 of 24 times** on questions the cheap ones already covered. The width is a fixed 3, because an adaptive one was measured and lost |
+| **On-demand retrieval, with the bill attached** | five retrieval mechanisms that existed separately — index ranking, phrase reach, the semantic suggester, shard prediction, the byte budget — composed into one call that answers *what did this question cost?* **0 keys lost by the routes and 0 covering keys dropped**, and cost scales with the question: **1.00 keys examined on index-answerable questions against 2.00 on harder ones**, with the expensive route paid **0 of 24 times** on questions the cheap ones already covered. The width is a fixed 3, because an adaptive one was measured and lost. Run one passed **against the wrong baseline** — while a whole route was missing |
 | **The suggester, with the network unplugged** | the semantic route used to cost a network round trip on every question the lexical core could not answer. Distilled into weights the system owns, it holds the same job under the **same three criteria verbatim**: synonym accuracy **0.000 → 0.625**, decoys dead in both arms, everything else identical — with **216 teacher calls, none during evaluation**. The fitted cosine floor turned out never to bind, so the anchor rule is doing the filtering; that is recorded as a fragility, not a pass |
 
 ### Defects, fixed after they were measured
@@ -209,7 +209,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2138 tests, ~4 min
+python -m unittest discover -s tests      # 2143 tests, ~4 min
 ```
 
 In the chat, try:
@@ -249,7 +249,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2138 tests across 146 modules
+tests/         2143 tests across 146 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

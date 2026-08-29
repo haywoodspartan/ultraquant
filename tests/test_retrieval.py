@@ -53,8 +53,34 @@ class EngineTests(unittest.TestCase):
         """The cheapest route answers, and nothing else is paid for."""
         engine = RetrievalEngine(self.session.memory)
         result = engine.retrieve("what is the tower height?")
-        self.assertEqual(result.stopped_after, "lexical")
+        self.assertEqual(result.stopped_after, "exact")
         self.assertNotIn("semantic", result.routes)
+
+    def test_the_exact_route_is_a_dict_lookup_not_an_index_query(self):
+        """The route run one was missing, and the reason it matters."""
+        engine = RetrievalEngine(self.session.memory)
+        result = engine.retrieve("what is the tower height?")
+        self.assertEqual([i.route for i in result.facts], ["exact"])
+
+    def test_exhaustive_runs_every_route(self) -> None:
+        """Completeness and stopping early are different properties."""
+        engine = RetrievalEngine(self.session.memory)
+        normal = engine.retrieve("what is the tower height?")
+        every = engine.retrieve("what is the tower height?",
+                                exhaustive=True)
+        self.assertLessEqual(len(normal.keys), len(every.keys))
+        self.assertTrue(set(normal.keys) <= set(every.keys))
+
+    def test_exhaustive_finds_what_the_pipeline_ladder_finds(self) -> None:
+        from ultraquant.interpreter.thoughts import _candidate_keys, _tokens
+
+        engine = RetrievalEngine(self.session.memory)
+        for question in ("what is the tower height?",
+                         "what is the tower material?"):
+            held = {k for k in _candidate_keys(question, _tokens(question))
+                    if self.session.memory.recall_fact(k) is not None}
+            every = set(engine.retrieve(question, exhaustive=True).keys)
+            self.assertEqual(held - every, set())
 
     def test_a_chain_question_surfaces_both_premises(self) -> None:
         """Neither key covers it; both are needed to derive it."""
@@ -131,7 +157,8 @@ class GateVerdictTests(unittest.TestCase):
         self.doc = " ".join(retrieval_gate.__doc__.split())
 
     def test_the_criteria_are_written_down(self) -> None:
-        for phrase in ("Nothing is lost",
+        for phrase in ("The routes lose nothing, and the policy loses "
+                       "nothing that matters",
                        "Cost scales with the question",
                        "The expensive route is not paid when it is not "
                        "needed",
@@ -140,7 +167,16 @@ class GateVerdictTests(unittest.TestCase):
             self.assertIn(phrase, self.doc)
 
     def test_the_effect_is_reported_as_small(self) -> None:
-        self.assertIn("33% difference on a four-fact world", self.doc)
+        self.assertIn("four-fact world, so directional rather than a "
+                      "headline", self.doc)
+
+    def test_the_wrong_baseline_is_recorded(self) -> None:
+        """Run one passed while a whole route was missing."""
+        self.assertIn("PASSED against the wrong baseline", self.doc)
+        self.assertIn("missing the exact-key route entirely", self.doc)
+
+    def test_the_replacement_is_not_claimed(self) -> None:
+        self.assertIn("That replacement has not been done", self.doc)
 
 
 if __name__ == "__main__":

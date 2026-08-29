@@ -26,13 +26,24 @@ scored what reading all twelve scored. So the engine reads a fixed
 few and the record says why, instead of a loop that costs more to
 arrive at the same place.
 
-**Routes are tried in trust order and stop early.** Lexical first,
-because it is exact, cheapest, and cannot invent; then phrase reach,
-which finds chains; then the semantic route, which is the only one
-that can read *"how tall"* onto ``tower height`` and the only one
+**Routes are tried in trust order and stop early.** Exact key
+formation first - the n-gram ladder the pipeline has always used,
+which is a dict lookup and cannot invent; then index ranking; then
+phrase reach, which finds chains; then the semantic route, the only
+one that can read *"how tall"* onto ``tower height`` and the only one
 that costs a representation. A route runs only if the ones before it
 did not already cover the question, so the expensive path is not paid
 for the easy questions.
+
+**The exact route was missing from the first version and its absence
+was invisible to the first gate.** §11.113's criterion 1 asked
+whether the composition lost anything *against the index alone* and
+it did not - but the pipeline does not retrieve through the index
+first. It forms candidate keys from the question's own text and looks
+them up directly, which finds keys no index query returns. A gate
+comparing against `find_facts` was comparing against the wrong
+baseline, and an engine missing that route could never have replaced
+the code it was built to unify.
 
 **Coverage decides, not similarity.** §11.29's rule: a key that
 matches some of a question is not an answer to it. The engine reports
@@ -71,7 +82,8 @@ class Retrieved:
     Attributes:
         key: The fact key.
         record: The stored record.
-        route: "lexical", "reach" or "semantic" - which mechanism
+        route: "exact", "lexical", "reach" or "semantic" - which
+            mechanism
             surfaced it, so a caller can weigh them differently and a
             reader can see which one is doing the work.
         strength: Route-specific score; cosine for the semantic route,
@@ -139,6 +151,30 @@ class RetrievalEngine:
     def _covers(self, key: str, asked: set) -> bool:
         return asked <= _fold(key)
 
+    def _exact(self, question: str, asked: set, seen: set) -> list:
+        """Keys formed from the question's own text, looked up directly.
+
+        The ladder `Recall` has always used: lead-stripped, article-
+        stripped, and token n-grams longest first. No index is
+        consulted - these are dict lookups - which makes this both
+        the cheapest route and the most precise, and is why it runs
+        before anything else.
+        """
+        from ultraquant.interpreter.thoughts import _candidate_keys, _tokens
+
+        out = []
+        for key in _candidate_keys(question, _tokens(question)):
+            if key in seen:
+                continue
+            record = self.memory.recall_fact(key)
+            if record is None:
+                continue
+            seen.add(key)
+            out.append(Retrieved(key, record, "exact",
+                                 len(asked & _fold(key))
+                                 / max(1, len(asked))))
+        return out
+
     def _lexical(self, question: str, asked: set, seen: set) -> list:
         """Exact index ranking. Cheapest, and cannot invent."""
         out = []
@@ -197,15 +233,29 @@ class RetrievalEngine:
         return [Retrieved(suggestion.key, record, "semantic",
                           float(getattr(suggestion, "similarity", 0.0)))]
 
-    def retrieve(self, question: str) -> Retrieval:
-        """The facts this question points at, and what they cost."""
+    def retrieve(self, question: str,
+                 exhaustive: bool = False) -> Retrieval:
+        """The facts this question points at, and what they cost.
+
+        Args:
+            question: What was asked.
+            exhaustive: Run every route regardless of coverage.
+
+        Stopping early is the economy this engine exists for, and
+        being incomplete is a different property entirely - running
+        the two together hid a missing route through a whole gate.
+        Callers needing everything (chains, aggregates, superlatives)
+        ask for everything; the gate uses this to test the ROUTES
+        separately from the POLICY.
+        """
         asked = _fold(question)
         result = Retrieval(question=question)
         if not asked:
             return result
 
         seen: set = set()
-        for name, route in (("lexical", self._lexical),
+        for name, route in (("exact", self._exact),
+                            ("lexical", self._lexical),
                             ("reach", self._reach)):
             found = route(question, asked, seen)
             result.facts.extend(found)
@@ -214,13 +264,15 @@ class RetrievalEngine:
             result.examined = len(seen)
             if any(self._covers(item.key, asked) for item in result.facts):
                 result.covered = True
-                return result
+                if not exhaustive:
+                    return result
 
-        found = self._semantic(question, seen)
-        result.facts.extend(found)
-        result.routes["semantic"] = len(found)
-        result.stopped_after = "semantic"
-        result.examined = len(seen)
+        if not result.covered or exhaustive:
+            found = self._semantic(question, seen)
+            result.facts.extend(found)
+            result.routes["semantic"] = len(found)
+            result.stopped_after = "semantic"
+            result.examined = len(seen)
         result.covered = any(self._covers(item.key, asked)
                              for item in result.facts)
         return result
