@@ -158,6 +158,7 @@ battery.
 | **The ceiling was a corpus, and the corpus was here** | the distilled encoder knew only the words it was shown — 0.350 on text using withheld words against 0.500 on text avoiding them. Distilling over the repository's **own documentation** (1,221 sentences, 3,245 words, no label or test item taken from it) takes the penalty **+0.144 → +0.000** while overall accuracy *rises*. Run one said the opposite — the penalty vanished because accuracy collapsed below chance — and the criterion demanding accuracy hold is the only reason that was not read as a triumph |
 | **On-demand retrieval, with the bill attached** | five retrieval mechanisms that existed separately — index ranking, phrase reach, the semantic suggester, shard prediction, the byte budget — composed into one call that answers *what did this question cost?* **0 keys lost by the routes and 0 covering keys dropped**, and cost scales with the question: **1.00 keys examined on index-answerable questions against 2.00 on harder ones**, with the expensive route paid **0 of 24 times** on questions the cheap ones already covered. The width is a fixed 3, because an adaptive one was measured and lost. Run one passed **against the wrong baseline** — while a whole route was missing |
 | **The suggester, with the network unplugged** | the semantic route used to cost a network round trip on every question the lexical core could not answer. Distilled into weights the system owns, it holds the same job under the **same three criteria verbatim**: synonym accuracy **0.000 → 0.625**, decoys dead in both arms, everything else identical — with **216 teacher calls, none during evaluation**. The fitted cosine floor turned out never to bind, so the anchor rule is doing the filtering; that is recorded as a fragility, not a pass |
+| **The engine, actually in the pipeline** | the retrieval engine stopped being a measurement. `Recall` formed ~25 candidate keys and looked up every one, then used the first and discarded the rest. Routed through the engine: **284 turns, 0 answers differing, 0 intents, 0 stores** — and **21.6% fewer store reads**, with a question that hits the ladder costing **75% less**. Run one saved on hits and *lost* on misses and chains, and only the criterion demanding the saving be where it was claimed could see it |
 
 ### Defects, fixed after they were measured
 
@@ -209,7 +210,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2143 tests, ~4 min
+python -m unittest discover -s tests      # 2155 tests, ~4 min
 ```
 
 In the chat, try:
@@ -249,7 +250,7 @@ ultraquant/
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2143 tests across 146 modules
+tests/         2155 tests across 147 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

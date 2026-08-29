@@ -419,6 +419,28 @@ class Recall(Thought):
             # no words cannot be about anything stored.
             ctx.data["facts"] = hits
             ctx.data["recall_skipped"] = True
+        elif _RETRIEVAL_ENGINE:
+            # §11.115: the same ladder, through the engine that owns
+            # it - and stopping at the first hit. Both consumers of
+            # this list read `facts[0]` and nothing else, and the
+            # ladder is ordered most-specific-first, so the first hit
+            # IS `facts[0]`. What stops is the twenty-odd further
+            # lookups that were performed and discarded.
+            from ultraquant.reason.retrieval import RetrievalEngine
+
+            # Only the route this thought consumes. Asking for the
+            # cascade made misses 1.14 reads dearer and chains 3.18,
+            # because `_question`'s own fallback runs those routes a
+            # moment later - the gate's criterion 4 caught it.
+            found = RetrievalEngine(memory).retrieve(ctx.text,
+                                                     routes=("exact",))
+            hits = [(item.key, item.record)
+                    for item in found.by_route("exact")]
+            ctx.data["facts"] = hits
+            # The bill, for anyone who wants it. Nothing reads this
+            # yet; it is here because a retrieval that cannot say what
+            # it cost is the thing this engine was built to end.
+            ctx.data["retrieval"] = found
         else:
             for key in _candidate_keys(ctx.text, tokens):
                 fact = memory.recall_fact(key)
@@ -2621,6 +2643,14 @@ _LISTS_ON = True
 #: deleted so the finding stays reproducible: the recall-skip gate
 #: turns it ON for its treatment arm.
 _ARITHMETIC_SKIPS_RECALL = False
+
+#: §11.115: route Recall's fact lookup through the retrieval engine.
+#: On, because the engine's exact route IS this ladder and stopping at
+#: the first hit provably cannot change `facts[0]`. The flag is the
+#: gate's arm - flipping it off restores the exhaustive ladder byte
+#: for byte, which is what makes "identical answers, fewer reads" a
+#: measurable claim rather than an assertion.
+_RETRIEVAL_ENGINE = True
 
 #: The §11.83 rung: a comparison side may be an EXPRESSION, and
 #: equality is a comparison. "is 3 * 4 greater than 10?" named

@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **103 entries**, when the
+This file was split out of ARCHITECTURE.md at **104 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.115](#11115-the-engine-actually-in-the-pipeline) | The engine, actually in the pipeline |
 | [11.113](#11113-one-call-and-the-bill) | One call, and the bill |
 | [11.112](#11112-the-suggester-with-the-network-unplugged) | The suggester, with the network unplugged |
 | [11.111](#11111-the-ceiling-was-a-corpus-and-the-corpus-was-here) | The ceiling was a corpus, and the corpus was here |
@@ -802,6 +803,54 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.115 The engine, actually in the pipeline
+
+§11.113 built a retrieval engine and §11.114 made it a genuine
+superset of what the pipeline retrieves. It was still not used. This
+is the replacement, and it touches the most heavily gated code in the
+system - so the bar is not "better", it is **identical answers, fewer
+reads**, and the first half is the one that matters.
+
+**Where the saving is.** `Recall` formed about twenty-five candidate
+keys from the question and looked up **every one**, then used
+`facts[0]` and nothing else. Both consumers read `facts[0]`; nothing
+reads the rest, which was checked rather than assumed. The ladder is
+ordered most-specific-first, so the first hit IS `facts[0]` and
+stopping there cannot change it.
+
+**PASSED on all five:**
+
+| question kind | ladder | engine | saved |
+|---|---:|---:|---:|
+| **hit** | 16.06 | **4.00** | **+12.06** |
+| statement | 16.39 | 14.59 | +1.80 |
+| chain | 28.95 | 28.95 | +0.00 |
+| miss | 21.62 | 21.62 | +0.00 |
+| **all** | 16.22 | **12.71** | **+3.51** |
+
+284 turns, **0 answers differing, 0 intents differing, 0 stores
+differing**; store reads down **21.6%** per turn at 4.3x the seed
+noise, and a question that hits the ladder costs **75% less**.
+
+**Run one saved on hits and LOST on everything else** - misses 1.14
+reads dearer, chains 3.18 - because `Recall` asked the engine for its
+whole cascade while consuming only the exact route, and the
+pipeline's own fallback runs the lexical and reach routes again a
+moment later. **An engine that eagerly does work its caller will redo
+is not an economy.**
+
+Only criterion 4 could see it. Answers were already byte-identical,
+the overall saving was already positive, and the other three criteria
+were already green - a gate without "the saving is where it was
+claimed" would have shipped a headline that was an average hiding a
+regression. The fix is `routes=("exact",)`: the caller names what it
+consumes.
+
+**What is not claimed**: the pipeline still calls `find_facts`, the
+phrase probes and the suggester directly in its fallback chain. What
+has been replaced is `Recall`'s ladder. The engine is one caller's
+dependency now rather than none.
 
 ### 11.113 One call, and the bill
 

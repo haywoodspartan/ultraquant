@@ -151,7 +151,8 @@ class RetrievalEngine:
     def _covers(self, key: str, asked: set) -> bool:
         return asked <= _fold(key)
 
-    def _exact(self, question: str, asked: set, seen: set) -> list:
+    def _exact(self, question: str, asked: set, seen: set,
+               exhaustive: bool = False) -> list:
         """Keys formed from the question's own text, looked up directly.
 
         The ladder `Recall` has always used: lead-stripped, article-
@@ -159,6 +160,15 @@ class RetrievalEngine:
         consulted - these are dict lookups - which makes this both
         the cheapest route and the most precise, and is why it runs
         before anything else.
+
+        **It stops at the first hit unless asked not to**, and that is
+        where the saving in this whole engine actually lives. The
+        ladder forms about twenty-five candidates for an ordinary
+        question and the pipeline looked up every one of them, then
+        used `facts[0]` and nothing else - §11.86 measured the same
+        waste from the other side. Ordered most-specific-first, the
+        first hit IS `facts[0]`, so stopping there changes no answer
+        and skips the rest of the lookups.
         """
         from ultraquant.interpreter.thoughts import _candidate_keys, _tokens
 
@@ -173,6 +183,8 @@ class RetrievalEngine:
             out.append(Retrieved(key, record, "exact",
                                  len(asked & _fold(key))
                                  / max(1, len(asked))))
+            if not exhaustive:
+                return out
         return out
 
     def _lexical(self, question: str, asked: set, seen: set) -> list:
@@ -233,13 +245,20 @@ class RetrievalEngine:
         return [Retrieved(suggestion.key, record, "semantic",
                           float(getattr(suggestion, "similarity", 0.0)))]
 
-    def retrieve(self, question: str,
-                 exhaustive: bool = False) -> Retrieval:
+    def retrieve(self, question: str, exhaustive: bool = False,
+                 routes: tuple | None = None) -> Retrieval:
         """The facts this question points at, and what they cost.
 
         Args:
             question: What was asked.
             exhaustive: Run every route regardless of coverage.
+            routes: Restrict to these route names. `Recall` asks for
+                `("exact",)` because that is the only route it
+                consumes, and running the others there made misses
+                and chains MEASURABLY more expensive - the pipeline's
+                own fallback chain runs them again a moment later.
+                An engine that eagerly does work its caller will
+                redo is not an economy.
 
         Stopping early is the economy this engine exists for, and
         being incomplete is a different property entirely - running
@@ -254,10 +273,14 @@ class RetrievalEngine:
             return result
 
         seen: set = set()
+        wanted = None if routes is None else set(routes)
         for name, route in (("exact", self._exact),
                             ("lexical", self._lexical),
                             ("reach", self._reach)):
-            found = route(question, asked, seen)
+            if wanted is not None and name not in wanted:
+                continue
+            found = (route(question, asked, seen, exhaustive)
+                     if name == "exact" else route(question, asked, seen))
             result.facts.extend(found)
             result.routes[name] = len(found)
             result.stopped_after = name
@@ -267,7 +290,7 @@ class RetrievalEngine:
                 if not exhaustive:
                     return result
 
-        if not result.covered or exhaustive:
+        if (wanted is None or "semantic" in wanted)                 and (not result.covered or exhaustive):
             found = self._semantic(question, seen)
             result.facts.extend(found)
             result.routes["semantic"] = len(found)
