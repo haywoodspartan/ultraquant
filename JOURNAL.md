@@ -7,7 +7,7 @@ including the verdicts that were failures, which are kept rather than
 deleted because a mechanism that did not work is a result about the
 design, not an embarrassment about the attempt.
 
-This file was split out of ARCHITECTURE.md at **101 entries**, when the
+This file was split out of ARCHITECTURE.md at **103 entries**, when the
 journal had grown to 4,198 lines against the architecture's 2,745 and
 only seven of its sections appeared in any table of contents. Nothing
 was edited in the move.
@@ -26,6 +26,8 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.113](#11113-one-call-and-the-bill) | One call, and the bill |
+| [11.112](#11112-the-suggester-with-the-network-unplugged) | The suggester, with the network unplugged |
 | [11.111](#11111-the-ceiling-was-a-corpus-and-the-corpus-was-here) | The ceiling was a corpus, and the corpus was here |
 | [11.110](#11110-owning-the-representation-that-was-borrowed-failed-kept) | Owning the representation that was borrowed (failed, kept) |
 | [11.109](#11109-stage-1-in-the-domain-it-was-told-to-try) | Stage 1, in the domain it was told to try |
@@ -800,6 +802,96 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.113 One call, and the bill
+
+The claim this library rests on is that a model need not spend itself
+entirely on every question. The pieces for that had existed for a
+long time and had never been one thing: `memory.find_facts` ranks
+keys, `_reachable_facts` widens with phrase probes,
+`SemanticSuggester` reaches what shares no token, `PatternWorkingSet`
+predicts shards and `ShardCache` decides what stays. Five mechanisms,
+five callers, and **no single answer to what a question cost.**
+
+`reason/retrieval.py` is that answer. It invents no retrieval - every
+route was measured separately - and what is new is the composition
+and the accounting.
+
+**The width is a constant and that is a finding.** §11.104 built the
+obvious alternative, letting the answer's entropy decide how many
+shards to read, and it lost to a plain constant three separate ways.
+So the engine reads a fixed three and the module says why, rather
+than a loop that costs more to arrive at the same place.
+
+**PASSED on all five:**
+
+| | |
+|---|---:|
+| keys lost against the index alone | **0** |
+| examined, index-answerable questions | **1.50** |
+| examined, questions needing more | **2.00** |
+| semantic calls wasted on covered questions | **0** of 24 |
+| coverage disagreements | 0 |
+| changed by the suggester's absence | 0 |
+
+**Nothing was dropped** - which is the failure a unification is
+actually at risk of, and the reason criterion 1 is the one worth
+failing on. **Cost scales with the question**, 1.50 against 2.00 -
+the thesis at the retrieval layer, and a 33% difference on a
+four-fact world, so directional rather than a headline. And the
+expensive route was **never** paid on a question the cheap ones had
+covered, which is the entire reason for ordering them.
+
+Coverage is reported, never decided: this layer has no refusal
+machinery and must not appear to.
+
+### 11.112 The suggester, with the network unplugged
+
+§11.39 adopted the embedding suggester on the live question path and
+measured it wired. It passed, and it costs **a network round trip on
+every question the lexical core cannot answer.**
+
+§11.108 to §11.111 then established that the embedding's edge is
+semantic, that it meets Stage 1's criterion, that **58%** of it
+survives distillation into weights this system owns, and that the
+vocabulary ceiling comes off with the repository's own prose. **None
+of it was used by anything.** This is that work reaching the question
+path: `SemanticSuggester` now takes any embedder, and
+`DistilledEmbedder` is that interface over distilled weights.
+
+**The three criteria are §11.39's verbatim**, because the question is
+whether the distilled encoder can hold the same job - not whether it
+can pass an easier exam written for it.
+
+**PASSED:**
+
+| | off | on |
+|---|---:|---:|
+| synonym accuracy | 0.000 | **0.625** |
+| untouched | 1.000 | 1.000 |
+| decoy falls | 0 | 0 |
+
+Gain **+0.625 at seed sd 0.484**, which clears the bar thinly for a
+reason §11.39 already recorded: about 35% of worlds ask a chained
+synonym no embedding can reach and both arms honestly miss.
+**Distilled in 1332 seconds over 216 teacher calls, none during
+evaluation.**
+
+**Criterion 4 was satisfied and pointless, which is worth more than
+the pass.** The floor was fitted on six worlds and reported on eight
+disjoint ones - and every candidate from 0.50 to 0.95 gave identical
+gain and identical zero falls. **The threshold never binds.**
+
+Measured rather than assumed, the cosines had not collapsed: over
+fifteen probe pairs they span **0.41 to 0.97**. They are *shifted* -
+reading 0.74 / 0.87 / 0.71 where the teacher reads 0.53 / 0.72 / 0.52
+- because a bag-of-words encoder over a small closed vocabulary puts
+texts that share words very close together. So correct matches clear
+every candidate floor and wrong ones are already gone: **the anchor
+rule and the positional rule do all the filtering and the cosine
+threshold none of it.** Safe here, and fragile in a way worth writing
+down - a floor that never binds is an untested assumption wearing
+protection's name.
 
 ### 11.111 The ceiling was a corpus, and the corpus was here
 

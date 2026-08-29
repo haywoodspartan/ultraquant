@@ -175,7 +175,8 @@ def build_session(
             only decides how much of it may be resident.
         prefetch: Let the Route thought pull the shards it expects to need into
             the RAM tier before Reason asks for them.
-        semantic: Enable the embedding suggester for questions the lexical
+        semantic: True enables the embedding suggester over LM Studio for
+            questions the lexical
             core cannot assert on. Off by default: without it, behavior is
             byte-identical whether or not LM Studio exists.
 
@@ -234,7 +235,17 @@ def build_session(
     if semantic:
         from ultraquant.reason.semantic import SemanticSuggester
 
-        session.semantic = SemanticSuggester()
+        # True keeps the LM Studio path this shipped with. Anything
+        # else is taken as a ready-made suggester or an embedder, so a
+        # session can run the distilled encoder (§11.112) with no
+        # network at all - the caller decides which representation it
+        # is paying for, and neither is the default for the other.
+        if semantic is True:
+            session.semantic = SemanticSuggester()
+        elif hasattr(semantic, "suggest"):
+            session.semantic = semantic
+        else:
+            session.semantic = SemanticSuggester(embedder=semantic)
     # The hot tier (§11.45): bit-exact against the Python path and
     # structurally fallback-safe, so it defaults on wherever a CUDA
     # device exists. Absence costs one probe at build time.

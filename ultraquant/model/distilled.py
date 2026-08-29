@@ -45,7 +45,8 @@ from __future__ import annotations
 import math
 import random
 
-__all__ = ["DistilledEncoder", "random_projection", "project"]
+__all__ = ["DistilledEncoder", "DistilledEmbedder", "random_projection",
+           "project"]
 
 
 def random_projection(source: int, target: int, seed: int = 0) -> list:
@@ -181,3 +182,108 @@ class DistilledEncoder:
             loss = sum(self._step(xs[i], targets[i], lr, active[i])
                        for i in order) / len(order)
         return loss
+
+
+class DistilledEmbedder:
+    """A `DistilledEncoder` behind the interface the suggester expects.
+
+    §11.108 to §11.111 established that a shared representation is
+    real, that its edge is semantic, that 58% of it survives
+    distillation, and that the vocabulary ceiling comes off with the
+    repository's own prose. **None of that was used by anything.**
+    `reason/semantic.py` still reached LM Studio on every question it
+    could not answer lexically.
+
+    This is the adapter that closes that gap: `embed(texts)` returns
+    one vector per input, exactly as `LMStudioClient.embed` does, and
+    touches nothing. The suggester cannot tell which one it has.
+
+    **What the caller must know.** Cosines here live in the projected
+    teacher space, not the teacher's own, so a threshold measured for
+    the live embedding does not transfer unexamined - and the gate
+    that adopts this has to fit its own floor rather than inherit
+    0.75. Words outside the distillation vocabulary contribute
+    nothing, which is §11.111's boundary and is why the corpus
+    matters.
+    """
+
+    def __init__(self, encoder: "DistilledEncoder", vocabulary: list) -> None:
+        self.encoder = encoder
+        self.vocabulary = list(vocabulary)
+        self._index = {word: i for i, word in enumerate(self.vocabulary)}
+
+    def _bag(self, text: str) -> list:
+        from ultraquant.experiments.embed_gate import _tokens
+
+        vector = [0.0] * len(self.vocabulary)
+        for token in _tokens(text):
+            at = self._index.get(token)
+            if at is not None:
+                vector[at] = 1.0
+        return vector
+
+    def embed(self, texts, model=None) -> list:
+        """One vector per input, in input order. No network.
+
+        `model` is accepted and ignored so this is a drop-in for the
+        LM Studio client's signature; there is only ever one encoder.
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+        return [self.encoder.encode(self._bag(text)) for text in texts]
+
+    def available(self) -> bool:
+        """Always. That is the point of having distilled it."""
+        return True
+
+    def state_dict(self) -> dict:
+        """A JSON-safe snapshot, so distillation is paid once ever."""
+        return {
+            "vocabulary": list(self.vocabulary),
+            "dim": self.encoder.dim,
+            "hidden": self.encoder.hidden,
+            "w1": [list(row) for row in self.encoder.w1],
+            "b1": list(self.encoder.b1),
+            "w2": [list(row) for row in self.encoder.w2],
+            "b2": list(self.encoder.b2),
+        }
+
+    @classmethod
+    def from_state_dict(cls, state: dict) -> "DistilledEmbedder":
+        vocabulary = list(state["vocabulary"])
+        encoder = DistilledEncoder(len(vocabulary), dim=int(state["dim"]),
+                                   hidden=int(state["hidden"]))
+        encoder.w1 = [[float(v) for v in row] for row in state["w1"]]
+        encoder.b1 = [float(v) for v in state["b1"]]
+        encoder.w2 = [[float(v) for v in row] for row in state["w2"]]
+        encoder.b2 = [float(v) for v in state["b2"]]
+        return cls(encoder, vocabulary)
+
+    @classmethod
+    def distil(cls, texts: list, teacher: dict, dim: int = DEFAULT_DIM,
+               hidden: int = 64, seed: int = 0,
+               epochs: int = 4000) -> "DistilledEmbedder":
+        """Learn to place `texts` where `teacher` puts them.
+
+        Args:
+            texts: Every string worth knowing the geometry of - the
+                library's own keys and whatever prose is available.
+            teacher: text -> the teacher's vector for it.
+            epochs: 4000, because §11.110 measured fidelity at 0.683
+                after 400 and 0.988 after 4000, and an unfinished copy
+                reads as a failed method.
+        """
+        from ultraquant.experiments.embed_gate import _tokens
+
+        words = set()
+        for text in texts:
+            words |= _tokens(text)
+        vocabulary = sorted(words)
+        planes = random_projection(len(teacher[texts[0]]), dim, seed=0)
+        embedder = cls(DistilledEncoder(len(vocabulary), dim=dim,
+                                        hidden=hidden, seed=seed),
+                       vocabulary)
+        xs = [embedder._bag(text) for text in texts]
+        targets = [project(teacher[text], planes) for text in texts]
+        embedder.encoder.fit(xs, targets, epochs=epochs, seed=seed)
+        return embedder

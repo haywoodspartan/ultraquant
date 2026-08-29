@@ -67,17 +67,36 @@ class SemanticSuggester:
     Args:
         client: An :class:`~ultraquant.interpreter.lmstudio.LMStudioClient`,
             or None to construct one lazily on first use.
+        embedder: Anything exposing ``embed(texts) -> list[vector]`` and
+            ``available()``. Supplying one bypasses LM Studio entirely -
+            see :class:`~ultraquant.model.distilled.DistilledEmbedder`,
+            which is that interface over weights distilled offline.
+            The suggester cannot tell the two apart and does not try.
+        floor: Cosine threshold. Defaults to :data:`COSINE_FLOOR`, which
+            was measured for the LIVE embedding. A different embedder
+            lives on a different scale and must bring its own number
+            rather than inherit this one.
     """
 
-    def __init__(self, client=None) -> None:
+    def __init__(self, client=None, embedder=None,
+                 floor: float | None = None) -> None:
         self._client = client
+        self._embedder = embedder
         self._model: str | None = None
         self._down_until = 0.0
+        self.floor = COSINE_FLOOR if floor is None else float(floor)
 
     # ------------------------------------------------------------- plumbing
 
     def _ready(self):
-        """The (client, model) pair, or None while LM Studio is down."""
+        """The (embedder, model) pair, or None while it is unusable.
+
+        A supplied embedder short-circuits every part of this: there
+        is no server to be down, no model list to consult and no
+        retry window to wait out.
+        """
+        if self._embedder is not None:
+            return (self._embedder, None) if self._embedder.available()                 else None
         if time.monotonic() < self._down_until:
             return None
         try:
@@ -128,7 +147,7 @@ class SemanticSuggester:
         ready = self._ready()
         if ready is None:
             return None
-        client, model = ready
+        embedder, model = ready
 
         question_tokens = self._fold(question)
         if not question_tokens:
@@ -151,7 +170,7 @@ class SemanticSuggester:
 
         keys = sorted(anchored)
         try:
-            vectors = client.embed([question] + keys, model=model)
+            vectors = embedder.embed([question] + keys, model=model)
         except Exception:  # noqa: BLE001 - a failed call is a down server
             self._down_until = time.monotonic() + _RETRY_SECONDS
             return None
@@ -181,7 +200,7 @@ class SemanticSuggester:
         best: Suggestion | None = None
         for key, vector in zip(keys, key_vectors):
             similarity = self._cosine(question_vector, vector)
-            if similarity < COSINE_FLOOR:
+            if similarity < self.floor:
                 continue
             if not _uncovered_ok(self._fold(key)):
                 continue
