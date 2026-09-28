@@ -157,6 +157,32 @@ it got there:
 | 3 the ledger | the stub's own price and charge; charging until reconciled | 8 of 8 |
 | 10 the production WSL path | literal arguments, a process tree, a background child, an orphan, wsl.exe killed mid-job, a sealed shell | 7 of 7 |
 
+**Round four (§11.131).** Astra's third review found five more:
+- reconciliation could end a lease through the wrong launcher;
+- a late-recovered crash was charged only its original worst case;
+- a settled crash went back inside max() with lupine's usage;
+- on POSIX, the group was signalled after its leader was reaped;
+- in this exam, the WSL "killed mid-job" case read the lease four
+  seconds after run() raised, when it must be read at the instant of
+  the raise.
+
+Added, and frozen (sha256 68954ec8...) before runner v4 existed:
+- 2 (o): a foreign launcher's reservation is refused, with no ``end``.
+- 2 (p): a two-hour-old crash accrues two hours.
+- 2 (q): a settled crash stays additive, through run().
+- 10: the lease is read at the instant of the raise.
+- Plants P15-P18.
+- Case 2 (m2) now expects a crash to accrue from its start, never less
+  than its worst case.
+
+**§11.131: PASSED on every measured criterion, with 18 of 18 planted
+defects caught**, in two consecutive runs of 130.2 s and 130.9 s on
+Claude's machine, WSL included. Astra's own runs caught all 14 plants
+that need no WSL, and passed every criterion that needs no WSL. P14 and
+P15 need WSL, and they are caught here. Astra noted that P7 and P10
+count as caught in its sandbox only because their WSL cases fail there
+anyway. Here they are measured.
+
 """
 
 from __future__ import annotations
@@ -575,6 +601,11 @@ def _refused(cap, command, max_seconds, seed=None, **faults):
     return lambda: _scenario(body, **faults)
 
 
+def _identity(runner) -> str:
+    """A launcher's identity as v4 records it on a reservation."""
+    return json.dumps([list(runner.launcher.prefix), runner.launcher.wsl_distro])
+
+
 def _grace_seconds(total):
     """max_seconds making max_seconds + grace() equal ``total``."""
     return lambda runner: total - runner.grace()
@@ -775,9 +806,11 @@ def _reservation_past_window():
 
     def body(stub):
         now = time.time()
+        runner = _runner(stub)
         od.Ledger(stub.ledger_path).reserve("r-dead", now - 120, 0.02,
-                                             "a runner that died", now - 60)
-        receipt = _runner(stub).run(_job(["echo", "x"]))
+                                             "a runner that died", now - 60,
+                                             rate=HIGH, launcher=_identity(runner))
+        receipt = runner.run(_job(["echo", "x"]))
         log = stub.log()
         first_end = next((i for i, e in enumerate(log)
                           if e.get("cmd") == "end"), None)
@@ -785,11 +818,12 @@ def _reservation_past_window():
                           if e.get("cmd") == "run"), None)
         settled = [r for r in stub.rows() if r.get("kind") == "settlement"
                    and r.get("reservation") == "r-dead"]
+        # v4 (§11.131): accrued from its start, never below its worst case
         return (receipt.released and first_end is not None
                 and first_run is not None and first_end < first_run
                 and len(settled) == 1
-                and math.isclose(float(settled[0]["cost"]), 0.02,
-                                 abs_tol=1e-12))
+                and float(settled[0]["cost"]) >= max(0.02, HIGH * 120 / 3600)
+                - 1e-12)
     return _scenario(body)
 
 
@@ -805,6 +839,62 @@ def _usage_plus_open():
         spent = _runner(stub).month_spent()
         return math.isclose(spent, max(0.10, 0.50 + 0.005) + 0.30,
                             abs_tol=1e-9)
+    return _scenario(body, usage_cost=0.50)
+
+
+def _foreign_launcher():
+    """R3-1: a reservation made through another launcher is not ours to end."""
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        now = time.time()
+        od.Ledger(stub.ledger_path).reserve(
+            "r-foreign", now - 120, 0.02, "made under another distro",
+            now - 60, rate=HIGH,
+            launcher=json.dumps([["/elsewhere/lupine"], "OtherDistro"]))
+        try:
+            _runner(stub).run(_job(["echo", "x"]))
+        except od.LeaseNotReleased:
+            ends = [e for e in stub.log() if e.get("cmd") == "end"]
+            return not ends and len(stub.runs()) == 0
+        return False
+    return _scenario(body)
+
+
+def _late_recovery():
+    """R3-2: a crash recovered two hours later is charged for two hours."""
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        now = time.time()
+        runner = _runner(stub)
+        od.Ledger(stub.ledger_path).reserve(
+            "r-late", now - 7200, 0.02, "crashed two hours ago", now - 7000,
+            rate=HIGH, launcher=_identity(runner))
+        runner.run(_job(["echo", "x"]))
+        settled = [r for r in stub.rows() if r.get("kind") == "settlement"
+                   and r.get("reservation") == "r-late"]
+        return (len(settled) == 1
+                and float(settled[0]["cost"]) >= HIGH * 7200 / 3600 - 1e-9)
+    return _scenario(body)
+
+
+def _settled_stays_additive():
+    """R3-3: a settled crash is not hidden inside max() with lupine's usage."""
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        _seed(stub, 0.10)
+        now = time.time()
+        runner = _runner(stub, 0.81)
+        od.Ledger(stub.ledger_path).reserve(
+            "r-crash", now - 720, 0.02, "crashed twelve minutes ago",
+            now - 600, rate=HIGH, launcher=_identity(runner))
+        try:
+            runner.run(_job(["echo", "x"], 10.0))
+        except od.OverBudget:
+            return len(stub.runs()) == 0
+        return False
     return _scenario(body, usage_cost=0.50)
 
 
@@ -831,6 +921,9 @@ REFUSAL_CASES = {
     "m reservation inside its window": _reservation_in_window,
     "m2 reservation past its window": _reservation_past_window,
     "n usage plus open reservation": _usage_plus_open,
+    "o foreign launcher refused": _foreign_launcher,
+    "p late recovery accrues": _late_recovery,
+    "q settled crash stays additive": _settled_stays_additive,
 }
 
 
@@ -1088,14 +1181,18 @@ def _wsl_killed():
             raise KeyboardInterrupt
 
         raised = False
+        lease_at_return = "unread"
         with mock.patch.object(od.OnDemand, "_wait", interrupted):
             try:
                 runner.run(_job(["sleep", "60"]))
             except KeyboardInterrupt:
                 raised = True
-        time.sleep(4.0)                 # the Linux side cleans up on its own
+                # R3-5: read at the instant run() raises. A lease the Linux
+                # side ends a moment later was still billing at the return.
+                lease_at_return = stub.lease()
+        time.sleep(4.0)                 # survivors may take a moment to die
         rows = stub.receipt_rows()
-        return (raised and len(stub.runs()) == 1 and stub.lease() is None
+        return (raised and len(stub.runs()) == 1 and lease_at_return is None
                 and bool(rows) and rows[-1].get("released") is True
                 and rows[-1].get("interrupted") is True
                 and not stub.survivors())
@@ -1224,6 +1321,15 @@ def _plants():
         return max(self.ledger.spent_in_month(), usage["cost"] + 0.005,
                    usage["gpu_seconds"] * max(rates.by_sku.values()) / 3600)
 
+    def settled_inside_max(self, *args, **kwargs):
+        rates = self.rates()
+        code, output = self._query(["usage"])
+        usage = od.parse_usage(output)
+        now = time.time()
+        return (max(self.ledger.settled_in_month(now), usage["cost"] + 0.005,
+                    usage["gpu_seconds"] * max(rates.by_sku.values()) / 3600)
+                + self.ledger._reserved_in_month(now))
+
     def halved(self, receipt):
         if isinstance(receipt, od.Receipt):
             receipt = od.Receipt(**{**receipt.__dict__,
@@ -1306,6 +1412,28 @@ def _plants():
                                                   halved))),
         ("P14 no sealed namespace", criterion_wsl, "4 interop blocked (WSL)",
          lambda: _planted("S.sealed = lambda argv: list(argv)")),
+        ("P15 release left to the supervisor's late cleanup", criterion_wsl,
+         "supervisor killed mid-job (WSL)",
+         lambda: _planted(None, mock.patch.object(
+             od.OnDemand, "_release", lambda self: (True, "planted")))),
+        ("P16 settlements inside max()", criterion_refusal,
+         "q settled crash stays additive",
+         lambda: _planted(None, mock.patch.object(od.OnDemand, "month_spent",
+                                                  settled_inside_max))),
+        ("P17 a crash settled at its fixed worst case", criterion_refusal,
+         "p late recovery accrues",
+         lambda: _planted(None, mock.patch.object(
+             od.OnDemand, "_settlement_cost",
+             lambda self, reservation, receipt, now: (
+                 float(reservation["worst_case"]) if receipt is None
+                 else float(receipt["rate"]) * max(0.0, now - (
+                     float(receipt["started"])
+                     + float(receipt.get("attached_seconds", 0.0))))
+                 / 3600)))),
+        ("P18 no launcher check", criterion_refusal,
+         "o foreign launcher refused",
+         lambda: _planted(None, mock.patch.object(
+             od.OnDemand, "_same_launcher", lambda self, reservation: True))),
     ]
 
 

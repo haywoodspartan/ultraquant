@@ -6,6 +6,12 @@ and could select a reused PID. A Job Object now owns Windows processes
 before they start, and every exit cleans up that job or the POSIX process
 group before release. Linux parent-death signals also cover a lost WSL relay.
 
+Round four follows the third review of 11.129. Reaping a POSIX leader before
+the last group signal allowed its PID, and so its PGID, to be reused. Both
+the workload and every release attempt now observe exit without reaping;
+TERM and KILL reach the group while its leader still owns that identity.
+Only then is the leader reaped. Windows keeps its Job Objects.
+
 The environment flag is configuration, not isolation. The sealed namespace
 IS enforcement against Windows interop inside WSL: it covers /run/WSL and
 drops capabilities before starting lupine. A failed probe refuses the job
@@ -179,6 +185,22 @@ def close_job(process) -> None:
                 process._uq_job = None
 
 
+def wait_for_exit(process, timeout) -> None:
+    """Observe POSIX exit without freeing the leader's PID or process group."""
+    if os.name == "nt":
+        process.wait(timeout=timeout)
+        return
+    stop_at = time.monotonic() + max(0.0, timeout)
+    while True:
+        if os.waitid(os.P_PID, process.pid,
+                     os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
+            return
+        remaining = stop_at - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        time.sleep(min(0.05, remaining))
+
+
 def kill_tree(process, grace) -> None:
     """Best effort, bounded termination, including a surviving process group."""
     try:
@@ -194,14 +216,20 @@ def kill_tree(process, grace) -> None:
             with contextlib.suppress(BaseException):
                 process.wait(timeout=max(0.0, stop_at - time.monotonic()))
         else:
+            # A caller must not reap before cleanup. If it already did, the
+            # numeric PID is no longer safe to use as a group identity.
+            if process.returncode is not None:
+                return
             with contextlib.suppress(OSError):
                 os.killpg(process.pid, signal.SIGTERM)
-            with contextlib.suppress(BaseException):
-                process.wait(timeout=max(0.0, stop_at - time.monotonic()))
-            # The leader's exit says nothing about its descendants. Always
-            # send KILL to the group, even if wait() already reaped the leader.
-            with contextlib.suppress(OSError):
-                os.killpg(process.pid, signal.SIGKILL)
+            try:
+                wait_for_exit(process, max(0.0, stop_at - time.monotonic()))
+            finally:
+                # A zombie still pins its PID and PGID. Descendants may have
+                # ignored TERM even when the leader has exited; always KILL
+                # before the caller's wait() is allowed to reap the leader.
+                with contextlib.suppress(OSError):
+                    os.killpg(process.pid, signal.SIGKILL)
     except BaseException:
         pass
 
@@ -223,7 +251,7 @@ def release(lupine, env, attempts, timeout) -> tuple[bool, str]:
                     process._uq_stop_deadline = end
                     remaining = max(0.0, end - time.monotonic())
                     cleanup = min(1.0, remaining / 2)
-                    process.wait(timeout=min(timeout, remaining - cleanup))
+                    wait_for_exit(process, min(timeout, remaining - cleanup))
                 finally:
                     if process is not None:
                         kill_tree(process, 1.0)
@@ -357,7 +385,7 @@ def main(argv) -> int:
             waiting = True
             if interrupted:
                 raise _Interrupted()
-            process.wait(timeout=max(0.0, args.deadline - (time.monotonic() - started)))
+            wait_for_exit(process, max(0.0, args.deadline - (time.monotonic() - started)))
         except subprocess.TimeoutExpired:
             deadline_hit = True
         except _Interrupted:

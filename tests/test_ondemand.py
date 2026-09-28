@@ -171,6 +171,37 @@ class ContractTests(unittest.TestCase):
         self.assertGreaterEqual(runner.grace(), 10 + 2 * 5 + 2 * (15 + 1.5))
 
 
+class RoundFourTests(unittest.TestCase):
+    """Review round three: identity, accrual, and additive settlements."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_round4_"))
+        self.runner = od.OnDemand(
+            od.Launcher(prefix=("/home/u/.local/bin/lupine",),
+                        wsl_distro="Ubuntu"),
+            od.Ledger(self.dir / "ledger.jsonl"), 1.0,
+            lock_path=self.dir / "lease.lock")
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_reservation_belongs_to_the_launcher_that_made_it(self) -> None:
+        mine = {"launcher": self.runner._identity()}
+        self.assertTrue(self.runner._same_launcher(mine))
+        self.assertFalse(self.runner._same_launcher(
+            {"launcher": '[["/elsewhere/lupine"], "OtherDistro"]'}))
+        self.assertFalse(self.runner._same_launcher({}))   # unknown refuses
+
+    def test_a_crash_accrues_from_its_start(self) -> None:
+        now = 10_000.0
+        hold = {"worst_case": 0.02, "rate": 1.5, "started": now - 7200}
+        self.assertAlmostEqual(self.runner._settlement_cost(hold, None, now),
+                               3.0)
+        young = {"worst_case": 0.02, "rate": 1.5, "started": now - 1}
+        self.assertEqual(self.runner._settlement_cost(young, None, now), 0.02)
+
+
 class LedgerTests(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -337,7 +368,7 @@ class GateTests(unittest.TestCase):
             self.skipTest("set ULTRAQUANT_SLOW_GATES=1 for the on-demand exam")
         report = G.run_gate()
         self.assertTrue(report.passes, report.reason)
-        self.assertEqual(len(report.planted), 14)
+        self.assertEqual(len(report.planted), 18)
 
     def test_the_exam_exits_nonzero_unless_it_passes(self) -> None:
         """Review F13: the exam used to exit 0 on a failing verdict."""
@@ -354,8 +385,9 @@ class GateTests(unittest.TestCase):
                        "The exam can fail", "was not ready"):
             self.assertIn(phrase, doc)
         self.assertIn("PASSED", doc)
-        self.assertIn("14 of 14 planted defects", doc)
+        self.assertIn("18 of 18 planted defects", doc)
         self.assertIn("Amendment E", doc)
+        self.assertIn("Round four", doc)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,14 @@ supervisor and workload before they start; every exit cleans up descendants.
 The frozen exam now uses independent prices, WSL and fourteen plants.
 Amendment C uses wsl.exe --exec so shells cannot expand job arguments.
 
+Round four follows the third review of 11.129. Reservations now record
+their launcher and rate: an unknown or foreign launcher refuses release,
+and a recovered crash accrues through its confirmed end, never below its
+hold. Settlements add to the larger of receipts and measured usage. POSIX
+leaders stay unreaped until the final group signal. The frozen exam adds
+four plants and checks the WSL lease at the instant interruption returns;
+the runner confirms its own release if the supervisor's report is lost.
+
 The environment flag is configuration, not isolation. The sealed namespace
 IS enforcement against Windows interop inside WSL, including shell wrappers
 and copied executables. --remote remains the isolation from the local GPU.
@@ -244,10 +252,11 @@ class Ledger:
     def append(self, receipt):
         self._write({**asdict(receipt), "kind": "receipt"})
 
-    def reserve(self, reservation_id, started, worst_case, label, window_end):
+    def reserve(self, reservation_id, started, worst_case, label, window_end,
+                rate=None, launcher=None):
         self._write({"kind": "reservation", "reservation": reservation_id,
                      "started": started, "worst_case": worst_case, "label": label,
-                     "window_end": window_end})
+                     "window_end": window_end, "rate": rate, "launcher": launcher})
 
     def settle(self, reservation_id, cost, note):
         self._write({"kind": "settlement", "reservation": reservation_id,
@@ -288,23 +297,37 @@ class Ledger:
 
     def settled_in_month(self, when=None) -> float:
         """Receipts overlapping the UTC month, plus settlements posted in it."""
+        when = time.time() if when is None else when
+        return self.receipts_in_month(when) + self.settlements_in_month(when)
+
+    def receipts_in_month(self, when=None) -> float:
+        """Recorded receipt costs overlapping the UTC month."""
+        month_start, month_end = self._month_bounds(when)
+        total = 0.0
+        for row in self.receipts():
+            try:
+                started = float(row["started"])
+                if not math.isfinite(started):
+                    continue
+                seconds = max(0.0, float(row.get("seconds", 0.0)),
+                              float(row.get("attached_seconds", 0.0)))
+                if started >= month_end or started + seconds < month_start:
+                    continue
+                cost = float(row["cost"])
+                if math.isfinite(cost) and cost >= 0:
+                    total += cost
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+        return total
+
+    def settlements_in_month(self, when=None) -> float:
+        """Recovery costs posted in the UTC month, additive to usage."""
         month_start, month_end = self._month_bounds(when)
         total = 0.0
         for row in self.rows():
             try:
-                kind = row.get("kind", "receipt")
-                if kind == "settlement":
-                    if not month_start <= float(row["t"]) < month_end:
-                        continue
-                elif kind == "receipt":
-                    started = float(row["started"])
-                    if not math.isfinite(started):
-                        continue
-                    seconds = max(0.0, float(row.get("seconds", 0.0)),
-                                  float(row.get("attached_seconds", 0.0)))
-                    if started >= month_end or started + seconds < month_start:
-                        continue
-                else:
+                if (row.get("kind") != "settlement"
+                        or not month_start <= float(row["t"]) < month_end):
                     continue
                 cost = float(row["cost"])
                 if math.isfinite(cost) and cost >= 0:
@@ -515,7 +538,7 @@ class OnDemand:
             try:
                 remaining = max(0.0, deadline - time.monotonic())
                 cleanup = min(self.drain_timeout, 1.0, remaining / 2)
-                process.wait(timeout=min(timeout, remaining - cleanup))
+                supervisor.wait_for_exit(process, min(timeout, remaining - cleanup))
             except BaseException as exc:
                 if isinstance(exc, subprocess.TimeoutExpired):
                     exc.output = supervisor._read_output(log)
@@ -548,8 +571,9 @@ class OnDemand:
             if code != 0 or usage is None:
                 raise ValueError(output)
             now = time.time()
-            return (max(self.ledger.settled_in_month(now), usage["cost"] + 0.005,
+            return (max(self.ledger.receipts_in_month(now), usage["cost"] + 0.005,
                         usage["gpu_seconds"] * max(rates.by_sku.values()) / 3600)
+                    + self.ledger.settlements_in_month(now)
                     + self.ledger._reserved_in_month(now))
         except Exception as exc:
             raise OverBudget("Monthly GPU usage is unreadable") from exc
@@ -575,6 +599,24 @@ class OnDemand:
                 time.sleep(0.5 * attempt)
         return False, "\n".join(outputs)
 
+    def _identity(self) -> str:
+        return json.dumps([list(self.launcher.prefix), self.launcher.wsl_distro])
+
+    def _same_launcher(self, reservation) -> bool:
+        return reservation.get("launcher") == self._identity()
+
+    def _settlement_cost(self, reservation, receipt, now) -> float:
+        if receipt is None:
+            worst = float(reservation["worst_case"])
+            rate = reservation.get("rate")
+            if rate is None:
+                return worst
+            return max(worst, float(rate) * max(
+                0.0, now - float(reservation["started"])) / 3600)
+        return float(receipt["rate"]) * max(0.0, now - (
+            float(receipt["started"])
+            + float(receipt.get("attached_seconds", 0.0)))) / 3600
+
     def _reconcile(self):
         """Refuse a live crash window; settle older holds only after release."""
         reservations = self.ledger.open_reservations()
@@ -584,6 +626,9 @@ class OnDemand:
             if (reservation.get("reservation") not in receipts
                     and reservation.get("window_end", 0) > now):
                 raise LeaseBusy(f"Reservation may still be running: {reservation['reservation']}")
+        for reservation in reservations:
+            if not self._same_launcher(reservation):
+                raise LeaseNotReleased(reservation)
         row = self.ledger.outstanding()
         if reservations or row is not None:
             released, output = self._release()
@@ -593,13 +638,11 @@ class OnDemand:
             self.ledger.reconcile(output)
             for reservation in reservations:
                 receipt = receipts.get(reservation["reservation"])
-                cost = reservation["worst_case"] if receipt is None else (
-                    receipt["rate"] * max(0.0, now - (
-                        receipt["started"] + receipt.get("attached_seconds", 0.0))) / 3600)
+                cost = self._settlement_cost(reservation, receipt, now)
                 self.ledger.settle(reservation["reservation"], cost, output)
 
     def _wait(self, process, timeout) -> str:
-        process.wait(timeout=timeout)
+        supervisor.wait_for_exit(process, timeout)
         return supervisor._read_output(process._uq_output)
 
     @staticmethod
@@ -651,7 +694,8 @@ class OnDemand:
             release_output = ""
             clock_started = time.monotonic()
             self.ledger.reserve(reservation, started, worst, job.label,
-                                started + job.max_seconds + self.grace())
+                                started + job.max_seconds + self.grace(),
+                                rate=rate, launcher=self._identity())
             try:
                 flags = ["run"]
                 if job.remote:

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.131](#11131-the-on-demand-runner-round-four-and-the-first-paid-runs) | The on-demand runner, round four, and the first paid runs |
 | [11.130](#11130-facts-distilled-from-local-teachers-and-what-they-are-worth) | Facts distilled from local teachers, and what they are worth |
 | [11.129](#11129-the-on-demand-runner-round-three-sealed-and-contained) | The on-demand runner, round three: sealed and contained |
 | [11.128](#11128-the-on-demand-runner-rebuilt-after-adversarial-review) | The on-demand runner, rebuilt after adversarial review |
@@ -818,6 +819,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.131 The on-demand runner, round four, and the first paid runs
+
+**Astra's third adversarial review found five more defects**:
+- reconciliation could end a lease through the wrong launcher, for
+  instance a different WSL distro, and close a reservation it never
+  reached;
+- a crash recovered late was charged only its original worst case;
+- once settled, a crash's cost went back inside `max()` with lupine's
+  usage figure, where a lagging figure could hide it. Astra reproduced
+  this through `run()`;
+- on Linux, the process group was signalled after its leader was reaped,
+  when the ID could in principle belong to someone else;
+- Claude's own exam read the lease four seconds after an interrupted
+  run() returned, not at the instant of the return.
+
+v4, by Astra:
+- reservations record their launcher and rate, and a foreign or unknown
+  one is refused before any `end`;
+- a crash accrues from its start until the confirmed release;
+- settlements are added on top of the `max()`, never inside it;
+- on Linux, the supervisor sees its workload exit without reaping it,
+  so the group is signalled while its ID is still pinned.
+Claude's exam gained the instant read and four plants.
+
+**PASSED** twice with WSL: all 8 criteria and 18 of 18 planted defects,
+130.2 s and 130.9 s.
+
+**The first paid runs**, approved by the user ("You have approval for
+billable runs"), ran through the committed v3 runner, pinned in a copy
+under a $5.00 monthly cap:
+- **No GPU was ever bound.** lupine answered "failed to bind GPU: no
+  GPU capacity available" to every lease: unpinned, pinned to the A100,
+  in us-east-1, and in us-west-1. Meanwhile `lupine status` listed 24
+  GPUs free. The same refusal came from plain `lupine run` outside the
+  runner, so it is lupine's side.
+- Every attempt was released. A failed plain run did leave a lease
+  record, which `end` then ended. That is why the runner ends after
+  every job, failed ones included.
+- lupine billed nothing: its GPU time stayed at 1 s and $0.00. The
+  ledger recorded a conservative $0.037.
+- **What `--remote` is**, measured:
+  - the local folder is NOT uploaded;
+  - files a run creates ARE downloaded back;
+  - the pod has 128 CPUs, 4 GB of RAM and Python 3.11;
+  - without a lease there is no GPU on it ("Failed to initialize NVML").
+- **A remote run ends when its client does.** It showed "running" as the
+  client returned and "failed" 20 s later.
+- **One defect for the next unit.** The runner gives lupine a closed
+  stdin, a safety default. In remote mode lupine then ends any workload
+  that stays silent for 5 s: "process neither exited nor produced output
+  within 5s after stdin close". So remote teacher jobs need an open
+  stdin or a heartbeat.
+
+Suite: 2,315 passed, 5 skipped, 0 failed.
 
 ### 11.130 Facts distilled from local teachers, and what they are worth
 
