@@ -361,20 +361,39 @@ class SystematicMemory:
 
         Returns the retracted keys, for the caller's episode log.
         """
+        retracted = self.derivatives_of(revised_key)
+        for key in retracted:
+            self._drop_fact(key)
+        return retracted
+
+    def derivatives_of(self, key: str) -> list[str]:
+        """Read the recursive retraction set without changing any records."""
         retracted: list[str] = []
-        stack = [revised_key]
+        seen: set[str] = set()
+        stack = [key]
         while stack:
             changed = stack.pop()
             for key in list(self.fact_keys()):
+                if key in seen:
+                    continue
                 record = self._fact_record(key)
                 if not record or "derived_from" not in record:
                     continue
                 if any(p_key == changed
                        for p_key, _v in record["derived_from"]):
-                    self._drop_fact(key)
+                    seen.add(key)
                     retracted.append(key)
                     stack.append(key)
         return retracted
+
+    def restore_fact(self, key: str, record_or_None: dict | None) -> None:
+        """Restore a full record without reinforcement or truth maintenance."""
+        from copy import deepcopy
+
+        if record_or_None is None:
+            self._drop_fact(key)
+        else:
+            self._put_fact(key, deepcopy(record_or_None))
 
     def _drop_fact(self, key: str) -> None:
         """Remove a fact from whichever store is in use."""

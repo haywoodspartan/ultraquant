@@ -1206,8 +1206,9 @@ class UltraQuantGUI:
         from ultraquant.interpreter.thoughts import build_session
 
         semantic = bool(self.settings.get("lmstudio.semantic_suggest", True))
-        self.session = build_session(self.home, budget_bytes=1024 * 1024,
-                                     seed=0, semantic=semantic)
+        self.session = build_session(
+            self.home, budget_bytes=1024 * 1024, seed=0, semantic=semantic,
+            auto_approve=bool(self.settings.get("stash_auto_approve", False)))
         self.cli = ChatCLI(self.session, out=_QueueStream(self.events, "out"))
 
         try:

@@ -26,6 +26,7 @@ from ultraquant.reason.blackboard import (
     run_blackboard,
 )
 from ultraquant.interpreter.codefunc import CodeError, SafeCodeRunner
+from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.interpreter.webaccess import WebAccess, WebDisabled
 from ultraquant.memory.factshards import FactShards
@@ -143,6 +144,17 @@ class Session:
     #: RAM, every turn on disk, a 24-byte reference each. This is the
     #: short-term workable memory; the vault is the permanent store.
     context: Any | None = None
+    auto_approve: bool | None = None
+    approver: AutoApprover = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.approver = AutoApprover(self.stash, self.memory,
+                                     self.root / "approvals.jsonl")
+        # Off unless the caller says otherwise. The user-facing surfaces
+        # (chat, GUI, TUI) pass the user's setting; nothing here reads the
+        # settings file, so gates and tests never inherit a user's choice.
+        if self.auto_approve is None:
+            self.auto_approve = False
 
     def save(self) -> None:
         """Persist every store that has one."""
@@ -159,6 +171,7 @@ def build_session(
     cache: str | int | None = None,
     prefetch: bool = True,
     semantic: bool = False,
+    auto_approve: bool = False,
 ) -> Session:
     """Construct a full interpreter session rooted at ``root``.
 
@@ -231,6 +244,7 @@ def build_session(
         storage=storage,
         working_set=working_set,
         context=ContextWindow(root / "context"),
+        auto_approve=auto_approve,
     )
     if semantic:
         from ultraquant.reason.semantic import SemanticSuggester
@@ -628,6 +642,13 @@ class Reason(Thought):
             return
 
         ids = session.stash.add_page(url, page["title"], page["text"])
+        if session.auto_approve:
+            ctx.say(f"Fetched {page['title'] or url} and stashed {len(ids)} claim(s) "
+                    "for automatic analysis.")
+            ctx.data["stash_ids"] = ids
+            ctx.note(self.name, f"stashed {len(ids)} claim(s) from {page['netloc']}",
+                     stash_ids=ids)
+            return
         stats = session.stash.analyze(session.memory)
         staged = [session.stash.get(i) for i in ids]
         by_class: dict[str, int] = {}
@@ -3228,25 +3249,43 @@ class Learn(Thought):
                     part.strip() for part in ctx.response_parts
                     if part.strip())
 
-        # Web claims only cross into memory once independent sources agree.
-        promoted: list[int] = []
-        for entry_id in ctx.data.get("stash_ids", []):
-            entry = session.stash.get(entry_id)
-            if entry["status"] == "corroborated" and entry["classification"] == "factual-claim":
-                try:
-                    session.stash.promote(entry_id, session.memory)
-                    promoted.append(entry_id)
-                except Exception:  # noqa: BLE001 - promotion is best-effort
-                    continue
-        if promoted:
-            learned.append(f"{len(promoted)} corroborated claim(s)")
-            ctx.say(
-                f"Corroborated by independent sources, so promoted to fact: "
-                f"{', '.join(str(i) for i in promoted)}."
-            )
+        if session.auto_approve:
+            rejected = {e["id"] for e in session.stash.entries(status="rejected")}
+            approvals = session.approver.approve_all()
+            if approvals:
+                learned.append(f"{len(approvals)} automatically approved claim(s)")
+                for approval in approvals:
+                    ctx.say(f"Approved entry {approval.entry_id}: "
+                            f"{approval.key} = {approval.value} ({approval.outcome}).")
+            for entry in session.stash.entries(status="rejected"):
+                if entry["id"] not in rejected and entry["notes"].startswith("malformed:"):
+                    ctx.say(f"Rejected entry {entry['id']}: {entry['claim']} "
+                            f"({entry['notes']}).")
+            if "stash_ids" in ctx.data:
+                ctx.data["stash_stats"] = session.stash.stats()
             ctx.data["response"] = " ".join(
                 part.strip() for part in ctx.response_parts if part.strip()
             )
+        else:
+            # Web claims only cross into memory once independent sources agree.
+            promoted: list[int] = []
+            for entry_id in ctx.data.get("stash_ids", []):
+                entry = session.stash.get(entry_id)
+                if entry["status"] == "corroborated" and entry["classification"] == "factual-claim":
+                    try:
+                        session.stash.promote(entry_id, session.memory)
+                        promoted.append(entry_id)
+                    except Exception:  # noqa: BLE001 - promotion is best-effort
+                        continue
+            if promoted:
+                learned.append(f"{len(promoted)} corroborated claim(s)")
+                ctx.say(
+                    f"Corroborated by independent sources, so promoted to fact: "
+                    f"{', '.join(str(i) for i in promoted)}."
+                )
+                ctx.data["response"] = " ".join(
+                    part.strip() for part in ctx.response_parts if part.strip()
+                )
 
         # Reinforce the associative catalog — but only for a route something
         # downstream actually confirmed.

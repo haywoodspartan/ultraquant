@@ -93,6 +93,7 @@ DEFAULTS: dict[str, Any] = {
     # converts once at its own edge and the stored value is unambiguous.
     "budget_bytes": 1024 * 1024,
     "online": False,
+    "stash_auto_approve": False,
     # --- compute -------------------------------------------------------
     "compute_device": "auto",
     "compute_threads": 0,             # 0 = decide from the machine

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.132](#11132-quarantined-knowledge-approved-automatically-and-disputable-exactly) | Quarantined knowledge, approved automatically and disputable exactly |
 | [11.131](#11131-the-on-demand-runner-round-four-and-the-first-paid-runs) | The on-demand runner, round four, and the first paid runs |
 | [11.130](#11130-facts-distilled-from-local-teachers-and-what-they-are-worth) | Facts distilled from local teachers, and what they are worth |
 | [11.129](#11129-the-on-demand-runner-round-three-sealed-and-contained) | The on-demand runner, round three: sealed and contained |
@@ -819,6 +820,42 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.132 Quarantined knowledge, approved automatically and disputable exactly
+
+**The user: "You may also auto approve all quarantined knowledge. We can
+always dispute a claim later."** So promotion out of the stash stops
+waiting for a human, and the price is paid on the other side: a dispute
+undoes an approval exactly. Every fact record the approval changed goes
+back to what it was, including the derived facts that truth maintenance
+retracted when an approved claim revised their premise. A conclusion
+drawn afterwards from the disputed value is retracted in turn. The
+journal of approvals survives restarts. GPT-6 Astra wrote
+`interpreter/autoapprove.py` and `distill/file.py`; Claude wrote the
+exam.
+
+**What "all" had to mean.** Before anything was written, Claude read the
+user's own quarantine. It held 47 unanalysed entries, and many were not
+knowledge:
+- leaked chat-template text ("pixel dot end turn token");
+- system chatter ("You have mentioned 'code' 6 times...");
+- question-form panel claims that the stash's splitter files under the
+  key "what", each overwriting the last.
+So all well-formed factual claims are approved. Malformed ones are
+rejected with the reason recorded, which a forced promotion can still
+reverse. Opinions and hedged claims wait for review. The user was told
+both in plain words.
+
+**PASSED** twice, with 5 of 5 plants caught. Along the way:
+- Amendment A corrected the count of distilled facts to 179: Crime and
+  Punishment's teachers split between two transliterations.
+- Astra found that scenario B read a retraction only after the disputes
+  had restored it (Amendment B).
+- Claude's review fixed a defect outside the exam: the session read the
+  user's settings file for itself, so every gate would have inherited
+  the user's choice. Now the chat, GUI and TUI pass it in explicitly.
+
+Suite: 2,322 passed, 5 skipped, 0 failed.
 
 ### 11.131 The on-demand runner, round four, and the first paid runs
 

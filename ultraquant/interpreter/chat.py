@@ -43,6 +43,8 @@ UltraQuant Chat/Interpreter - commands:
   :stash [id]            staged web claims, or one entry in full
   :analyze               classify and corroborate staged claims
   :promote <id> [force]  promote a staged claim to a stored fact
+  :approvals             recent automatic approvals
+  :dispute <key|id> [reason]  undo an automatic approval
   :reject <id> [reason]  reject a staged claim
   :online on|off         gate network access
   :fetch <url>           fetch a URL into the contemporary stash
@@ -371,6 +373,39 @@ class ChatCLI:
             return
         self.session.memory.save()
         self.emit(f"Promoted to fact: {key}")
+
+    def _cmd_approvals(self, args: list[str], more) -> None:
+        """List the most recent automatic approvals, including disputes."""
+        approvals = self.session.approver.approvals()[-20:]
+        if not approvals:
+            self.emit("No automatic approvals yet.")
+        for approval in approvals:
+            status = (f"disputed: {approval.dispute_reason}" if approval.disputed
+                      else approval.outcome)
+            self.emit(f"  {approval.entry_id}: {approval.key} = {approval.value} "
+                      f"(confidence {approval.confidence:g}; {status})")
+
+    def _cmd_dispute(self, args: list[str], more) -> None:
+        """Dispute an id or the longest matching fact key, with a reason."""
+        if not args:
+            self.emit("Usage: :dispute <key|id> [reason]")
+            return
+        if args[0].isdigit():
+            target = int(args[0])
+            reason = " ".join(args[1:])
+        else:
+            text = " ".join(args)
+            keys = {a.key for a in self.session.approver.approvals()
+                    if not a.disputed}
+            target = next((key for key in sorted(keys, key=lambda k: (-len(k), k))
+                           if text == key or text.startswith(key + " ")), text)
+            reason = text[len(target):].strip()
+        approval = self.session.approver.dispute(target, reason or "user dispute")
+        self.session.memory.save()
+        restored = ", ".join(f"{key} = {record['value']}" if record is not None
+                             else f"{key} absent"
+                             for key, record in approval.before.items())
+        self.emit(f"Disputed entry {approval.entry_id}. Restored: {restored}.")
 
     def _cmd_reject(self, args: list[str], more) -> None:
         """Reject a staged claim."""
@@ -829,13 +864,15 @@ def main(argv: list[str] | None = None) -> int:
 
     from ultraquant.config import Settings
 
-    semantic = bool(Settings.load().get("lmstudio.semantic_suggest", True))
+    settings = Settings.load()
+    semantic = bool(settings.get("lmstudio.semantic_suggest", True))
     session = build_session(
         Path(args.root),
         budget_bytes=args.budget_kb * 1024,
         online=args.online,
         seed=args.seed,
         semantic=semantic,
+        auto_approve=bool(settings.get("stash_auto_approve", False)),
     )
     cli = ChatCLI(session)
 

@@ -182,8 +182,10 @@ class UltraQuantTUI:
 
             semantic = bool(self.settings.get("lmstudio.semantic_suggest",
                                               True))
-            self.session = build_session(self.home, seed=0,
-                                         semantic=semantic)
+            self.session = build_session(
+                self.home, seed=0, semantic=semantic,
+                auto_approve=bool(self.settings.get("stash_auto_approve",
+                                                    False)))
             self._apply_settings()
         return self.session
 

@@ -56,6 +56,10 @@ _COPULAS = (" is ", " are ", " was ", " were ", " has ", " have ")
 
 _NUMBER_UNIT = re.compile(r"\b\d+(?:\.\d+)?\s*[a-zA-Z%°]+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_STRUCTURED_CLAIM = re.compile(
+    r"^The (?:chemical symbol|capital|author|atomic number) of .+ is .+\.$",
+    re.IGNORECASE,
+)
 
 VALID_STATUSES = ("staged", "corroborated", "disputed", "promoted", "rejected")
 
@@ -156,7 +160,7 @@ def claim_relation(claim_a: str, claim_b: str) -> str | None:
 #: Source prefixes whose content is not independent of the open web.
 #: A language model is trained *on* the web, so it cannot corroborate a page
 #: it may well have memorised.
-_DERIVED_SOURCE_MARKS = ("lm-studio.invalid",)
+_DERIVED_SOURCE_MARKS = ("lm-studio.invalid", "distill.invalid")
 
 
 def _independent_sources(sources: list) -> list:
@@ -211,7 +215,7 @@ def _claim_vector(claim: str) -> int:
     return bundle([seed_vector(word) for word in words])
 
 
-def _split_claim(claim: str) -> tuple[str, str] | None:
+def _split_claim(claim: str, *, structured: bool = False) -> tuple[str, str] | None:
     """Split a declarative claim into ``(subject, value)`` if it has that shape.
 
     The subject is normalized the same way user-typed statements are (lowercased,
@@ -229,7 +233,8 @@ def _split_claim(claim: str) -> tuple[str, str] | None:
                     subject = subject[len(article):]
                     break
             value = claim[idx + len(cop):].strip().strip(" .!?")
-            if subject and value and len(subject.split()) <= 6:
+            if (subject and value and (len(subject.split()) <= 6
+                    or (structured and _STRUCTURED_CLAIM.fullmatch(claim)))):
                 return subject, value
     return None
 
@@ -359,6 +364,32 @@ class ContemporaryStash:
         self.save()
         return touched
 
+    def add_claim(self, url: str, title: str, claim: str, *,
+                  measured_confidence: float | None = None,
+                  provenance: dict | None = None) -> int:
+        """Stage one complete claim, preserving its measured provenance."""
+        from copy import deepcopy
+        from urllib.parse import urlparse
+
+        netloc = urlparse(url).netloc or url
+        entry_id = self._next_id
+        # Direct structured claims have named slots. A book title may exceed
+        # six words, and names such as Antimony or May Alcott are neither
+        # opinions nor hedges. Keep the page-text heuristics unchanged.
+        classification = ("factual-claim" if _STRUCTURED_CLAIM.fullmatch(claim)
+                          else self.classify(claim))
+        self._entries[entry_id] = {
+            "id": entry_id, "url": url, "netloc": netloc, "title": title,
+            "fetched": _utc_now(), "claim": claim,
+            "classification": classification, "status": "staged",
+            "sources": [netloc], "notes": "",
+            "measured_confidence": measured_confidence,
+            "provenance": deepcopy(provenance),
+        }
+        self._next_id += 1
+        self.save()
+        return entry_id
+
     # ---------------------------------------------------------------- analysis
 
     @staticmethod
@@ -394,7 +425,7 @@ class ContemporaryStash:
 
             disputed = False
             if memory is not None:
-                split = _split_claim(entry["claim"])
+                split = _split_claim(entry["claim"], structured="provenance" in entry)
                 if split is not None:
                     known = memory.recall_fact(split[0])
                     if known is not None:
@@ -598,13 +629,15 @@ class ContemporaryStash:
 
     # --------------------------------------------------------------- decisions
 
-    def promote(self, entry_id: int, memory: Any, force: bool = False) -> str:
+    def promote(self, entry_id: int, memory: Any, force: bool = False,
+                confidence: float | None = None) -> str:
         """Promote a stashed claim into memory as fact.
 
         Args:
             entry_id: Entry to promote.
             memory: Memory that will hold the resulting fact.
             force: Required to promote opinion, hedged or disputed entries.
+            confidence: Override the status-based confidence when provided.
 
         Returns:
             The memory fact key that was written.
@@ -626,16 +659,20 @@ class ContemporaryStash:
                 "not eligible for promotion; use force to override"
             )
 
-        split = _split_claim(entry["claim"])
+        split = _split_claim(entry["claim"], structured="provenance" in entry)
         if split is not None:
             key, value = split
         else:
             key, value = f"web:{entry['netloc']}:{entry['id']}", entry["claim"]
 
-        confidence = 0.8 if entry["status"] == "corroborated" else 0.55
-        if not eligible:
-            confidence = 0.3
-        memory.remember_fact(key, value, confidence=confidence)
+        if confidence is None:
+            confidence = 0.8 if entry["status"] == "corroborated" else 0.55
+            if not eligible:
+                confidence = 0.3
+        result = memory.remember_fact(key, value, confidence=confidence)
+        # Keep the public key return while exposing the actual memory outcome
+        # and supplied confidence to the approval journal.
+        self.last_promotion = {**result, "confidence": float(confidence)}
         memory.remember_episode(
             "promotion",
             {
