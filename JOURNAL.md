@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.122](#11122-the-bill-describes-the-work) | The bill describes the work |
 | [11.121](#11121-a-conjunction-of-polar-questions-gets-polar-answers) | A conjunction of polar questions gets polar answers |
 | [11.119](#11119-a-yes-confirms-what-was-asserted) | A "yes" confirms what was asserted |
 | [11.120](#11120-a-curiosity-is-revalidated-before-it-is-asked) | A curiosity is revalidated before it is asked |
@@ -809,6 +810,113 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.122 The bill describes the work
+
+GPT-6 Astra's review, finding 9 - and a defect in Claude's own engine
+(§11.113-§11.115). `Retrieval.examined` was documented as keys looked
+at whether kept or not, and computed as the keys KEPT: an exact-route
+miss that read fifteen keys reported zero, in the one component whose
+stated purpose is to say what a retrieval cost.
+
+**The roles were reversed.** GPT-6 Astra wrote and froze the exam
+(`experiments/bill_gate.py`, sha256 2ddb7320...) before the fix
+existed, calibrated it on the old code, and chose the contract: five
+per-call counters that must equal instrumented calls, including the
+work the semantic suggester does inside `_reachable_facts`, which the
+engine had never billed itself for. Claude wrote the fix.
+
+**The exam was not the end of it.** Every version below passed
+GPT-6 Astra's exam, and its adversarial reviews broke three of them:
+
+1. *A counting proxy swapped onto `self.memory` for one call.* "Do not
+   ship": two threads sharing an engine corrupted each other's bills
+   and left the proxy installed; a suggester that checked the memory's
+   type lost its answer; every suggester index query was billed as a
+   phrase probe; nested semantic calls escaped the enclosing bill.
+2. *A `contextvars` stack of open bills, charged by `SystematicMemory`
+   itself* - the memory is never substituted
+   (`ultraquant/memory/metering.py`). All four resolved; two new ways
+   the bill still understated silently: memory work handed to a thread
+   pool vanished, and a memory that does not meter itself reported a
+   false zero.
+3. *`carry()` for delegated work, unmetered memories billed as `None`,
+   unscoped work flagged.* Four more ways a bill called itself
+   complete: a worker that opened a bill of its own hid its work from
+   the parent; an unmetered nested call left the enclosing bill silent;
+   carried work still running at return charged a bill already handed
+   back; and flagging unscoped reads fanned out over every open bill
+   under one lock - 20,000 reads, 2.6 ms with no bills open, 664 ms
+   with 1,000.
+4. *One guarantee instead of per-route patches.* Every metered
+   operation advances one process-wide counter, O(1); a bill records it
+   at open and close, and anything in its window not charged to it is
+   unattributed - an upper bound on missed work. `carry()` tracks
+   in-flight calls, an unmetered call marks enclosing bills incomplete,
+   and `Retrieval.bill_complete` is true only when none of that fired.
+   Three reproduced paths combined earlier escape routes and got past
+   each safeguard.
+5. *Everything a bill cannot see moves a signal it samples* - suggester
+   calls and unmetered calls counted process-wide like memory
+   operations, and a charge from a thread other than the bill's own,
+   outside carry(), marks it incomplete. Two high findings: "began
+   before the call returned" cannot be observed - an operation paused
+   one instruction before registering is invisible to any snapshot -
+   and suggester calls were billed where the engine made them, not
+   where they happened.
+6. *The contract, made attainable.* An operation counts at its
+   registration point, under the lock the bill's snapshots take, so
+   what a bill promises is exact and linearizable. carry() registers
+   work when it wraps it and runs it once; `SemanticSuggester` meters
+   itself; a suggester that does not is charged once and taints its
+   bill. One finding left: the carry exemption was a Boolean in the
+   context, and a context is copied into any thread that asks.
+7. *The exemption bound to the invocation executing it* - a token in
+   the context matched against a thread-local on the running thread,
+   not a thread ident, which the OS can recycle. One finding left: a
+   close-time race - the close snapshotted totals under the lock but
+   finished its arithmetic after releasing it, and a late charge
+   through a copied context could erase a real in-window gap.
+8. *A closed bill stays closed.* Everything is finalized under the
+   close lock and the bill frozen there; hooks, carry() and the
+   incompleteness markers skip closed bills.
+
+**The eighth review approved it**: "Ship under the stated
+registration-point contract ... No remaining substantive path to false
+completeness or wrong exact counters found" - having checked, as Claude
+had, that the last regression fails on the commit before its fix.
+
+**The contract that shipped** (`ultraquant/memory/metering.py`): an
+operation counts at its registration point, under the lock the bill's
+own snapshots take; `bill_complete` promises that every operation
+registered while the bill was open was charged to it, that no work
+delegated through `carry()` was outstanding when it closed, and that no
+foreign uncarried charge, unmetered memory or unmetered suggester
+registered in its window. Out of contract, and said so: uncarried work
+that registers nothing before the bill closes.
+
+**Why eight rounds were worth it.** The metering that came out of them
+- context-scoped bills, carried delegation with observed lifetimes,
+process-wide signals, frozen close - is the instrument the tiered-memory
+work will be measured with: shard prefetch runs on worker threads, and
+a cost claim about touching only the shards a question needs is only as
+good as the bill that counts them. Suite: 2,248 passed, 2 skipped,
+0 failed.
+
+Every reviewed defect became a test that failed on the version before
+its fix and passes after - thirty-two in `tests/test_bill.py`, each round's checked
+against the commit before it in an isolated copy.
+
+**PASSED** GPT-6 Astra's exam on every case, with the answers
+identical in both arms and the §11.115 wiring gate reproduced.
+
+**A past verdict, re-measured with the honest meter.** §11.113's
+criterion 2, "cost scales with the question", was recorded as examined
+1.00 on index-answerable questions against 2.00 on harder ones - keys
+kept, not work done. Re-run with the honest bill: **4.00 against
+17.00**. The verdict holds, more strongly than recorded (4.25x, not
+2x); the figures understated the real work four- to eight-and-a-half
+fold. The entry above is left as written; this is the correction.
 
 ### 11.121 A conjunction of polar questions gets polar answers
 
