@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.128](#11128-the-on-demand-runner-rebuilt-after-adversarial-review) | The on-demand runner, rebuilt after adversarial review |
 | [11.127](#11127-paid-gpus-attach-on-demand) | Paid GPUs attach on demand |
 | [11.126](#11126-command-rs-next-token-computed-by-our-own-engine) | Command-R's next token, computed by our own engine |
 | [11.125](#11125-command-rs-matrices-multiplied-natively) | Command-R's matrices, multiplied natively |
@@ -815,6 +816,83 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.128 The on-demand runner, rebuilt after adversarial review
+
+**§11.127 passed its exam and was not ready.** GPT-6 Astra's
+adversarial review of it found thirteen defects, six rated high.
+Claude verified them before anything was fixed.
+
+Three were reproduced end to end:
+- a grandchild process holding the output pipe kept a job with a 0.5 s
+  limit busy for 6.2 s. One that never exits would have kept it busy
+  forever, lease and all;
+- two runner instances sharing one ledger were both admitted against a
+  $0.05 cap, $0.096 between them;
+- a price row the parser could not read vanished, which made the cheaper
+  GPU's price the "highest".
+
+The rest were confirmed from the code:
+- an unreleased lease did not block the next job;
+- the WSL worst case outran the 15 s grace;
+- prices were cached forever;
+- a usage figure rounded to cents was treated as exact;
+- receipts left out the release time;
+- exit code 124 was read as a timeout.
+
+Three were holes in Claude's exam: it believed internally consistent
+zeros, its stand-in never started a real process, and it exited 0 on a
+failing verdict. One, Windows programs reached through WSL touching the
+local GPU, is an inference, and gets a guard rather than a proof. Paid
+runs stayed blocked throughout, as they already were.
+
+**Version 2 splits the job in two.** A supervisor
+(`cloud/supervisor.py`, standard library only) runs where lupine runs,
+inside WSL in production, and owns one job:
+- lupine's output goes to a file, never a pipe, so no descendant can
+  hold the job open;
+- the deadline is the supervisor's own;
+- it kills the whole process tree: the process group on Linux; on
+  Windows, a snapshot of descendants taken before `taskkill`, so a
+  reused process id is never touched;
+- it retries release inside a fixed budget;
+- one JSON line reports what happened.
+
+The runner keeps admission:
+- a lock serialises every runner that shares it: threads, instances and
+  separate processes;
+- an outstanding unreleased lease is reconciled before a job is even
+  priced;
+- prices are read fresh at every admission, and refused whole if any row
+  is unreadable;
+- lupine's usage figure is bounded above against its own rounding;
+- a reservation is written and fsync'd before launch, so a crash still
+  counts;
+- a backstop with bounded drains and its own release sits behind the
+  supervisor.
+
+Receipts now charge from launch to confirmed release, and `timed_out`
+comes only from a deadline. Commands that would run a Windows program
+are refused unless asked for.
+
+**The exam was amended before v2 existed** (pre-registration sha256
+29a2a606...). Its Amendment A fixed, before any run, one case whose
+numbers a correct runner could not have passed. The stand-in now:
+- spawns real children and grandchildren;
+- runs an attachment clock from lease to `end`, and charges usage from
+  it, rounded to cents like the real CLI;
+- can hang `end`.
+Receipts are checked against that clock, read back from the ledger file.
+There are nine planted defects, each aimed at one case.
+
+**PASSED**, with 9 of 9 planted defects caught: 62.1 s in each of
+Astra's two runs, 67.5 s in Claude's. F1, reproduced again against v2,
+took 1.15 s, where v1 took 6.20 s. Astra raised one concern about the
+exam, which is recorded: the grace bound covers launch to release, not
+the wait for the lock, and that wait bills nothing.
+
+Suite: 2,300 passed, 5 skipped, 0 failed. The fifth skip is this exam,
+which runs with ULTRAQUANT_SLOW_GATES=1 because it takes a minute.
 
 ### 11.127 Paid GPUs attach on demand
 
