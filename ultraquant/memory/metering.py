@@ -99,6 +99,11 @@ class Bill:
     outstanding_at_close: int = 0
     _opened_at: tuple = (0, 0, 0)
     _owner: int = 0
+    #: Set, with everything above finalized, under the lock that closes
+    #: the bill. A closed bill is frozen: a context copied while it was
+    #: open still holds it, and nothing charged through that copy may
+    #: move it (the seventh review: a late charge erased a real gap).
+    _closed: bool = False
 
     @property
     def complete(self) -> bool:
@@ -141,9 +146,11 @@ def metering(bill: Bill):
             unmetered_calls = _STATE[3] - bill._opened_at[2]
             _STATE[0] -= 1
             bill.outstanding_at_close = bill.outstanding
-        bill.unattributed = max(0, memory_ops - bill.lookups - bill.index)
-        if suggester_calls > bill.semantic or unmetered_calls:
-            bill.incomplete = True
+            bill.unattributed = max(0, memory_ops - bill.lookups
+                                    - bill.index)
+            if suggester_calls > bill.semantic or unmetered_calls:
+                bill.incomplete = True
+            bill._closed = True
 
 
 def carry(fn):
@@ -156,8 +163,9 @@ def carry(fn):
     a second call raises, because its lifetime could not be observed.
     """
     base = contextvars.copy_context()
-    bills = base.get(_BILLS, ())
     with _LOCK:
+        bills = tuple(bill for bill in base.get(_BILLS, ())
+                      if not bill._closed)
         for bill in bills:
             bill.outstanding += 1
     state = {"used": False}
@@ -207,7 +215,7 @@ def mark_enclosing_incomplete(own: Bill | None = None) -> None:
         if _STATE[0]:
             _STATE[3] += 1
         for bill in _BILLS.get():
-            if bill is not own:
+            if bill is not own and not bill._closed:
                 bill.incomplete = True
 
 
@@ -220,7 +228,7 @@ def _foreign(bills: tuple) -> None:
         return                    # this thread IS the carried invocation
     me = threading.get_ident()
     for bill in bills:
-        if bill._owner != me:
+        if bill._owner != me and not bill._closed:
             bill.incomplete = True
 
 
@@ -233,6 +241,8 @@ def _charge(field: str) -> None:
         _STATE[1] += 1
         _foreign(bills)
         for bill in bills:
+            if bill._closed:
+                continue
             setattr(bill, field, getattr(bill, field) + 1)
             if phrase:
                 bill.phrase += 1
@@ -257,4 +267,5 @@ def charge_semantic() -> None:
         _STATE[2] += 1
         _foreign(bills)
         for bill in bills:
-            bill.semantic += 1
+            if not bill._closed:
+                bill.semantic += 1

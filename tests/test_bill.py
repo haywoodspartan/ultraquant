@@ -645,3 +645,74 @@ class SixthReviewRegressionTests(unittest.TestCase):
                 child.join(timeout=5)
             pool.shutdown(wait=True)
         self.assertFalse(found.bill_complete)
+
+
+class SeventhReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's seventh review: a closed bill must stay closed."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r7_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_closed_bill_is_frozen(self) -> None:
+        """A copied context keeps the bill; it must not keep charging it."""
+        import contextvars
+
+        from ultraquant.memory.metering import Bill, carry, metering
+
+        bill = Bill()
+        with metering(bill):
+            saved = contextvars.copy_context()
+            self.memory.recall_fact("tower height")
+        frozen = (bill.lookups, bill.index, bill.unattributed,
+                  bill.complete)
+        with metering(Bill()):          # an open bill keeps hooks active
+            saved.run(self.memory.recall_fact, "tower height")
+            saved.run(lambda: carry(
+                lambda: self.memory.recall_fact("tower height"))())
+        self.assertEqual((bill.lookups, bill.index, bill.unattributed,
+                          bill.complete), frozen)
+
+    def test_a_late_carried_read_leaves_the_result_as_returned(self) -> None:
+        """The review's scenario end to end - a guard, not the regression.
+
+        The race itself sat between releasing the close lock and
+        finishing the arithmetic, a few bytecodes no black-box test can
+        land in on demand; test_a_closed_bill_is_frozen holds the
+        invariant that removes that window, and fails without the fix.
+        """
+        import contextvars
+        import threading
+
+        from ultraquant.memory.metering import carry
+        from ultraquant.reason.semantic import SemanticSuggester
+
+        memory = self.memory
+        saved = []
+
+        class Embedder:
+            def embed(inner, texts, model=None):
+                saved.append(contextvars.copy_context())
+                reader = threading.Thread(          # uncarried: a real gap
+                    target=memory.recall_fact, args=("tower height",))
+                reader.start()
+                reader.join(timeout=5)
+                return [[1.0, 0.0] for _ in texts]
+
+            def available(inner):
+                return True
+
+        engine = R.RetrievalEngine(
+            memory, suggester=SemanticSuggester(embedder=Embedder()))
+        from ultraquant.memory.metering import Bill, metering
+        with metering(Bill()):                      # keep hooks active
+            found = engine.retrieve("how tall is the tower?",
+                                    routes=("semantic",))
+            saved[0].run(lambda: carry(
+                lambda: memory.recall_fact("tower height"))())
+        self.assertFalse(found.bill_complete)
+        self.assertGreater(found.unattributed_memory_calls, 0)
