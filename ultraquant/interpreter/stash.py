@@ -92,6 +92,14 @@ def _content_tokens(text: str) -> set[str]:
 _NUMBER_IN_VALUE = re.compile(r"\d+(?:\.\d+)?")
 
 
+# §11.138: shared vocabulary alone does not identify one fact's subject.
+def _same_subject(subject_a: str, subject_b: str) -> bool:
+    """Whether both subjects have the same non-empty set of content words."""
+    tokens_a = _content_tokens(subject_a)
+    return bool(tokens_a) and tokens_a == _content_tokens(subject_b)
+
+
+# §11.138: document and enforce the subject boundary before comparing values.
 def claim_relation(claim_a: str, claim_b: str) -> str | None:
     """How two declarative claims stand to each other, if it can be told.
 
@@ -122,12 +130,18 @@ def claim_relation(claim_a: str, claim_b: str) -> str | None:
     content tokens at all ("4" vs "6" after stopword and length filtering)
     produce two *empty* hypervector bundles, and empty bundles score
     similarity 1.0.
+
+    Claims compete or agree only within one fact: their subjects must have
+    identical, non-empty content-word sets. Sharing a word such as "capital"
+    does not make France and Spain the same subject; order and articles do
+    not distinguish subjects.
     """
     split_a = _split_claim(claim_a)
     split_b = _split_claim(claim_b)
     if split_a is None or split_b is None:
         return None
-    if not (_content_tokens(split_a[0]) & _content_tokens(split_b[0])):
+    # §11.138: compare values only after establishing the same subject.
+    if not _same_subject(split_a[0], split_b[0]):
         return None
 
     value_a, value_b = split_a[1], split_b[1]
@@ -528,6 +542,21 @@ class ContemporaryStash:
                 return other["id"]
         return None
 
+    # §11.138: identity values need agreement before the descriptive judges.
+    def _identity_paraphrase_ok(self, claim_a: str, claim_b: str) -> bool:
+        """Require typed agreement for numeric or short identity values."""
+        split_a = _split_claim(claim_a)
+        split_b = _split_claim(claim_b)
+        if split_a is not None and split_b is not None:
+            value_a, value_b = split_a[1], split_b[1]
+            both_numeric = (_NUMBER_IN_VALUE.search(value_a) is not None
+                            and _NUMBER_IN_VALUE.search(value_b) is not None)
+            both_short = (len(_content_tokens(value_a)) <= 3
+                          and len(_content_tokens(value_b)) <= 3)
+            if both_numeric or both_short:
+                return claim_relation(claim_a, claim_b) == "agrees"
+        return True
+
     def _paraphrase_support(self, entry: dict) -> int | None:
         """Another source saying the same thing in different words, if any.
 
@@ -578,6 +607,9 @@ class ContemporaryStash:
             # rival. The typed relation is the authority on conflict, and
             # conflict trumps resemblance.
             if claim_relation(entry["claim"], other["claim"]) == "contradicts":
+                continue
+            # §11.138: resemblance cannot corroborate another fact's identity.
+            if not self._identity_paraphrase_ok(entry["claim"], other["claim"]):
                 continue
             other_tokens = _content_tokens(other["claim"])
             union = my_tokens | other_tokens

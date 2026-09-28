@@ -669,6 +669,89 @@ class ContradictionTests(unittest.TestCase):
         self.assertIn("disputed", kinds)
 
 
+# §11.138: competition and identity corroboration stay within one fact.
+class SameFactTests(unittest.TestCase):
+    """Subject identity gates rivals without losing measured paraphrases."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="uq_samefact_test_")
+        self.addCleanup(self.temp.cleanup)
+        self.dir = Path(self.temp.name)
+        self.stash = ContemporaryStash(self.dir / "stash.json")
+
+    def test_same_subject_ignores_order_and_articles_but_not_content(self) -> None:
+        from ultraquant.interpreter.stash import _same_subject
+
+        self.assertTrue(_same_subject("the height of the tower", "a tower height"))
+        self.assertTrue(_same_subject("an arithmetic operation", "operation arithmetic"))
+        self.assertFalse(_same_subject("capital of france", "capital of spain"))
+        self.assertFalse(_same_subject("the", "an"))
+        self.assertFalse(_same_subject("", ""))
+
+    def test_different_subjects_have_no_relation(self) -> None:
+        from ultraquant.interpreter.stash import claim_relation
+
+        for claim_a, claim_b in (
+            ("The capital of France is Paris.", "The capital of Spain is Madrid."),
+            ("The capital of France is Paris.", "The capital of Spain is Paris."),
+            ("The tower height is 324 metres.", "The bridge height is 324 metres."),
+            ("The tower height is 324 metres.", "The bridge height is 330 metres."),
+        ):
+            with self.subTest(claim_b=claim_b):
+                self.assertIsNone(claim_relation(claim_a, claim_b))
+                self.assertIsNone(claim_relation(claim_b, claim_a))
+
+    def test_spains_capital_survives_better_sourced_france(self) -> None:
+        from ultraquant.interpreter.autoapprove import AutoApprover
+
+        france = "The capital of France is Paris."
+        self.stash.add_page("https://a.example/1", "A", france)
+        self.stash.add_page("https://b.example/1", "B", france)
+        self.stash.add_page("https://c.example/1", "C",
+                            "The capital of Spain is Madrid.")
+        memory = SystematicMemory(path=None)
+        approvals = AutoApprover(
+            self.stash, memory, self.dir / "approvals.jsonl").approve_all()
+        self.assertEqual({a.key for a in approvals},
+                         {"capital of france", "capital of spain"})
+        self.assertEqual(memory.recall_fact("capital of france")["value"], "Paris")
+        self.assertEqual(memory.recall_fact("capital of spain")["value"], "Madrid")
+        for entry in self.stash.entries():
+            self.assertNotEqual(entry["status"], "rejected")
+            self.assertNotIn("sources disagree", entry["notes"])
+
+    def test_different_identity_subjects_do_not_corroborate(self) -> None:
+        for index, (claim_a, claim_b) in enumerate((
+            ("The capital of France is Paris.", "The capital of Spain is Paris."),
+            ("The tower height is 324 metres.", "The bridge height is 324 metres."),
+            ("The tower height is 324 metres above the local sea level.",
+             "The bridge height is 324 metres above the local sea level."),
+        )):
+            with self.subTest(claim_b=claim_b):
+                stash = ContemporaryStash(self.dir / f"identity_{index}.json")
+                stash.add_claim("https://a.example/1", "A", claim_a)
+                stash.add_claim("https://b.example/1", "B", claim_b)
+                stash.analyze()
+                self.assertEqual([e["status"] for e in stash.entries()],
+                                 ["staged", "staged"])
+
+    def test_measured_descriptive_paraphrases_still_corroborate(self) -> None:
+        self.stash.add_claim("https://a.example/1", "A",
+                             ParaphraseCorroborationTests.CLAIM_A)
+        self.stash.add_claim("https://b.example/1", "B",
+                             ParaphraseCorroborationTests.CLAIM_B)
+        self.stash.analyze()
+        self.assertEqual([e["status"] for e in self.stash.entries()],
+                         ["corroborated", "corroborated"])
+
+    def test_two_site_identity_mirror_still_corroborates(self) -> None:
+        claim = "The capital of France is Paris."
+        self.stash.add_claim("https://a.example/1", "A", claim)
+        self.stash.add_claim("https://b.example/1", "B", claim)
+        self.stash.analyze()
+        self.assertEqual([e["status"] for e in self.stash.entries()],
+                         ["corroborated", "corroborated"])
+
+
 if __name__ == "__main__":
     unittest.main()
-

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.138](#11138-rivals-only-for-the-same-fact) | Rivals only for the same fact |
 | [11.137](#11137-batches-that-commit-whole-and-an-undo-that-knows-its-own-record) | Batches that commit whole, and an undo that knows its own record |
 | [11.136](#11136-storage-that-survives-a-crash-and-the-sixth-review) | Storage that survives a crash, and the sixth review |
 | [11.135](#11135-an-undo-that-respects-what-came-after) | An undo that respects what came after |
@@ -825,6 +826,40 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.138 Rivals only for the same fact
+
+**A read-only map of how the code handles fact structure turned this
+up, and Claude reproduced it.** `claim_relation` counted two claims as
+one subject when their subject phrases shared any word, so "capital of
+France" and "capital of Spain" were one subject. Consequences:
+- "The capital of Spain is Madrid" (1 source) was rejected permanently,
+  as "lost to entry 1", the better-sourced capital of France. §11.136's
+  recorded losses had turned an old looseness into a destructive one;
+- "The capital of Spain is Paris" was corroborated by "The capital of
+  France is Paris" from another site, and "The bridge height is 324
+  metres" by the tower's. Corroboration promotes at 0.8.
+The user's library was not affected: on a copy, auto-approval approved
+and rejected nothing. Claims arriving later would have been.
+
+**The fix** (Astra), a stopgap within today's string keys:
+- claims compete or agree only when their subjects have the same content
+  words. Word order and articles do not matter, so "the height of the
+  tower" and "the tower height" are one subject;
+- a paraphrase can corroborate a numeric or short identity claim only if
+  the typed relation says the two agree. Descriptive claims keep their
+  measured judges.
+The indexing unit replaces this with subject identity from the index.
+
+**PASSED** twice (pre-registration sha256 a830be24...):
+- 3 of 3 cases;
+- 2 of 2 plants caught;
+- a copy of the user's library was untouched.
+Every earlier gate still passes: §11.137, §11.136, §11.135, §11.132, and
+the §11.130 and §11.134 replays. The measured relation and paraphrase
+tests are unchanged and green.
+
+Suite: 2,391 passed, 5 skipped, 0 failed.
 
 ### 11.137 Batches that commit whole, and an undo that knows its own record
 
