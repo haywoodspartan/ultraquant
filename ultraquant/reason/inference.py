@@ -160,14 +160,17 @@ def _reachable_facts(memory, probes: list[str], top_k: int = 8) -> dict:
     are ever considered, so the spread's working set stays a handful of
     records however large the library is.
     """
+    from ultraquant.memory.metering import phrase_path
+
     found: dict = {}
-    for probe in probes:
-        for key in memory.find_facts(probe, top_k=top_k):
-            if key in found:
-                continue
-            record = memory.recall_fact(key)
-            if record is not None:
-                found[key] = record
+    with phrase_path():           # §11.122: these index queries are probes
+        for probe in probes:
+            for key in memory.find_facts(probe, top_k=top_k):
+                if key in found:
+                    continue
+                record = memory.recall_fact(key)
+                if record is not None:
+                    found[key] = record
     return found
 
 

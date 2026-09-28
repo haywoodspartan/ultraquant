@@ -57,6 +57,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ultraquant.memory.metering import (Bill, charge_semantic, metering,
+                                         phrase_path)
+
 from ultraquant.shards.router import _informative, normalize_token
 
 __all__ = ["Retrieved", "Retrieval", "RetrievalEngine", "DEFAULT_WIDTH"]
@@ -140,46 +143,15 @@ class Retrieval:
         return [item for item in self.facts if item.route == route]
 
 
-#: The §11.122 rung: the bill is counted where the work happens - at the
-#: memory boundary, for one call - instead of inferred from what was
-#: kept. GPT-6 Astra's review found `examined` reporting 0 after fifteen
-#: lookups, and wrote the exam before this fix existed; the engine's
-#: stated purpose is to say what a retrieval cost. False restores the
-#: old accounting byte for byte.
+#: The §11.122 rung: the bill is counted where the work happens - by
+#: the memory itself, into every bill open in this context - instead of
+#: inferred from what was kept. GPT-6 Astra's review found `examined`
+#: reporting 0 after fifteen lookups and wrote the exam before the fix
+#: existed; its adversarial review then broke the first fix, a counting
+#: proxy swapped onto `self.memory` (see ultraquant/memory/metering.py).
+#: The memory is never substituted now. False restores the old
+#: accounting byte for byte.
 _HONEST_BILL = True
-
-
-@dataclass
-class _Bill:
-    """What one retrieve() actually did to memory."""
-
-    lookups: int = 0
-    index: int = 0
-    phrase: int = 0
-    semantic: int = 0
-    phrase_depth: int = 0
-
-
-class _Metered:
-    """Memory, counted. Arguments, results and exceptions pass through."""
-
-    def __init__(self, memory, bill: _Bill) -> None:
-        self._memory = memory
-        self.bill = bill
-
-    def recall_fact(self, *args, **kwargs):
-        self.bill.lookups += 1
-        return self._memory.recall_fact(*args, **kwargs)
-
-    def find_facts(self, *args, **kwargs):
-        self.bill.index += 1
-        if self.bill.phrase_depth > 0:
-            # A probe inside a probe is still one probe.
-            self.bill.phrase += 1
-        return self._memory.find_facts(*args, **kwargs)
-
-    def __getattr__(self, name):
-        return getattr(self._memory, name)
 
 
 class RetrievalEngine:
@@ -285,17 +257,11 @@ class RetrievalEngine:
         """
         if self.suggester is None:
             return []
-        bill = getattr(self.memory, "bill", None)
-        if bill is not None:
-            bill.semantic += 1
-            bill.phrase_depth += 1
+        charge_semantic()
         try:
             suggestion = self.suggester.suggest(question, self.memory)
         except Exception:                          # noqa: BLE001
             return []
-        finally:
-            if bill is not None:
-                bill.phrase_depth -= 1
         if suggestion is None or suggestion.key in seen:
             return []
         record = self.memory.recall_fact(suggestion.key)
@@ -329,13 +295,9 @@ class RetrievalEngine:
         """
         if not _HONEST_BILL:
             return self._retrieve(question, exhaustive, routes)
-        bill = _Bill()
-        real = self.memory
-        self.memory = _Metered(real, bill)
-        try:
+        bill = Bill()
+        with metering(bill):
             result = self._retrieve(question, exhaustive, routes)
-        finally:
-            self.memory = real
         result.lookup_attempts = bill.lookups
         result.examined = bill.lookups
         result.index_probes = bill.index
@@ -360,15 +322,12 @@ class RetrievalEngine:
                             ("reach", self._reach)):
             if wanted is not None and name not in wanted:
                 continue
-            bill = getattr(self.memory, "bill", None)
-            if bill is not None and name == "reach":
-                bill.phrase_depth += 1
-            try:
+            if name == "reach":
+                with phrase_path():   # §11.122: _reach IS phrase probing
+                    found = route(question, asked, seen)
+            else:
                 found = (route(question, asked, seen, exhaustive)
                          if name == "exact" else route(question, asked, seen))
-            finally:
-                if bill is not None and name == "reach":
-                    bill.phrase_depth -= 1
             result.facts.extend(found)
             result.routes[name] = len(found)
             result.stopped_after = name

@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ultraquant.memory.metering import charge_index, charge_lookup
+
 
 def _utc_now() -> str:
     """Return the current UTC time as an ISO-8601 string."""
@@ -173,6 +175,7 @@ class SystematicMemory:
         buckets which could hold an answer. Without it, there is nothing to do
         but scan, which is exactly the cost sharding removes.
         """
+        charge_index()                # §11.122: the bill, counted here
         if self.shards is not None:
             return self.shards.search(text, top_k=top_k)
         wanted = set(re.findall(r"[a-z0-9]+", text.lower()))
@@ -306,6 +309,7 @@ class SystematicMemory:
 
     def recall_fact(self, key: str) -> dict | None:
         """Return the stored fact record for ``key``, or None if absent."""
+        charge_lookup()               # §11.122: the bill, counted here
         fact = self._fact_record(key)
         return dict(fact) if fact is not None else None
 
