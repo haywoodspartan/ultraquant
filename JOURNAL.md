@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.137](#11137-batches-that-commit-whole-and-an-undo-that-knows-its-own-record) | Batches that commit whole, and an undo that knows its own record |
 | [11.136](#11136-storage-that-survives-a-crash-and-the-sixth-review) | Storage that survives a crash, and the sixth review |
 | [11.135](#11135-an-undo-that-respects-what-came-after) | An undo that respects what came after |
 | [11.134](#11134-the-filter-on-harder-facts) | The filter on harder facts |
@@ -824,6 +825,90 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.137 Batches that commit whole, and an undo that knows its own record
+
+**A draft of this section was withdrawn before it ran.** It was a
+hand-written rule to parse the subject out of a fact key ("everything
+after the first ' of '"), in both tiers (pre-registration sha256
+2f5d32c0..., with Amendment A fc63fcda... adding the native tier). The
+user ruled on it mid-implementation: "The problem is we are hardcoding
+instead of indexing." Claude then:
+- cancelled Astra's task;
+- reverted its edits, keeping the diff;
+- rebuilt the native binaries from the committed source (verified: 43 of
+  50 again, and 50 of 50 answers in parity with Python).
+The evidence backs the ruling. The live library's four large buckets are
+four ATTRIBUTES, not subjects:
+- "capital of" holds 120 facts;
+- "chemical symbol" holds 100;
+- "author of" holds 89;
+- "atomic number" holds 75.
+That is because a bucket is addressed by hashing the key's first two
+words, although distillation knew each fact's subject and attribute when
+it filed them. The defect the draft chased, curiosity hints such as "If
+I knew the iqaluit veltrania", is measured and kept for the indexing
+unit. It fires for 28 of 30 invented capitals and 15 of 20 real ones the
+library does not hold, in both tiers.
+
+**GPT-6 Astra's seventh adversarial review** (of §11.136) found three
+high defects. Claude reproduced each:
+- **a committed payload could be rewritten in place.** Relocating a loose
+  shard inside a batch, then re-adding the same payload, truncated the
+  file the on-disk catalog still referenced. A crash three bytes in left
+  it unreadable;
+- **a failed batch committed its partial work.** Its `finally` wrote the
+  catalog while an exception propagated, leaving x new and y old. A
+  dispute persisted across buckets could land half done, and its replay
+  could not reach a descendant whose parent was already gone;
+- **legacy identity mistook a later record for the approval's own.** A
+  record re-derived, or re-taught, with the same value and confidence
+  passed every check, and the dispute deleted it.
+Astra's fourth finding, "No" for invented names beginning "no", is left
+to the indexing unit. Its recommended fix hardcodes "nobelium".
+
+**The fixes** (Astra):
+- an intact content-addressed file is reused and fsync'd, never
+  rewritten;
+- a batch left by an exception commits nothing and reloads the last
+  committed catalog;
+- a dispute journals the disputed key's descendants before any change,
+  and replay validates them wherever the graph now stands;
+- a first-format approval is exact only for its own record: outcome
+  "new", not derived, and created no later than the approval's
+  journalled time.
+
+**PASSED** twice (pre-registration sha256 82132571...):
+- all 6 cases;
+- 4 of 4 plants caught;
+- on a copy of the user's library, all 179 first-format approvals
+  remain exact.
+Every earlier gate still passes: §11.136, §11.135, §11.132, the §11.130
+and §11.134 replays, and §11.98.
+
+**Two questions Astra asked, and the answers:**
+- a §11.136 test pinned the old mechanism (a second write after a failed
+  fsync) instead of the guarantee (durability). It now checks that the
+  reused file is opened for update, fsync'd, and only then published;
+- Claude's own §11.135 fixture stamped its approval at time 1.0, before
+  the record it approved existed. It now uses a real timestamp, as the
+  live journal does.
+
+**Amendment A to §11.136's exam** (sha256 3d4199ef..., recorded after
+that exam had passed). Its first-format line carried a fixed stamp
+predating the records it created at run time, and §11.137's rule rightly
+refused them. The line is now stamped after its record, as a real one
+is. It passes twice again: 9 of 9, 8 of 8.
+
+**Found after the run, and fixed next** (§11.138). A read-only map of how
+the code handles fact structure showed that `claim_relation` calls two
+claims one subject if their subject phrases share any word. Reproduced:
+"The capital of Spain is Madrid" was rejected as "lost to entry 1", the
+better-sourced capital of France. §11.136's recorded losses turned that
+old looseness into a permanent rejection. The user's library was last
+written before §11.136 and holds none.
+
+Suite: 2,385 passed, 5 skipped, 0 failed.
 
 ### 11.136 Storage that survives a crash, and the sixth review
 

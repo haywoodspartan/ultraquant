@@ -58,6 +58,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest import mock
@@ -198,10 +199,15 @@ def secondary_change_survives() -> bool:
 
 def _legacy(world, entry_id, key, value, confidence) -> None:
     """A first-format journal line, exactly as the user's library holds."""
+    # Amendment A (§11.137, after this exam had passed): a real line is
+    # stamped after the approval wrote its record. The fixed stamp here
+    # predated records created at run time, which §11.137's identity rule
+    # rightly refuses as not the approval's own.
+    time.sleep(0.005)
     line = {"event": "approval", "approval_id": f"legacy-{entry_id}",
             "entry_id": entry_id, "key": key, "value": value,
             "confidence": confidence, "sources": ["distill.invalid"],
-            "time": 1790625746.0, "before": {key: None}, "outcome": "new",
+            "time": time.time(), "before": {key: None}, "outcome": "new",
             "disputed": False, "dispute_reason": ""}
     with (world.dir / "approvals.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(line) + "\n")

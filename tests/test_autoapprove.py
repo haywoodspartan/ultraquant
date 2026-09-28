@@ -15,6 +15,7 @@ import inspect
 import json
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -108,10 +109,14 @@ class ExactUndoTests(_World):
         """Claude's review of 11.135: approvals journalled before `after`
         existed - 179 of them in the user's library - must stay disputable."""
         self.memory.remember_fact("chemical symbol of gold", "Au", 0.959)
+        # §11.137: a real first-format line is stamped after the approval
+        # wrote its record; 1.0 would say the record came later.
+        time.sleep(0.005)
         legacy = {"event": "approval", "approval_id": "legacy-1",
                   "entry_id": 1, "key": "chemical symbol of gold",
                   "value": "Au", "confidence": 0.959, "sources": ["x"],
-                  "time": 1.0, "before": {"chemical symbol of gold": None},
+                  "time": time.time(),
+                  "before": {"chemical symbol of gold": None},
                   "outcome": "new"}
         self.journal.write_text(json.dumps(legacy) + chr(10), encoding="utf-8")
         self.seed([("The chemical symbol of gold is Au.", "distill.invalid")])

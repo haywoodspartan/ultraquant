@@ -410,6 +410,141 @@ class TestCategoryRouter(unittest.TestCase):
         self.assertEqual(len(ranked), 2)
 
 
+class ReviewSevenVaultTests(unittest.TestCase):
+    """review 7: immutable payload reuse and whole-batch publication."""
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        self.mock = mock
+        tmp = tempfile.TemporaryDirectory(prefix="uq_review7_vault_")
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.vault = ShardVault(self.root)
+
+    def test_reuse_after_relocation_inside_batch(self) -> None:
+        for relocation in ("pack_keep", "pack_prune", "attach"):
+            with self.subTest(relocation=relocation):
+                vault = ShardVault(self.root / relocation)
+                payload = {"w": [1, 2, 3]}
+                vault.add_shard("a", "c", payload)
+                loose = vault._loose_path("a")
+                if relocation == "attach":
+                    source = ShardVault(vault.root / "source")
+                    source.add_shard("a", "c", payload)
+                    source.pack(vault.root / "lib.uql")
+                with self.assertRaisesRegex(OSError, "before commit"):
+                    with vault.batch():
+                        if relocation == "attach":
+                            vault.attach(vault.root / "lib.uql")
+                        else:
+                            vault.pack(vault.root / "lib.uql", ["a"],
+                                       prune_loose=relocation == "pack_prune")
+                        with self.mock.patch.object(
+                            vault, "_write_payload", side_effect=AssertionError("rewrite")
+                        ) as write:
+                            vault.add_shard("a", "c", payload)
+                        write.assert_not_called()
+                        self.assertNotIn(loose, vault._pending_loose_removals)
+                        self.assertEqual(ShardVault(vault.root).get("a"), payload)
+                        raise OSError("crash before commit")
+                self.assertEqual(ShardVault(vault.root).get("a"), payload)
+
+    def test_failed_batch_reloads_indexes_and_retry_succeeds(self) -> None:
+        vault = self.vault
+        for key in ("x", "y"):
+            vault.add_shard(key, "old", {"v": 1}, associations={"old": 1})
+        vault.set_signature("x", [1.0, 0.0])
+        committed = vault.catalog_path.read_bytes()
+        original = vault._write_payload
+        calls = []
+
+        def second_fails(path, data):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("second write failed")
+            original(path, data)
+
+        with self.mock.patch.object(vault, "_write_payload", side_effect=second_fails):
+            with self.assertRaisesRegex(OSError, "second write"):
+                with vault.batch():
+                    vault.add_shard("x", "new", {"v": 2}, associations={"new": 1})
+                    vault.set_signature("x", [0.0, 1.0, 0.0])
+                    vault.signature_widths()
+                    vault.add_shard("y", "new", {"v": 2})
+        fresh = ShardVault(self.root)
+        self.assertEqual(vault.catalog_path.read_bytes(), committed)
+        self.assertEqual(vault.catalog(), fresh.catalog())
+        self.assertEqual(vault.categories(), fresh.categories())
+        self.assertEqual(vault.shards_in("old"), ["x", "y"])
+        self.assertEqual(vault.shards_in("new"), [])
+        self.assertEqual(vault.association_scores({"old", "new"}),
+                         fresh.association_scores({"old", "new"}))
+        self.assertTrue(vault._sketch_dirty)
+        self.assertEqual(vault.signature_widths(), fresh.signature_widths())
+        self.assertFalse(vault._dirty)
+        self.assertEqual(vault._pending_loose_removals, set())
+        self.assertIn("x", vault._pending_orphan_cleanup)
+        self.assertTrue(calls[0].exists())
+        for key in ("x", "y"):
+            self.assertEqual(fresh.get(key), {"v": 1})
+        with vault.batch():
+            for key in ("x", "y"):
+                vault.add_shard(key, "new", {"v": 3})
+        self.assertFalse(calls[0].exists())
+        for key in ("x", "y"):
+            self.assertEqual(ShardVault(self.root).get(key), {"v": 3})
+
+    def test_caught_inner_failure_commits_with_outer_batch(self) -> None:
+        vault = self.vault
+        with vault.batch():
+            vault.add_shard("x", "c", {"v": 1})
+            try:
+                with vault.batch():
+                    vault.add_shard("y", "c", {"v": 2})
+                    raise ValueError("caught by outer batch")
+            except ValueError:
+                pass
+            self.assertFalse(vault.catalog_path.exists())
+            vault.add_shard("z", "c", {"v": 3})
+        for key, value in (("x", 1), ("y", 2), ("z", 3)):
+            self.assertEqual(ShardVault(self.root).get(key), {"v": value})
+
+    def test_pending_removal_files_survive_failed_batch(self) -> None:
+        vault = self.vault
+        vault.add_shard("a", "c", {"v": 1})
+        loose = vault._loose_path("a")
+        with self.assertRaises(KeyboardInterrupt):
+            with vault.batch():
+                vault.pack(self.root / "lib.uql", prune_loose=True)
+                self.assertIn(loose, vault._pending_loose_removals)
+                raise KeyboardInterrupt()
+        self.assertEqual(vault.entry("a")["location"], "loose")
+        self.assertEqual(vault._pending_loose_removals, set())
+        vault.add_shard("b", "c", {"v": 2})
+        self.assertTrue(loose.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), {"v": 1})
+
+    def test_failed_first_batch_reloads_empty_catalog(self) -> None:
+        for error in (ValueError, KeyboardInterrupt):
+            with self.subTest(error=error):
+                vault = ShardVault(self.root / error.__name__)
+                with self.assertRaises(error):
+                    with vault.batch():
+                        with vault.batch():
+                            vault.add_shard("a", "c", {"v": 1})
+                            raise error()
+                self.assertFalse(vault.catalog_path.exists())
+                self.assertEqual(vault.catalog(), [])
+                self.assertEqual(vault.categories(), [])
+                self.assertEqual(vault._defer_save, 0)
+                self.assertFalse(vault._dirty)
+                with vault.batch():
+                    vault.add_shard("a", "c", {"v": 2})
+                self.assertEqual(ShardVault(vault.root).get("a"), {"v": 2})
+                self.assertEqual(list(vault.loose_dir.iterdir()), [vault._loose_path("a")])
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -591,16 +726,44 @@ class TestCrashSafeLooseShards(unittest.TestCase):
 
     def test_failed_payload_fsync_is_retried_even_if_bytes_are_complete(self) -> None:
         from ultraquant.shards import vault as module
+        from builtins import open as real_open
 
         with self.mock.patch.object(module.os, "fsync", side_effect=OSError):
             with self.assertRaises(OSError):
                 self.vault.add_shard("a", "facts", self.new)
         self.assertEqual(ShardVault(self.root).get("a"), self.old)
+        # review 7: an intact file is reused and fsynced, not rewritten
+        events = []
+        handles = []
+        fsync = module.os.fsync
+        publish = self.vault._write_catalog
+
+        def opened(path, mode, *args, **kwargs):
+            handle = real_open(path, mode, *args, **kwargs)
+            if Path(path).parent == self.vault.loose_dir:
+                events.append(mode)
+                handles.append(handle)
+            return handle
+
+        def synced(fd):
+            fsync(fd)
+            if any(not handle.closed and handle.fileno() == fd for handle in handles):
+                events.append("payload fsynced")
+
+        def published():
+            self.assertEqual(events, ["r+b", "payload fsynced"])
+            publish()
+            events.append("catalog published")
+
         with self.mock.patch.object(
             self.vault, "_write_payload", wraps=self.vault._write_payload
         ) as write:
-            self.vault.add_shard("a", "facts", self.new)
-        write.assert_called_once()
+            with self.mock.patch.object(module, "open", side_effect=opened, create=True):
+                with self.mock.patch.object(module.os, "fsync", side_effect=synced):
+                    with self.mock.patch.object(self.vault, "_write_catalog", side_effect=published):
+                        self.vault.add_shard("a", "facts", self.new)
+        write.assert_not_called()
+        self.assertEqual(events, ["r+b", "payload fsynced", "catalog published"])
         self.assertEqual(ShardVault(self.root).get("a"), self.new)
 
     def test_payload_and_catalog_fsync_precede_publication(self) -> None:

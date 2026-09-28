@@ -344,5 +344,158 @@ class ClaudeReviewUndoTests(unittest.TestCase):
         self.assertEqual(self._stale(), [])
 
 
+class ReviewSevenUndoTests(unittest.TestCase):
+    """review 7: replay survives broken graphs and legacy identity is strict."""
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        self.mock = mock
+        self.world = G.World()
+        self.addCleanup(self.world.cleanup)
+
+    def _revision_with_descendants(self):
+        world = self.world
+        world.memory.remember_fact("height of the pylon", "100 metres", 0.6)
+        world.seed([("The height of the pylon is 200 metres.", "a.example")])
+        approver = world.approver()
+        (approval,) = approver.approve_all()
+        world.memory.consolidate_fact("safety of the pylon", "unsafe", 0.7,
+                                      [(approval.key, "200 metres")])
+        world.memory.consolidate_fact("access to the pylon", "closed", 0.7,
+                                      [("safety of the pylon", "unsafe")])
+        return approver, approval
+
+    def test_replay_from_half_landed_dispute(self) -> None:
+        approver, approval = self._revision_with_descendants()
+        world = self.world
+
+        def half_landed(intent):
+            world.memory.restore_fact(approval.key, intent["approval"]["before"][approval.key])
+            world.memory.restore_fact("safety of the pylon", None)
+            approver._persist()
+            raise OSError("half landed")
+
+        with self.mock.patch.object(approver, "_complete_dispute", side_effect=half_landed):
+            with self.assertRaisesRegex(OSError, "half landed"):
+                approver.dispute(approval.key, "restore the old height")
+        self.assertEqual(world.memory.derivatives_of(approval.key), [])
+        self.assertIsNotNone(world.record("access to the pylon"))
+        fresh = world.restart()
+        self.assertEqual(world.value(approval.key), "100 metres")
+        self.assertIsNone(world.record("safety of the pylon"))
+        self.assertIsNone(world.record("access to the pylon"))
+        self.assertTrue(fresh.approvals()[0].disputed)
+        fresh.recover()
+        self.assertEqual(len(world.memory.recall_episodes(kind="dispute")), 1)
+
+    def test_intent_journals_descendants_before_any_change(self) -> None:
+        approver, approval = self._revision_with_descendants()
+        expected = self.world.memory.derivatives_of(approval.key)
+        with self.mock.patch.object(approver, "_complete_dispute", side_effect=OSError):
+            with self.assertRaises(OSError):
+                approver.dispute(approval.key, "interrupted before changes")
+        intent = approver._rows()[-1]
+        self.assertEqual(intent["descendants"], expected)
+        self.assertCountEqual(expected, ["safety of the pylon", "access to the pylon"])
+        self.assertEqual(self.world.record(approval.key), approval.after)
+
+    def test_superseded_intent_journals_no_descendants(self) -> None:
+        approver, approval = self._revision_with_descendants()
+        self.world.memory.confirm_fact(approval.key, 0.9)
+        self.assertTrue(self.world.memory.derivatives_of(approval.key))
+        approver.dispute(approval.key, "later confirmation wins")
+        intent = [row for row in approver._rows()
+                  if row.get("operation") == "dispute" and row["event"] == "intent"][0]
+        self.assertEqual(intent["mode"], "superseded")
+        self.assertEqual(intent["descendants"], [])
+
+    def test_journalled_keys_use_current_records_until_stable(self) -> None:
+        approver, approval = self._revision_with_descendants()
+        memory = self.world.memory
+        memory.consolidate_fact("entry permit", "denied", 0.7,
+                                [("access to the pylon", "closed")])
+        # Break reachability, then replace one journalled key independently.
+        memory.restore_fact("safety of the pylon", None)
+        memory.remember_fact("safety of the pylon", "safe", 0.9)
+        later = self.world.record("safety of the pylon")
+        approver._drop_stale_derivatives(
+            approval.key, ["entry permit", "access to the pylon", "safety of the pylon"])
+        self.assertIsNone(self.world.record("entry permit"))
+        self.assertIsNone(self.world.record("access to the pylon"))
+        self.assertEqual(self.world.record("safety of the pylon"), later)
+
+    def _legacy(self):
+        import json
+        from dataclasses import asdict
+        from datetime import datetime
+        from ultraquant.interpreter.autoapprove import Approval
+
+        key = "height of the mast"
+        stamp = "2026-01-01T00:00:00+00:00"
+        self.world.seed([("The height of the mast is 200 metres.", "a.example")])
+        with self.mock.patch("ultraquant.memory.systematic._utc_now", return_value=stamp):
+            self.world.memory.remember_fact(key, "200 metres", 0.7)
+        approval = Approval("legacy-1", 1, key, "200 metres", 0.7, ["a.example"],
+                            datetime.fromisoformat(stamp).timestamp() + 1,
+                            {key: None}, "new")
+        row = asdict(approval)
+        row.pop("after")
+        row.pop("after_states")
+        with (self.world.dir / "approvals.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"event": "approval", **row}) + "\n")
+        return self.world.approver(), approval
+
+    def test_legacy_rederived_record_is_superseded(self) -> None:
+        approver, approval = self._legacy()
+        self.world.memory.remember_fact("survey of the mast", "new", 0.9)
+        self.world.memory.consolidate_fact(approval.key, approval.value, approval.confidence,
+                                          [("survey of the mast", "new")])
+        later = self.world.record(approval.key)
+        self.assertEqual(approver._dispute_mode(approval), "superseded")
+        approver.dispute(approval.key, "old approval")
+        self.assertEqual(self.world.record(approval.key), later)
+
+    def test_legacy_retaught_record_is_superseded(self) -> None:
+        approver, approval = self._legacy()
+        self.world.memory.restore_fact(approval.key, None)
+        with self.mock.patch("ultraquant.memory.systematic._utc_now",
+                             return_value="2026-01-01T00:00:02+00:00"):
+            self.world.memory.remember_fact(approval.key, approval.value, approval.confidence)
+        later = self.world.record(approval.key)
+        self.assertEqual(approver._dispute_mode(approval), "superseded")
+        approver.dispute(approval.key, "old approval")
+        self.assertEqual(self.world.record(approval.key), later)
+
+    def test_legacy_untouched_record_still_undoes_exactly(self) -> None:
+        approver, approval = self._legacy()
+        self.assertEqual(approver._dispute_mode(approval), "exact")
+        approver.dispute(approval.key, "undo untouched approval")
+        self.assertIsNone(self.world.record(approval.key))
+
+    def test_legacy_unparseable_timestamp_is_superseded(self) -> None:
+        approver, approval = self._legacy()
+        for stamp in ("unparseable", None, 123):
+            with self.subTest(stamp=stamp):
+                record = self.world.record(approval.key)
+                record.update(first_seen=stamp, last_seen=stamp)
+                self.world.memory.restore_fact(approval.key, record)
+                self.assertEqual(approver._dispute_mode(approval), "superseded")
+        approver.dispute(approval.key, "unknown creation time")
+        self.assertEqual(self.world.record(approval.key), record)
+
+    def test_each_new_legacy_identity_condition_matters(self) -> None:
+        from dataclasses import replace
+        from datetime import datetime
+
+        approver, approval = self._legacy()
+        record = self.world.record(approval.key)
+        for outcome in ("revised", "reinforced"):
+            self.assertFalse(approver._legacy_untouched(replace(approval, outcome=outcome), record))
+        self.assertFalse(approver._legacy_untouched(approval, dict(record, derived_from=[])))
+        same_time = replace(approval, time=datetime.fromisoformat(record["first_seen"]).timestamp())
+        self.assertTrue(approver._legacy_untouched(same_time, record))
+
+
 if __name__ == "__main__":
     unittest.main()

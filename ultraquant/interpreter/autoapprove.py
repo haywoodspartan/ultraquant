@@ -14,6 +14,7 @@ import re
 import time
 import uuid
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -206,7 +207,11 @@ class AutoApprover:
     def _still_holds(self, key, expected) -> bool:
         return self.memory._fact_record(key) == expected
 
-    def _drop_stale_derivatives(self, key) -> None:
+    def _journalled_descendants(self, intent) -> list:
+        # review 7: replay must also reach descendants whose parent is gone.
+        return list(intent.get("descendants") or [])
+
+    def _drop_stale_derivatives(self, key, descendants) -> None:
         """Truth maintenance after an undo: drop what now rests on nothing.
 
         Claude's review of §11.136: sparing every changed secondary left
@@ -216,10 +221,13 @@ class AutoApprover:
         changed. So each derivative of the disputed key is judged by its
         own premises, after the restore, until nothing else falls.
         """
+        # review 7: retain the journalled keys even after the graph is broken.
+        names = dict.fromkeys(descendants)
         dropped = True
         while dropped:
             dropped = False
-            for name in self.memory.derivatives_of(key):
+            names.update(dict.fromkeys(self.memory.derivatives_of(key)))
+            for name in names:
                 record = self.memory._fact_record(name)
                 if record is not None and not self._restorable(name, record):
                     self.memory.restore_fact(name, None)
@@ -246,12 +254,20 @@ class AutoApprover:
 
     def _legacy_untouched(self, approval, current) -> bool:
         # Review 6: equal values alone cannot identify a legacy approval.
-        return (current is not None
+        if not (current is not None
+                and approval.outcome == "new"
+                and "derived_from" not in current
                 and current["value"] == approval.value
                 and not current.get("negated", False)
                 and current["confidence"] == approval.confidence
                 and current.get("reinforcements", 0) == 0
-                and current.get("last_seen") == current.get("first_seen"))
+                and current.get("last_seen") == current.get("first_seen")):
+            return False
+        # review 7: a later creation cannot be the approval's own record.
+        try:
+            return datetime.fromisoformat(current.get("first_seen")).timestamp() <= approval.time
+        except (TypeError, ValueError, OverflowError, OSError):
+            return False
 
     def _restorable(self, key, record) -> bool:
         for premise_key, premise_value in record.get("derived_from", []):
@@ -301,7 +317,10 @@ class AutoApprover:
                   # Judged once, before anything changes, so a replay after a
                   # crash restores exactly what the first attempt did.
                   "restore": (self._restore_plan(approval)
-                              if mode == "exact" else [])}
+                              if mode == "exact" else []),
+                  # review 7: capture reachability before the first change.
+                  "descendants": (self.memory.derivatives_of(approval.key)
+                                  if mode == "exact" else [])}
         self._journal(intent)
         self._complete_dispute(intent)
         approval.disputed = True
@@ -319,7 +338,8 @@ class AutoApprover:
             before = {approval.key: approval.before[approval.key]}
             before.update({key: approval.before[key] for key in plan})
             changed_premises = self._restore(before)
-            self._drop_stale_derivatives(approval.key)
+            self._drop_stale_derivatives(
+                approval.key, self._journalled_descendants(intent))
         self.stash.reject(approval.entry_id, f"disputed: {reason}")
         # Replaying a dispute after persistence but before commit must not
         # duplicate its episode. Only one dispute exists per approval.

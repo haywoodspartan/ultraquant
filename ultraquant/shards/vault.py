@@ -181,14 +181,35 @@ class ShardVault:
         and quadratic for a bulk one: reinforcing a category with N shards would
         otherwise rewrite the whole catalog N times. Measured on a 20,000-shard
         library that turned one `learn()` call into 46 seconds.
+
+        A batch commits whole or not at all when its body raises. Nested
+        batches share the outer commit; a caught inner failure still commits
+        if the outer batch completes.
         """
         self._defer_save += 1
+        failed = True
         try:
             yield self
+            failed = False
         finally:
             self._defer_save -= 1
-            if self._defer_save == 0 and self._dirty:
-                self._save_catalog()
+            if self._defer_save == 0:
+                self._finish_batch(failed)
+
+    def _finish_batch(self, failed: bool) -> None:
+        """Commit a completed batch or reload the last committed catalog."""
+        # review 7: an escaping exception must not publish partial work.
+        if failed:
+            if self.catalog_path.exists():
+                self._load_catalog()
+            else:
+                self._catalog = {}
+            self._rebuild_lookups()
+            self._pending_loose_removals.clear()
+            # Keep orphan cleanup queued for the next successful commit.
+            self._dirty = False
+        elif self._dirty:
+            self._save_catalog()
 
     def _rebuild_lookups(self) -> None:
         """Rebuild the category and association indexes from the catalog."""
@@ -610,6 +631,12 @@ class ShardVault:
             os.fsync(fh.fileno())
         self._fsync_directory(path.parent)
 
+    def _reusable(self, path: Path, digest: str) -> bool:
+        """Whether an existing payload contains exactly the requested bytes."""
+        # review 7: relocation does not make committed bytes safe to truncate.
+        return (path.exists()
+                and hashlib.sha256(path.read_bytes()).hexdigest() == digest)
+
     def _cleanup_loose_files(self) -> None:
         """Remove superseded payloads only after a successful catalog commit."""
         if not self._pending_loose_removals and not self._pending_orphan_cleanup:
@@ -668,7 +695,7 @@ class ShardVault:
         (location ``"loose"``) records that basename in ``file``.
 
         Re-adding an existing ``shard_id`` publishes a new content-addressed
-        file (or reuses identical current content), then removes the old file
+        file (or reuses identical existing content), then removes the old file
         only after the catalog commit. It refreshes the entry but **preserves**
         the accumulated ``access_count``,
         ``associations`` and ``signature`` — learning survives re-training.  Any
@@ -701,14 +728,13 @@ class ShardVault:
             if existing is not None and existing["location"] == "loose" else None
         )
         path = self._payload_path(shard_id, digest)
-        same_current = path == previous and existing["sha256"] == digest
-        # A batch can return to an older version still referenced by the disk
-        # catalog. Reuse complete immutable versions; retry torn orphan files.
-        reusable = (
-            path != previous and path in self._pending_loose_removals and path.exists()
-            and hashlib.sha256(path.read_bytes()).hexdigest() == digest
-        )
-        if not (same_current or reusable):
+        if self._reusable(path, digest):
+            # review 7: retry durability without rewriting committed bytes.
+            # Windows requires a writable handle for fsync.
+            with open(path, "r+b") as fh:
+                os.fsync(fh.fileno())
+            self._fsync_directory(path.parent)
+        else:
             self._write_payload(path, stored)
 
         now = _utc_now()
