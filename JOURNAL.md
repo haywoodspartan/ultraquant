@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.118](#11118-a-recovered-turn-meets-the-standard-a-stored-fact-does) | A recovered turn meets the standard a stored fact does |
 | [11.117](#11117-a-why-question-takes-the-stance-of-the-question-inside-it) | A why-question takes the stance of the question inside it |
 | [11.116](#11116-the-denial-the-semantic-route-forgot) | The denial the semantic route forgot |
 | [11.115](#11115-the-engine-actually-in-the-pipeline) | The engine, actually in the pipeline |
@@ -806,6 +807,39 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.118 A recovered turn meets the standard a stored fact does
+
+GPT-6 Astra's review, finding 3, reproduced end to end through real
+eviction before anything changed. The conversation window (§11.14)
+pages evicted turns back in, and `_question`'s recovered-turn rung
+answered from them - "Earlier in this conversation: K is V" - whenever
+the parsed key shared **any** word with the question, from turns of
+any intent but a question. Asked "what is the tungsten melting
+point?", it answered with steel's; asked about a key a line of code had
+assigned, it quoted the code back as something the user had said.
+
+Stored facts have had the answer to this since §11.29: assert only
+when the key covers every content word the question asked about. The
+recovered-turn rung was simply never given it. The fix admits only
+statement-like turns (chat and fact statements; legacy records without
+an intent still exclude `code:` and `calc:` text) and applies the same
+coverage rule with the same token normalisation. Partial matches are
+skipped rather than demoted. `_RECOVERY_EVIDENCE = False` restores the
+old rung byte for byte.
+
+**The criteria**, frozen before the fix existed, with one amendment
+before the fixed arm ran - a code case the aggregate rung correctly
+answered first ("total" names a sum) was replaced on old-arm
+calibration. Every case runs with a 64-byte resident window, so the
+turn under test is genuinely evicted and genuinely paged back in.
+
+**PASSED.** Wrong-subject decoys asserted: 8 of 8 -> **0**. Code and
+calc turns quoted: 4 of 4 -> **0**. Genuine same-subject recoveries:
+**8 of 8** byte-identical. The §11.115 worlds, 284 turns, moved
+nothing. The decoys now get the honest "I don't hold anything on that
+yet". Suite: 2,196 passed, 2 skipped, 0 failed - run once over this
+unit and §11.120 together, which touch different files.
+
 ### 11.117 A why-question takes the stance of the question inside it
 
 GPT-6 Astra's review, finding 2, reproduced end to end before
@@ -843,7 +877,7 @@ record (why 1.000, recall 1.000, 0 rationalised, 0 fabricated); the
 polar onto the shared helper too, outside the flag, so neither arm ran
 the old polar and the matrix could not see a polar regression. Polar's
 sixteen replies were byte-compared against the pre-fix code instead: 0
-differ.
+differ. Suite: 2,178 passed, 2 skipped, 0 failed.
 
 ### 11.116 The denial the semantic route forgot
 

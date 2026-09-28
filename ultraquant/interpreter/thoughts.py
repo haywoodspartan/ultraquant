@@ -974,8 +974,8 @@ class Reason(Thought):
         #    the token - and find_facts already ranks exactly that.
         # 2. Turns recovered by the context window (§11.14). A statement made
         #    in conversation and evicted from RAM is reachable through its
-        #    24-byte reference; if it parses as "X is Y" and overlaps the
-        #    question, it answers - attributed to the conversation, not
+        #    24-byte reference; statement evidence covering the question
+        #    answers - attributed to the conversation, not
         #    presented as a stored fact, because it never earned promotion.
         from ultraquant.shards.router import (_informative,
                                               normalize_token)
@@ -1093,6 +1093,13 @@ class Reason(Thought):
 
         for turn in ctx.data.get("recovered_turns", []):
             turn_text = str(turn.get("text", "")).strip()
+            # §11.118: recovered evidence needs statement intent and coverage.
+            if _RECOVERY_EVIDENCE:
+                if turn.get("intent", "chat") not in ("chat", "fact_statement"):
+                    continue
+                if "intent" not in turn and turn_text.lower().startswith(
+                        ("code:", "calc:")):
+                    continue
             # A recovered *question* is not a statement, however well it
             # parses: "what is the tower height?" splits into key "what" and
             # value "the tower height?", and answering from it fabricates.
@@ -1105,6 +1112,10 @@ class Reason(Thought):
             key, value = parsed
             key_tokens = {tok for tok in _TOKEN_RE.findall(key.lower())
                           if _informative(tok)}
+            if _RECOVERY_EVIDENCE:
+                key_tokens = {normalize_token(tok) for tok in key_tokens}
+                if not question_tokens <= key_tokens:
+                    continue
             if key_tokens & question_tokens:
                 ctx.say(f"Earlier in this conversation: {key} is {value}.")
                 ctx.note(self.name,
@@ -2687,6 +2698,11 @@ _RETRIEVAL_ENGINE = True
 #: Off restores the old render byte for byte; it is the gate's arm,
 #: not an option.
 _SEMANTIC_POLARITY = True
+
+#: The §11.118 rung: recovered turns must be statement evidence whose
+#: normalised key tokens cover the question, just as stored facts must.
+#: False restores the original recovery rung's replies byte for byte.
+_RECOVERY_EVIDENCE = True
 
 #: The §11.83 rung: a comparison side may be an EXPRESSION, and
 #: equality is a comparison. "is 3 * 4 greater than 10?" named
