@@ -408,5 +408,165 @@ class StructureFlowTests(unittest.TestCase):
                          "steel conductivity")
 
 
+# review 8: historical addresses and write-behind transaction boundaries.
+class ReviewEightCatalogueTests(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory(prefix="uq_review8_catalogue_")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.shards = FactShards(ShardVault(self.root))
+
+    @staticmethod
+    def old_bucket(key, buckets=256):
+        import re
+
+        prefix = " ".join(re.findall(r"[a-z0-9]+", key.lower())[:2]) or key.lower()
+        digest = hashlib.blake2b(prefix.encode("utf-8"), digest_size=4).digest()
+        return f"fact:{int.from_bytes(digest, 'big') % buckets:03d}"
+
+    def test_unstructured_addresses_match_the_old_computation(self):
+        import random
+
+        rnd = random.Random(8)
+        words = ["the", "a", "an", "tower", "Kenya", "The", "An", "x-ray",
+                 "café", "1945", "Ärzte", "州", "!!!"]
+        keys = ["", "!!!", "州", "THE TOWER material", "a tower material",
+                "an tower material"]
+        keys += [" ".join(rnd.choices(words, k=rnd.randint(1, 5))) for _ in range(1000)]
+        for buckets in (256, 17):
+            shards = FactShards(self.shards.vault, buckets=buckets)
+            for key in keys:
+                with self.subTest(key=key, buckets=buckets):
+                    self.assertEqual(shards.bucket_of(key), self.old_bucket(key, buckets))
+
+    def test_article_duplicates_keep_current_record_in_either_scan_order(self):
+        for article in ("the", "a", "an"):
+            for reverse in (False, True):
+                with self.subTest(article=article, reverse=reverse):
+                    root = self.root / f"{article}-{reverse}"
+                    vault = ShardVault(root)
+                    key = f"{article} tower material"
+                    current = self.old_bucket(key)
+                    digest = hashlib.blake2b(key.lower().encode(), digest_size=4).digest()
+                    stale = f"fact:{int.from_bytes(digest, 'big') % 256:03d}"
+                    self.assertNotEqual(current, stale)
+                    rows = [(current, "steel"), (stale, "wood")]
+                    for bucket, value in rows[::-1] if reverse else rows:
+                        vault.add_shard(bucket, bucket, {"facts": {key: {"value": value}}},
+                                        kind="fact-bucket")
+                    shards = FactShards(ShardVault(root))
+                    self.assertEqual(shards.get(key), {"value": "steel"})
+                    shards.flush()
+                    fresh = FactShards(ShardVault(root))
+                    self.assertEqual(fresh.get(key), {"value": "steel"})
+                    occupied = [e["shard_id"] for e in fresh.vault.catalog()
+                                if e.get("kind") == "fact-bucket"
+                                and key in fresh.vault.get(e["shard_id"])["facts"]]
+                    self.assertEqual(occupied, [current])
+
+    def test_nested_rollback_retries_the_staged_move_and_shared_index_page(self):
+        shards = self.shards
+        shards.put("k", {"value": 1, "subject": "Kenya", "attribute": "a"})
+        shards.flush()
+        baseline = copy.deepcopy(shards._index_before)
+        with self.assertRaisesRegex(OSError, "outer rollback"):
+            with shards.vault.batch():
+                shards.put("k", {"value": 2, "subject": "Ghana", "attribute": "a"})
+                staged = copy.deepcopy(shards._dirty)
+                shards.flush()
+                self.assertEqual(shards._dirty, staged)
+                raise OSError("outer rollback")
+        self.assertEqual(shards._dirty, staged)
+        for sid, payload in baseline.items():
+            self.assertEqual(shards._index_before[sid], payload)
+        self.assertEqual(FactShards(ShardVault(self.root)).get("k")["value"], 1)
+        page = shards._index_id("keys", "k")
+        extra = next(f"extra{i}" for i in range(10000)
+                     if shards._index_id("keys", f"extra{i}") == page)
+        shards.put(extra, {"value": 3, "subject": "Peru", "attribute": "a"})
+        shards.flush()
+        fresh = FactShards(ShardVault(self.root))
+        self.assertCountEqual(fresh.keys(), ["k", extra])
+        self.assertTrue(all(fresh.get(key) is not None for key in fresh.keys()))
+        self.assertEqual(fresh.get("k"), {"value": 2, "subject": "Ghana", "attribute": "a"})
+        self.assertEqual(shards._dirty, {})
+
+    def test_outer_commit_keeps_changes_staged_after_the_flush(self):
+        shards = self.shards
+        first = {"value": 1, "subject": "Kenya", "attribute": "capital"}
+        later = dict(first, value=2, attribute="population")
+        with shards.vault.batch():
+            shards.put("k", first)
+            shards.put("other", {"value": 3, "subject": "Peru", "attribute": "capital"})
+            shards.flush()
+            written = copy.deepcopy(shards._indexes)
+            shards.put("k", later)
+        self.assertEqual(FactShards(ShardVault(self.root)).get("k"), first)
+        self.assertEqual(set(shards._dirty), {shards.subject_bucket("Kenya")})
+        self.assertEqual(shards._index_before["index:attributes"], written["index:attributes"])
+        self.assertNotEqual(shards._indexes["index:attributes"], written["index:attributes"])
+        shards.flush()
+        self.assertEqual(FactShards(ShardVault(self.root)).get("k"), later)
+        self.assertEqual(shards._dirty, {})
+
+    def test_two_nested_flushes_finalize_the_last_written_snapshot(self):
+        shards = self.shards
+        with shards.vault.batch():
+            shards.put("k", {"value": 1, "subject": "Kenya", "attribute": "a"})
+            shards.flush()
+            shards.put("k", {"value": 2, "subject": "Ghana", "attribute": "b"})
+            shards.flush()
+        fresh = FactShards(ShardVault(self.root))
+        self.assertEqual(fresh.get("k"), {"value": 2, "subject": "Ghana", "attribute": "b"})
+        self.assertEqual(shards._dirty, {})
+        self.assertEqual(shards.flush(), 0)
+
+    def test_catalog_commit_failure_retains_staged_data_for_retry(self):
+        shards = self.shards
+        shards.put("k", {"value": 1, "subject": "Kenya", "attribute": "a"})
+        shards.flush()
+        shards.put("k", {"value": 2, "subject": "Ghana", "attribute": "b"})
+        staged = copy.deepcopy(shards._dirty)
+        baseline = copy.deepcopy(shards._index_before)
+        with mock.patch.object(shards.vault, "_write_catalog", side_effect=OSError("commit")):
+            with self.assertRaisesRegex(OSError, "commit"):
+                shards.flush()
+        self.assertEqual(shards._dirty, staged)
+        self.assertEqual(shards._index_before, baseline)
+        self.assertEqual(FactShards(ShardVault(self.root)).get("k")["value"], 1)
+        shards.flush()
+        self.assertEqual(FactShards(ShardVault(self.root)).get("k")["value"], 2)
+        self.assertEqual(shards._dirty, {})
+
+
+# review 8: returning to the committed baseline still overwrites pending pages.
+class ReviewEightNestedReversionTests(unittest.TestCase):
+    def test_second_flush_can_restore_or_empty_the_original_indexes(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                with tempfile.TemporaryDirectory(prefix="uq_review8_revert_") as root:
+                    shards = FactShards(ShardVault(root))
+                    original = {"value": 1, "subject": "Kenya", "attribute": "capital"}
+                    if existing:
+                        shards.put("k", original)
+                        shards.flush()
+                    with shards.vault.batch():
+                        shards.put("k", {"value": 2, "subject": "Ghana", "attribute": "population"})
+                        shards.flush()
+                        if existing:
+                            shards.put("k", original)
+                        else:
+                            shards.delete("k")
+                        shards.flush()
+                    fresh = FactShards(ShardVault(root))
+                    self.assertEqual(fresh.get("k"), original if existing else None)
+                    self.assertEqual(fresh.keys(), ["k"] if existing else [])
+                    self.assertEqual(fresh.subjects_in("Kenya Ghana"), {"kenya"} if existing else set())
+                    self.assertEqual(shards._dirty, {})
+                    with mock.patch.object(shards.vault, "add_shard") as write:
+                        self.assertEqual(shards.flush(), 0)
+                        write.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -497,5 +497,165 @@ class ReviewSevenUndoTests(unittest.TestCase):
         self.assertTrue(approver._legacy_untouched(same_time, record))
 
 
+# review 8: a dispute restores beliefs while retaining the key's catalogue.
+class ReviewEightUndoTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from ultraquant.experiments.catalogue_gate import Library
+
+        scratch = tempfile.TemporaryDirectory(prefix="uq_review8_undo_")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.Library = Library
+
+    def _approved(self, held, name):
+        from ultraquant.memory.migrate import structure_from_provenance
+
+        lib = self.Library(self.root / name)
+        key = "capital of kenya"
+        lib.memory.remember_fact(key, held, 0.6)
+        lib.memory.consolidate_fact("kenya destination", held, 0.7, [(key, held)])
+        lib.memory.save()
+        lib.stash.add_claim(
+            "https://distill.invalid/11130/capital:Kenya",
+            "What is the capital of Kenya?", "The capital of Kenya is Nairobi.",
+            measured_confidence=0.959,
+            provenance={"run_id": "11130", "question_id": "capital:Kenya"},
+            fields={"key": key, "value": "Nairobi"})
+        approver = lib.approver()
+        approval, = approver.approve_all()
+        self.assertNotIn("subject", approval.before[key])
+        self.assertNotIn("attribute", approval.before[key])
+        structure_from_provenance(lib.memory, lib.stash)
+        secondary = lib.record("kenya destination")
+        if secondary is not None:
+            secondary.update(subject="Kenya", attribute="destination")
+            lib.memory.restore_fact("kenya destination", secondary)
+        lib.memory.save()
+        return lib, approver, approval
+
+    def _assert_restored(self, lib, approval, held):
+        record = lib.record(approval.key)
+        self.assertEqual(record, dict(approval.before[approval.key],
+                                      subject="Kenya", attribute="capital"))
+        self.assertEqual(record["value"], held)
+        self.assertIn("kenya", lib.memory.subjects_in("What is the capital of Kenya?"))
+        if approval.outcome == "reinforced":
+            self.assertEqual(lib.record("kenya destination"),
+                             dict(approval.before["kenya destination"],
+                                  subject="Kenya", attribute="destination"))
+
+    def test_reinforced_and_revised_disputes_keep_structure(self):
+        for held, outcome in (("Nairobi", "reinforced"), ("Mombasa", "revised")):
+            with self.subTest(outcome=outcome):
+                lib, approver, approval = self._approved(held, outcome)
+                self.assertEqual(approval.outcome, outcome)
+                approver.dispute(approval.key, "restore the earlier belief")
+                lib.open()
+                self._assert_restored(lib, approval, held)
+
+    def test_replay_keeps_structure_before_and_after_dispute_persistence(self):
+        from unittest import mock
+
+        for held in ("Nairobi", "Mombasa"):
+            for persisted in (False, True):
+                with self.subTest(held=held, persisted=persisted):
+                    lib, approver, approval = self._approved(held, f"{held}-{persisted}")
+                    persist = approver._persist
+
+                    def crash():
+                        if persisted:
+                            persist()
+                        raise OSError("power cut")
+
+                    with mock.patch.object(approver, "_persist", side_effect=crash):
+                        with self.assertRaisesRegex(OSError, "power cut"):
+                            approver.dispute(approval.key, "replay")
+                    lib.open()
+                    recovered = lib.approver()
+                    self._assert_restored(lib, approval, held)
+                    self.assertTrue(recovered.approvals()[0].disputed)
+                    recovered.recover()
+                    lib.open()
+                    self._assert_restored(lib, approval, held)
+                    self.assertEqual(len(lib.memory.recall_episodes(kind="dispute")), 1)
+
+    def test_secondary_restore_keeps_structure_in_dependency_order(self):
+        lib, approver, approval = self._approved("Nairobi", "secondary")
+        before = approval.before
+        before["kenya route"] = dict(before["kenya destination"],
+                                      derived_from=[["kenya destination", "Nairobi"]])
+        lib.memory.restore_fact("kenya route", dict(before["kenya route"],
+                                subject="Kenya", attribute="route"))
+        lib.memory.restore_fact("kenya destination", dict(before["kenya destination"],
+                                value="Mombasa", subject="Kenya", attribute="destination"))
+        ordered = {approval.key: before[approval.key],
+                   "kenya route": before["kenya route"],
+                   "kenya destination": before["kenya destination"]}
+        self.assertEqual(approver._restore(ordered), {})
+        lib.memory.save()
+        lib.open()
+        for key, attribute in (("kenya route", "route"), ("kenya destination", "destination")):
+            self.assertEqual(lib.record(key), dict(before[key], subject="Kenya", attribute=attribute))
+
+    def test_catalogue_helper_copies_only_when_fields_can_be_added(self):
+        lib, approver, approval = self._approved("Nairobi", "helper")
+        old = approval.before[approval.key]
+        result = approver._with_catalogue(approval.key, old)
+        self.assertIsNot(result, old)
+        self.assertNotIn("subject", old)
+        self.assertIsNone(approver._with_catalogue(approval.key, None))
+        complete = dict(old, subject="Kenya", attribute="capital")
+        self.assertIs(approver._with_catalogue(approval.key, complete), complete)
+        self.assertIs(approver._with_catalogue("absent", old), old)
+        partial = dict(old, subject="Recorded Kenya")
+        self.assertEqual(approver._with_catalogue(approval.key, partial),
+                         dict(partial, attribute="capital"))
+        self.assertNotIn("attribute", partial)
+
+    def test_incomplete_approval_rolls_back_exactly_without_catalogue_overlay(self):
+        from unittest import mock
+        from ultraquant.interpreter.autoapprove import AutoApprover
+
+        lib = self.Library(self.root / "rollback")
+        key = "capital of kenya"
+        lib.memory.remember_fact(key, "Nairobi", 0.6)
+        lib.memory.consolidate_fact("kenya destination", "Nairobi", 0.7, [(key, "Nairobi")])
+        lib.memory.save()
+        lib.stash.add_claim("https://distill.invalid/11130/capital:Kenya", "capital",
+                            "The capital of Kenya is Nairobi.", measured_confidence=0.959,
+                            provenance={"run_id": "11130", "question_id": "capital:Kenya"},
+                            fields={"key": key, "value": "Nairobi"})
+        approver = lib.approver()
+        journal = approver._journal
+
+        def no_commit(row):
+            if row["event"] == "commit":
+                raise OSError("before commit")
+            journal(row)
+
+        with mock.patch.object(approver, "_journal", side_effect=no_commit):
+            with self.assertRaisesRegex(OSError, "before commit"):
+                approver.approve_all()
+        intent = approver._rows()[-1]
+        for name in intent["before"]:
+            record = lib.record(name)
+            self.assertIsNotNone(record)
+            lib.memory.restore_fact(name, dict(record, subject="Kenya", attribute="catalogued"))
+        lib.memory.save()
+        lib.open()
+        with mock.patch.object(AutoApprover, "_with_catalogue",
+                               side_effect=AssertionError("rollback used dispute overlay")):
+            recovered = lib.approver()
+        for name, record in intent["before"].items():
+            self.assertEqual(lib.record(name), record)
+        self.assertEqual(recovered.approvals(), [])
+        self.assertEqual(lib.memory.subjects_in("Kenya"), set())
+        lib.open()
+        for name, record in intent["before"].items():
+            self.assertEqual(lib.record(name), record)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -545,6 +545,96 @@ class ReviewSevenVaultTests(unittest.TestCase):
                 self.assertEqual(list(vault.loose_dir.iterdir()), [vault._loose_path("a")])
 
 
+# review 8: completion notifications belong to the outermost transaction.
+class ReviewEightBatchTests(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory(prefix="uq_review8_batch_")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.vault = ShardVault(self.root)
+
+    def test_nested_commit_notifies_once_after_publication(self):
+        events = []
+
+        def completed(committed):
+            events.append((committed, ShardVault(self.root).get("a")))
+
+        with self.vault.batch():
+            self.vault.after_batch(completed)
+            with self.vault.batch():
+                self.vault.add_shard("a", "facts", {"value": 1})
+                self.vault.after_batch(lambda committed: events.append(committed))
+            self.assertEqual(events, [])
+        self.assertEqual(events, [(True, {"value": 1}), True])
+        with self.vault.batch():
+            pass
+        self.assertEqual(len(events), 2)
+
+    def test_nested_rollback_notifies_once_and_clears_queue(self):
+        events = []
+        with self.assertRaisesRegex(OSError, "rollback"):
+            with self.vault.batch():
+                self.vault.after_batch(events.append)
+                with self.vault.batch():
+                    self.vault.add_shard("a", "facts", {"value": 1})
+                    self.vault.after_batch(events.append)
+                self.assertEqual(events, [])
+                raise OSError("rollback")
+        self.assertEqual(events, [False, False])
+        self.assertFalse(ShardVault(self.root).has("a"))
+        with self.vault.batch():
+            self.vault.after_batch(events.append)
+        self.assertEqual(events, [False, False, True])
+
+    def test_caught_inner_failure_uses_outer_commit_outcome(self):
+        events = []
+        with self.vault.batch():
+            with self.assertRaises(ValueError):
+                with self.vault.batch():
+                    self.vault.after_batch(events.append)
+                    raise ValueError("caught")
+            self.assertEqual(events, [])
+        self.assertEqual(events, [True])
+
+    def test_commit_failure_notifies_false(self):
+        from unittest import mock
+
+        events = []
+        with mock.patch.object(self.vault, "_write_catalog", side_effect=OSError("commit")):
+            with self.assertRaisesRegex(OSError, "commit"):
+                with self.vault.batch():
+                    with self.vault.batch():
+                        self.vault.add_shard("a", "facts", {"value": 1})
+                        self.vault.after_batch(events.append)
+                    self.vault.after_batch(events.append)
+        self.assertEqual(events, [False, False])
+        self.assertFalse(ShardVault(self.root).has("a"))
+        with self.vault.batch():
+            pass
+        self.assertEqual(events, [False, False])
+
+    def test_outside_a_batch_notifies_immediately(self):
+        events = []
+        self.assertIsNone(self.vault.after_batch(events.append))
+        self.assertEqual(events, [True])
+
+    def test_callback_failure_does_not_skip_remaining_callbacks(self):
+        events = []
+
+        def failed(committed):
+            events.append(committed)
+            raise ValueError("callback")
+
+        with self.assertRaisesRegex(ValueError, "callback"):
+            with self.vault.batch():
+                self.vault.after_batch(failed)
+                self.vault.after_batch(events.append)
+        self.assertEqual(events, [True, True])
+        with self.vault.batch():
+            self.vault.after_batch(events.append)
+        self.assertEqual(events, [True, True, True])
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -183,6 +183,16 @@ class AutoApprover:
         return {name: copy.deepcopy(self.memory._fact_record(name))
                 for name in [key, *self.memory.derivatives_of(key)]}
 
+    # review 8: catalogue structure describes the key across value changes.
+    def _with_catalogue(self, key, record):
+        if record is not None and ("subject" not in record or "attribute" not in record):
+            current = self.memory._fact_record(key)
+            additions = {field: current[field] for field in ("subject", "attribute")
+                         if field not in record and current is not None and field in current}
+            if additions:
+                return dict(record, **additions)
+        return record
+
     def _restore(self, before) -> dict:
         # The snapshot starts with the approved key. Restore it first, then
         # restore conclusions in dependency order, not dictionary order.
@@ -194,9 +204,10 @@ class AutoApprover:
         dropped = {}
         # Review 6: the primary has premises too; stale ones stay absent.
         if record is None or self._restorable(key, record):
-            self.memory.restore_fact(key, record)
+            # review 8: dispute restores keep structure learned after approval.
+            self.memory.restore_fact(key, self._with_catalogue(key, record))
         else:
-            self.memory.restore_fact(key, None)
+            self.memory.restore_fact(key, self._with_catalogue(key, None))
             dropped[key] = record
         while pending:
             ready = [key for key, record in pending.items()
@@ -204,7 +215,8 @@ class AutoApprover:
             if not ready:
                 break
             for key in ready:
-                self.memory.restore_fact(key, pending.pop(key))
+                # review 8: secondary restores and replay use the same rule.
+                self.memory.restore_fact(key, self._with_catalogue(key, pending.pop(key)))
         dropped.update(pending)
         # Use the same premise predicate for the explanation as for undo.
         return {key: [p_key for p_key, p_value in record.get("derived_from", [])
@@ -238,7 +250,8 @@ class AutoApprover:
             for name in names:
                 record = self.memory._fact_record(name)
                 if record is not None and not self._restorable(name, record):
-                    self.memory.restore_fact(name, None)
+                    # review 8: all dispute restores share the catalogue seam.
+                    self.memory.restore_fact(name, self._with_catalogue(name, None))
                     dropped = True
 
     def _restore_plan(self, approval) -> list:

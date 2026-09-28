@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.140](#11140-addresses-that-stay-put-flushes-that-finalize-late-undo-that-keeps-structure) | Addresses that stay put, flushes that finalize late, undo that keeps structure |
 | [11.139](#11139-facts-catalogued-by-what-they-are-about) | Facts catalogued by what they are about |
 | [11.138](#11138-rivals-only-for-the-same-fact) | Rivals only for the same fact |
 | [11.137](#11137-batches-that-commit-whole-and-an-undo-that-knows-its-own-record) | Batches that commit whole, and an undo that knows its own record |
@@ -827,6 +828,52 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.140 Addresses that stay put, flushes that finalize late, undo that keeps structure
+
+**GPT-6 Astra's eighth adversarial review** (of §11.137-§11.139) found
+three defects. Claude reproduced each:
+- **a migration could keep a stale duplicate.** §11.139 had made
+  `bucket_of` normalize its two-word prefix, so a key beginning with an
+  article moved address, and the one-time scan forgot the old one.
+  Reproduced with "the tower material": the current "steel" was lost
+  and an obsolete "wood" kept. The user's library has no key beginning
+  with an article, and its migration kept all 405 values (checked);
+- **a flush nested in an outer batch finalized early.** It cleared its
+  staged buckets and advanced its index baselines although the outer
+  batch then rolled back. After a later flush, "k" was listed but
+  unreadable;
+- **undo stripped catalogue structure.** Disputing an approval
+  journalled before structure existed restored a record with no subject
+  or attribute, so the catalogue forgot Kenya.
+
+**The fixes** (Astra):
+- `bucket_of` is byte-for-byte its pre-§11.139 computation again. Only
+  `subject_bucket` normalizes, for structured records;
+- the vault calls back, once, when the outermost batch commits or rolls
+  back. A flush acknowledges exactly what it wrote only on commit, and
+  on rollback leaves everything staged;
+- a dispute's restores keep the key's catalogue structure. Structure
+  describes the key, not the value. An approval's rollback still
+  restores exactly.
+
+**Claude's pre-registration contradicted itself, and was corrected
+before any fix** (Amendment A, sha256 55811844...). Fix 2 kept a
+rolled-back flush's changes staged, which is write-behind, as a failed
+un-nested flush already behaves. Criterion 2 expected the next flush not
+to persist them. The defect is the directory and the bucket
+disagreeing, not which value survives, so the criterion now asks for
+every listed key to be readable and for "k" to hold what memory held.
+
+**PASSED** twice on Claude's machine (pre-registration sha256
+6bcea2d4...):
+- 3 of 3 cases and 3 of 3 plants;
+- a copy of the user's library intact: 405 readable, 384 approvals
+  exact, and Kenya named by the catalogue.
+§11.139's catalogue gate and every earlier gate listed still pass,
+including the five native parity gates.
+
+Suite: 2,427 passed, 5 skipped, 0 failed.
 
 ### 11.139 Facts catalogued by what they are about
 

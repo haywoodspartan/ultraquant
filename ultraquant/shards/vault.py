@@ -157,6 +157,7 @@ class ShardVault:
         self._by_category: dict[str, list[str]] = {}
         self._assoc: dict[str, dict[str, float]] = {}
         self._defer_save = 0
+        self._after_batch = []  # review 8: notify only after the outer batch.
         self._dirty = False
         self._pending_loose_removals: set[Path] = set()
         self._pending_orphan_cleanup: set[str] = set()
@@ -194,7 +195,25 @@ class ShardVault:
         finally:
             self._defer_save -= 1
             if self._defer_save == 0:
-                self._finish_batch(failed)
+                # review 8: detach callbacks before allowing reentrant batches.
+                callbacks, self._after_batch = self._after_batch, []
+                committed = False
+                try:
+                    self._finish_batch(failed)
+                    committed = not failed
+                finally:
+                    # ExitStack calls every callback even if another raises.
+                    with contextlib.ExitStack() as stack:
+                        for callback in reversed(callbacks):
+                            stack.callback(callback, committed)
+
+    # review 8: write-behind clients finalize at the actual commit boundary.
+    def after_batch(self, callback) -> None:
+        """Call once with the outer batch's outcome, or True outside a batch."""
+        if self._defer_save:
+            self._after_batch.append(callback)
+        else:
+            callback(True)
 
     def _finish_batch(self, failed: bool) -> None:
         """Commit a completed batch or reload the last committed catalog."""

@@ -90,6 +90,8 @@ class FactShards:
         # §11.139: index pages are cached independently of fact buckets.
         self._indexes: dict[str, dict] = {}
         self._index_before: dict[str, dict | None] = {}
+        # review 8: remember submitted pages to detect reversions within a batch.
+        self._index_written: dict[str, dict] = {}
         self._indexes_ready = False
         self._duplicates: dict[str, set[str]] = {}
 
@@ -114,8 +116,9 @@ class FactShards:
         also how recall is supposed to feel.
         """
         prefix = " ".join(self.tokens(key)[:2]) or key.lower()
-        # §11.139: unstructured keys retain their prefix addressing scheme.
-        return self.subject_bucket(prefix)
+        # review 8: preserve the pre-catalogue address without normalization.
+        digest = hashlib.blake2b(prefix.encode("utf-8"), digest_size=4).digest()
+        return f"fact:{int.from_bytes(digest, 'big') % self.buckets:03d}"
 
     def subject_bucket(self, subject: str) -> str:
         """The bucket addressed by a normalized subject."""
@@ -477,15 +480,23 @@ class FactShards:
         """
         # §11.139: unchanged index pages never get rewritten, even on reads.
         self._ensure_indexes()
+        # review 8: a later nested flush can undo an earlier uncommitted page.
         changed = {sid: payload for sid, payload in self._indexes.items()
-                   if payload != self._index_before[sid]
+                   if (payload != self._index_before[sid]
+                       or payload != self._index_written.get(sid, self._index_before[sid]))
                    and (self._index_before[sid] is not None
+                        or sid in self._index_written
                         or any(payload.values()) or sid == "index:derivations:00")}
         if not self._dirty and not changed:
             return 0
-        written = 0
+        # review 8: snapshots survive later staging until the outer commit.
+        buckets = deepcopy(self._dirty)
+        changed = deepcopy(changed)
+        written = {sid: {"facts": facts} for sid, facts in buckets.items()}
+        written.update(changed)
+        count = 0
         with self.vault.batch():
-            for shard_id, facts in self._dirty.items():
+            for shard_id, facts in buckets.items():
                 # An EMPTY staged bucket is not "nothing to do" - it means
                 # every fact in it was deleted, and skipping it resurrects
                 # them: the vault keeps the old bucket, the cache keeps the
@@ -514,14 +525,25 @@ class FactShards:
                 self.vault._catalog[shard_id]["fact_count"] = len(facts)
                 if self.cache is not None:
                     self.cache.invalidate(shard_id)
-                written += 1
+                count += 1
             # §11.139: a failed index write rolls back the bucket writes too.
             for shard_id, payload in changed.items():
                 self.vault.add_shard(shard_id, shard_id, payload, kind="fact-index")
-        for shard_id, payload in changed.items():
-            self._index_before[shard_id] = deepcopy(payload)
-        self._dirty.clear()
-        return written
+                self._index_written[shard_id] = payload  # review 8: submitted, not committed.
+            # review 8: a nested flush has not committed yet.
+            self.vault.after_batch(lambda committed: self._finalize(committed, written))
+        return count
+
+    # review 8: rollback leaves staged writes and index baselines untouched.
+    def _finalize(self, committed, written) -> None:
+        """Acknowledge committed snapshots without clearing newer changes."""
+        if not committed:
+            return
+        for shard_id, payload in written.items():
+            if shard_id.startswith("index:"):
+                self._index_before[shard_id] = deepcopy(payload)
+            elif self._dirty.get(shard_id) == payload["facts"]:
+                del self._dirty[shard_id]
 
     def migrate(self, facts: dict[str, dict]) -> int:
         """Move an existing flat fact store into buckets.
