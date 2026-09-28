@@ -110,8 +110,13 @@ _BILLS: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_bills", default=())
 _PHRASE: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_phrase_depth", default=0)
+#: The carried invocation a context belongs to - matched against the
+#: thread actually running it, because a context is copied into any
+#: thread that asks, and an exemption that travelled with it would let an
+#: unregistered child thread charge as if carried (the sixth review).
 _CARRIED: contextvars.ContextVar = contextvars.ContextVar(
-    "ultraquant_carried", default=False)
+    "ultraquant_carried", default=None)
+_EXECUTING = threading.local()
 _LOCK = threading.Lock()
 #: [bills open anywhere, then - counted while any bill is open - metered
 #: memory operations, suggester calls, unmetered calls]
@@ -158,8 +163,14 @@ def carry(fn):
     state = {"used": False}
 
     def inside(*args, **kwargs):
-        _CARRIED.set(True)
-        return fn(*args, **kwargs)
+        token = object()
+        _CARRIED.set(token)
+        previous = getattr(_EXECUTING, "token", None)
+        _EXECUTING.token = token
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _EXECUTING.token = previous
 
     @functools.wraps(fn)
     def carried(*args, **kwargs):
@@ -204,8 +215,9 @@ def _foreign(bills: tuple) -> None:
     """Charges from another thread, outside carry(): no lifetime known.
 
     Called with the lock held."""
-    if _CARRIED.get():
-        return
+    token = _CARRIED.get()
+    if token is not None and getattr(_EXECUTING, "token", None) is token:
+        return                    # this thread IS the carried invocation
     me = threading.get_ident()
     for bill in bills:
         if bill._owner != me:

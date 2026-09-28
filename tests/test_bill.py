@@ -587,3 +587,61 @@ class FifthReviewRegressionTests(unittest.TestCase):
             .retrieve("how tall is the tower?", routes=("semantic",))
         self.assertEqual(found.semantic_calls, 1)
         self.assertTrue(found.bill_complete)
+
+
+class SixthReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's sixth review: an exemption that travelled."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r6_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_carried_workers_uncarried_child_is_foreign(self) -> None:
+        """The carried parent copies its context into a child thread."""
+        import contextvars
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ultraquant.memory.metering import carry
+        from ultraquant.reason.semantic import SemanticSuggester
+
+        memory = self.memory
+        child_read = threading.Event()
+        release = threading.Event()
+        children = []
+        pool = ThreadPoolExecutor(max_workers=1)
+
+        def child_work():
+            memory.recall_fact("tower height")
+            child_read.set()
+            release.wait(timeout=5)
+
+        def parent_work():
+            child = threading.Thread(
+                target=contextvars.copy_context().run, args=(child_work,))
+            children.append(child)
+            child.start()
+            child_read.wait(timeout=5)
+
+        class Embedder:
+            def embed(inner, texts, model=None):
+                pool.submit(carry(parent_work)).result(timeout=5)
+                return [[1.0, 0.0] for _ in texts]
+
+            def available(inner):
+                return True
+
+        try:
+            found = R.RetrievalEngine(
+                memory, suggester=SemanticSuggester(embedder=Embedder())) \
+                .retrieve("how tall is the tower?", routes=("semantic",))
+        finally:
+            release.set()
+            for child in children:
+                child.join(timeout=5)
+            pool.shutdown(wait=True)
+        self.assertFalse(found.bill_complete)
