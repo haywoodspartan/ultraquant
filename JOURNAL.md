@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.119](#11119-a-yes-confirms-what-was-asserted) | A "yes" confirms what was asserted |
 | [11.120](#11120-a-curiosity-is-revalidated-before-it-is-asked) | A curiosity is revalidated before it is asked |
 | [11.118](#11118-a-recovered-turn-meets-the-standard-a-stored-fact-does) | A recovered turn meets the standard a stored fact does |
 | [11.117](#11117-a-why-question-takes-the-stance-of-the-question-inside-it) | A why-question takes the stance of the question inside it |
@@ -807,6 +808,46 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.119 A "yes" confirms what was asserted
+
+GPT-6 Astra's review, finding 4, reproduced end to end through the chat
+surface before anything changed. A polar "Yes" leaves a one-turn slot
+so the user's next "yes" confirms the belief as direct testimony
+(§11.68), and a derivation leaves one so "yes" can consolidate it
+(§11.31). Both slots held a **key**, and "yes" acted on whatever that
+key held by then. Perceive clears the slots, but commands never pass
+through Perceive, so a `:learn` answer between the assertion and the
+"yes" changed the belief underneath the user's word:
+
+- affirmed "iron", then `:learn answer steel`, then "yes" -> "Confirmed:
+  tower material is steel - direct testimony, confidence 0.90";
+- `:learn answer no` marked the gate colour unconfirmed, then "yes" ->
+  "Confirmed: gate colour is (unconfirmed)" - the system's own
+  placeholder, confirmed on the user's authority;
+- a derivation's premise revised, then "yes" -> "Consolidated: tower
+  hardness is high" - a belief its own premises no longer supported.
+
+Snapshotting what was asserted covers every mutation path; clearing the
+slots per command would cover only the commands someone remembered. The
+slot now carries the asserted value and polarity, a derivation carries
+its premises as they were held, and "yes" checks them first:
+"That changed since I said it - tower material is now steel. Nothing
+was confirmed." `_CONFIRM_SNAPSHOT = False` restores the old slots.
+
+**PASSED** on all four measured criteria. Stale confirmations and
+consolidations: 6 of 6 -> **0**. Immediate confirmations, reply and
+store: 6 of 6 identical. An ordinary turn between still clears the
+slot: 6 of 6 identical. The §11.115 worlds moved nothing.
+
+**The cost, measured and isolated.** Snapshotting premises reads each
+one again when a derivation is made: store reads per turn in the
+§11.115 worlds rose 16.22 -> 16.34 (that gate's saving unchanged), and
+an isolated copy without this change reproduced 16.22 exactly. The
+premise tuples already carry values - only polarity forced the read -
+so recording polarity where inference already holds the record would
+remove it. GPT-6 Astra named the added reads in its own risk note.
+Suite: 2,218 passed, 2 skipped, 0 failed.
 
 ### 11.120 A curiosity is revalidated before it is asked
 

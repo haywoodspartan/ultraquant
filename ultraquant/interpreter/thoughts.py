@@ -1011,6 +1011,12 @@ class Reason(Thought):
                     "premises": list(derived.premises),
                     "negated": bool(getattr(derived, "negated", False)),
                 }
+                # §11.119: freeze premise values and polarities at derivation.
+                if _CONFIRM_SNAPSHOT:
+                    ctx.session.pending_inference["premise_snapshots"] = {
+                        p_key: _belief_snapshot(ctx.session.memory.recall_fact(p_key))
+                        for p_key, _ in ctx.session.pending_inference["premises"]
+                    }
             ctx.note(self.name,
                      f"inferred ({derived.kind}) from "
                      f"{len(derived.premises)} facts: "
@@ -1170,6 +1176,14 @@ class Reason(Thought):
             ctx.say("Nothing is pending to confirm.")
             return
         memory = ctx.session.memory
+        # §11.119: a delayed yes must still refer to the asserted belief.
+        if _CONFIRM_SNAPSHOT:
+            changed = _changed_belief(memory, key, confirmed)
+            if changed is not None:
+                ctx.say(f"That changed since I said it - {changed}. "
+                        "Nothing was confirmed.")
+                ctx.note(self.name, f"confirmation refused: {changed}")
+                return
         if memory.confirm_fact(key):
             fact = memory.recall_fact(key)
             ctx.say(f"Confirmed: {key} is {_shown_value(fact)} - "
@@ -1251,6 +1265,15 @@ class Reason(Thought):
             ctx.say("Nothing is pending confirmation.")
             ctx.note(self.name, "affirmation with nothing pending")
             return
+        # §11.119: every premise must still match its derivation snapshot.
+        if _CONFIRM_SNAPSHOT:
+            for p_key, snapshot in pending.get("premise_snapshots", {}).items():
+                changed = _changed_belief(ctx.session.memory, p_key, snapshot)
+                if changed is not None:
+                    ctx.say(f"That premise changed since I said it - {changed}. "
+                            "Nothing was consolidated.")
+                    ctx.note(self.name, f"consolidation refused: {changed}")
+                    return
         negated = bool(pending.get("negated"))
         ctx.session.memory.consolidate_fact(
             key, value,
@@ -1474,6 +1497,9 @@ class Reason(Thought):
                 ctx.say(f"{verdict} - {key} is {held} {confidence}.")
                 if verdict == "Yes":
                     ctx.session.pending_confirmation = {"key": key}
+                    # §11.119: retain the value and polarity actually asserted.
+                    if _CONFIRM_SNAPSHOT:
+                        ctx.session.pending_confirmation.update(_belief_snapshot(fact))
             else:
                 ctx.say(f"{verdict} - {key} is {held}, not {claimed} "
                         f"{confidence}.")
@@ -1621,6 +1647,12 @@ class Reason(Thought):
                     "premises": list(derived.premises),
                     "negated": bool(derived.negated),
                 }
+                # §11.119: freeze premise values and polarities at derivation.
+                if _CONFIRM_SNAPSHOT:
+                    ctx.session.pending_inference["premise_snapshots"] = {
+                        p_key: _belief_snapshot(ctx.session.memory.recall_fact(p_key))
+                        for p_key, _ in ctx.session.pending_inference["premises"]
+                    }
             ctx.note(self.name,
                      f"why-question derived through "
                      f"{len(derived.premises)} premise(s)")
@@ -1961,6 +1993,12 @@ class Reason(Thought):
             "confidence": result.confidence,
             "premises": list(result.premises), "negated": False,
         }
+        # §11.119: freeze premise values and polarities at derivation.
+        if _CONFIRM_SNAPSHOT:
+            ctx.session.pending_inference["premise_snapshots"] = {
+                p_key: _belief_snapshot(ctx.session.memory.recall_fact(p_key))
+                for p_key, _ in ctx.session.pending_inference["premises"]
+            }
         ctx.note(self.name,
                  f"quantity arithmetic over {len(result.premises)} "
                  f"fact(s): "
@@ -2128,6 +2166,9 @@ class Reason(Thought):
                 ctx.say(f"Neither - {key} is {value} {confidence}.")
             if matched is not None:
                 ctx.session.pending_confirmation = {"key": key}
+                # §11.119: retain the value and polarity actually asserted.
+                if _CONFIRM_SNAPSHOT:
+                    ctx.session.pending_confirmation.update(_belief_snapshot(fact))
         elif matched is not None:
             # Ruling out is not picking: the other disjunct stays
             # unelected, because a denial of one value affirms nothing
@@ -2409,6 +2450,12 @@ class Reason(Thought):
                 "premises": list(derived.premises),
                 "negated": bool(derived.negated),
             }
+            # §11.119: freeze premise values and polarities at derivation.
+            if _CONFIRM_SNAPSHOT:
+                ctx.session.pending_inference["premise_snapshots"] = {
+                    p_key: _belief_snapshot(ctx.session.memory.recall_fact(p_key))
+                    for p_key, _ in ctx.session.pending_inference["premises"]
+                }
         fold = lambda text: {normalize_token(tok) for tok  # noqa: E731
                              in _TOKEN_RE.findall(str(text).lower())
                              if _informative(tok)}
@@ -2572,6 +2619,11 @@ _DISCONFIRMATION_RE = None  # compiled below, after re is imported
 #: wired to the surface. The testimony gate's baseline arm turns it
 #: off.
 _CONFIRM_TESTIMONY = True
+
+#: The §11.119 rung: confirmation belongs to the asserted value and
+#: polarity; consolidation belongs to the premises as they were held.
+#: Refuse either if its snapshot changed. False keeps the old behavior.
+_CONFIRM_SNAPSHOT = True  # §11.119: guard delayed affirmations.
 
 #: The §11.66 rung: "is X steel or iron?" picks the held disjunct by
 #: name, answers "Neither" with the actual, lets a denial rule out its
@@ -2818,6 +2870,30 @@ def _claim_stance(matches: bool, claim_negated: bool,
     if held_negated:
         return None
     return claim_negated
+
+
+# §11.119: snapshots own their values, including mutable fact payloads.
+def _belief_snapshot(fact: dict | None) -> dict | None:
+    """Copy only the belief's value and polarity, not its confidence."""
+    from copy import deepcopy
+
+    if fact is None:
+        return None
+    return {"value": deepcopy(fact.get("value")),
+            "negated": bool(fact.get("negated"))}
+
+
+# §11.119: report the current belief when a snapshot no longer matches.
+def _changed_belief(memory: SystematicMemory, key: str,
+                    snapshot: dict | None) -> str | None:
+    """Return what is held now if the asserted belief changed."""
+    fact = memory.recall_fact(key)
+    if fact is None:
+        return f"I no longer hold {key}"
+    if (snapshot is None or fact.get("value") != snapshot.get("value")
+            or bool(fact.get("negated")) != snapshot.get("negated")):
+        return f"{key} is now {_shown_value(fact)}"
+    return None
 
 
 def _shown_value(fact: dict) -> str:
