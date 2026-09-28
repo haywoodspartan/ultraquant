@@ -104,7 +104,10 @@ class Retrieval:
     Attributes:
         question: The question asked.
         facts: What was retrieved, best first within each route.
-        examined: Keys the engine looked at, whether kept or not.
+        examined: Fact reads attempted - equal to ``lookup_attempts``
+            under the honest bill (§11.122). It used to count the keys
+            that were KEPT, so a retrieval that read fifteen keys and
+            found nothing reported zero.
         routes: Route -> how many facts it contributed.
         covered: Whether some retrieved key covers every informative
             token of the question (§11.29). False is common and is
@@ -120,6 +123,14 @@ class Retrieval:
     routes: dict = field(default_factory=dict)
     covered: bool = False
     stopped_after: str = ""
+    #: The honest bill (§11.122), counted at the memory boundary so
+    #: work done inside the suggester is on it too. Per call, never
+    #: cumulative.
+    unique_facts_returned: int = 0
+    lookup_attempts: int = 0
+    index_probes: int = 0
+    phrase_probes: int = 0
+    semantic_calls: int = 0
 
     @property
     def keys(self) -> list:
@@ -127,6 +138,48 @@ class Retrieval:
 
     def by_route(self, route: str) -> list:
         return [item for item in self.facts if item.route == route]
+
+
+#: The §11.122 rung: the bill is counted where the work happens - at the
+#: memory boundary, for one call - instead of inferred from what was
+#: kept. GPT-6 Astra's review found `examined` reporting 0 after fifteen
+#: lookups, and wrote the exam before this fix existed; the engine's
+#: stated purpose is to say what a retrieval cost. False restores the
+#: old accounting byte for byte.
+_HONEST_BILL = True
+
+
+@dataclass
+class _Bill:
+    """What one retrieve() actually did to memory."""
+
+    lookups: int = 0
+    index: int = 0
+    phrase: int = 0
+    semantic: int = 0
+    phrase_depth: int = 0
+
+
+class _Metered:
+    """Memory, counted. Arguments, results and exceptions pass through."""
+
+    def __init__(self, memory, bill: _Bill) -> None:
+        self._memory = memory
+        self.bill = bill
+
+    def recall_fact(self, *args, **kwargs):
+        self.bill.lookups += 1
+        return self._memory.recall_fact(*args, **kwargs)
+
+    def find_facts(self, *args, **kwargs):
+        self.bill.index += 1
+        if self.bill.phrase_depth > 0:
+            # A probe inside a probe is still one probe.
+            self.bill.phrase += 1
+        return self._memory.find_facts(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._memory, name)
 
 
 class RetrievalEngine:
@@ -232,10 +285,17 @@ class RetrievalEngine:
         """
         if self.suggester is None:
             return []
+        bill = getattr(self.memory, "bill", None)
+        if bill is not None:
+            bill.semantic += 1
+            bill.phrase_depth += 1
         try:
             suggestion = self.suggester.suggest(question, self.memory)
         except Exception:                          # noqa: BLE001
             return []
+        finally:
+            if bill is not None:
+                bill.phrase_depth -= 1
         if suggestion is None or suggestion.key in seen:
             return []
         record = self.memory.recall_fact(suggestion.key)
@@ -267,6 +327,27 @@ class RetrievalEngine:
         ask for everything; the gate uses this to test the ROUTES
         separately from the POLICY.
         """
+        if not _HONEST_BILL:
+            return self._retrieve(question, exhaustive, routes)
+        bill = _Bill()
+        real = self.memory
+        self.memory = _Metered(real, bill)
+        try:
+            result = self._retrieve(question, exhaustive, routes)
+        finally:
+            self.memory = real
+        result.lookup_attempts = bill.lookups
+        result.examined = bill.lookups
+        result.index_probes = bill.index
+        result.phrase_probes = bill.phrase
+        result.semantic_calls = bill.semantic
+        result.unique_facts_returned = len({item.key
+                                            for item in result.facts})
+        return result
+
+    def _retrieve(self, question: str, exhaustive: bool = False,
+                  routes: tuple | None = None) -> Retrieval:
+        """The cascade itself; ``retrieve`` decides how it is billed."""
         asked = _fold(question)
         result = Retrieval(question=question)
         if not asked:
@@ -279,8 +360,15 @@ class RetrievalEngine:
                             ("reach", self._reach)):
             if wanted is not None and name not in wanted:
                 continue
-            found = (route(question, asked, seen, exhaustive)
-                     if name == "exact" else route(question, asked, seen))
+            bill = getattr(self.memory, "bill", None)
+            if bill is not None and name == "reach":
+                bill.phrase_depth += 1
+            try:
+                found = (route(question, asked, seen, exhaustive)
+                         if name == "exact" else route(question, asked, seen))
+            finally:
+                if bill is not None and name == "reach":
+                    bill.phrase_depth -= 1
             result.facts.extend(found)
             result.routes[name] = len(found)
             result.stopped_after = name
