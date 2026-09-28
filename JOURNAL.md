@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.123](#11123-k-quant-weights-decoded-exactly-as-llamacpp-decodes-them) | K-quant weights, decoded exactly as llama.cpp decodes them |
 | [11.122](#11122-the-bill-describes-the-work) | The bill describes the work |
 | [11.121](#11121-a-conjunction-of-polar-questions-gets-polar-answers) | A conjunction of polar questions gets polar answers |
 | [11.119](#11119-a-yes-confirms-what-was-asserted) | A "yes" confirms what was asserted |
@@ -810,6 +811,50 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.123 K-quant weights, decoded exactly as llama.cpp decodes them
+
+The first unit of running a real large model: the user's own Command-R
+08-2024, already on disk - 32 billion parameters, Q4_K_S, 17.6 GB, which
+fits whole in the RTX 4090's 24 GB. Its own metadata fixes the
+architecture: 40 blocks of width 8192, a 24576-wide feed-forward, 64
+query heads sharing 8 key/value heads, RoPE base 4,000,000, a single
+LayerNorm feeding attention and feed-forward in parallel, logit scale
+0.0625, and no separate output matrix - the embedding is the head. Of
+its 322 tensors, 271 are Q4_K, 9 Q5_K and 1 Q6_K. The reader refused all
+three by name.
+
+**The oracle is llama.cpp itself.** LM Studio ships ggml as DLLs, and
+`ggml-base.dll` exports `dequantize_row_q4_K`, `_q5_K` and `_q6_K` - the
+code every llama.cpp run of this file executes. Calibrated before any
+decoder existed: ggml's output is reproduced bit for bit by
+float32-emulated arithmetic, and across 102,400 Q4_K weights fused and
+two-step rounding never disagree, because every product there is exact
+in float32 - so bit-exactness was a fair bar to set.
+
+GPT-6 Astra wrote the decoder; Claude wrote the exam, including the
+proof that it could fail: an independent decoder matched ggml exactly,
+and the same decoder with one planted defect produced 428 mismatches.
+
+**PASSED.** The first, middle and last block of every one of the 281
+k-quant tensors - 843 blocks, 215,808 weights - bit-exact, values and
+bits both; and as extra evidence every block of every row the check
+decoded anyway, 34,656 blocks, 8.9 million weights: 0 mismatches. Q2_K,
+Q3_K and the i-quants are still refused by name; the one existing test
+that asserted Q4_K was refused now asserts it of Q2_K, its rule
+unchanged. The pins carry one golden block of each type with ggml's own
+decode of it, so every machine holds the decoder to ggml, not only this
+one.
+
+**Two measurements that set the next units.** Pure-Python decoding runs
+at 0.41 s per million weights - all 32 billion would take about 3.6
+hours, once. And llama.cpp's own server, started from LM Studio's
+runtime folder as the next oracle, generates **2.65 tokens/s** on this
+CPU (12.55 prompt): 17.5 GB read per token at 2.65 tokens/s is about 46
+GB/s, memory bandwidth - dense generation is exactly as bandwidth-bound
+as the tiered-memory arithmetic says. That is the standard option every
+faster tier here will be measured against. Suite: 2,254 passed, 2
+skipped, 0 failed.
 
 ### 11.122 The bill describes the work
 

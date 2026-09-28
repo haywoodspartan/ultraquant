@@ -7,11 +7,11 @@ typed key/values, one info record per tensor (name, shape, type,
 offset), then a padded data section.
 
 **What is supported is stated rather than discovered.** F32, F16,
-BF16 and Q8_0 are read; every other quantisation - the k-quants and
-i-quants that most published GGUFs use - is refused BY NAME, with
-the type reported, rather than silently misread as bytes. A reader
-that guessed at Q4_K blocks would produce numbers, and numbers that
-are wrong in a format nobody checked are worse than a refusal.
+BF16, Q8_0, Q4_K, Q5_K and Q6_K are read; every other quantisation,
+including Q2_K, Q3_K and the i-quants, is refused BY NAME. The three
+k-quant decoders follow ggml's reference layout and float32 arithmetic,
+returning exactly widened float32 values. Numbers that are wrong in
+a format nobody checked are worse than a refusal.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ _TYPE_NAMES = {
     27: "I64", 28: "F64", 29: "IQ1_M", 30: "BF16",
 }
 
-_READABLE = {"F32", "F16", "BF16", "Q8_0"}
+_READABLE = {"F32", "F16", "BF16", "Q8_0", "Q4_K", "Q5_K", "Q6_K"}
 
 #: Metadata value types.
 _UINT8, _INT8, _UINT16, _INT16, _UINT32, _INT32 = 0, 1, 2, 3, 4, 5
@@ -139,6 +139,11 @@ class GgufFile:
 _Q8_0_BLOCK = 32
 
 
+def _float32(value: float) -> float:
+    """Round one ggml operation to float32, then widen exactly."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
 def _decode_rows(handle, base: int, type_name: str, width: int,
                  first: int, count: int) -> list:
     """Rows [first, first+count) of a tensor, as lists of floats."""
@@ -159,6 +164,58 @@ def _decode_rows(handle, base: int, type_name: str, width: int,
                 for value in struct.unpack_from("<32b", raw, at):
                     row.append(scale * value)
                 at += _Q8_0_BLOCK
+            rows.append(row)
+        return rows
+
+    if type_name in {"Q4_K", "Q5_K", "Q6_K"}:
+        # §11.123: Whole k-quant blocks, with ggml's float32 rounding.
+        if width % 256:
+            raise ValueError(f"{type_name} row width must be a multiple of 256")
+        block_bytes = {"Q4_K": 144, "Q5_K": 176, "Q6_K": 210}[type_name]
+        blocks_per_row = width // 256
+        row_bytes = blocks_per_row * block_bytes
+        handle.seek(base + first * row_bytes)
+        raw = handle.read(row_bytes * count)
+        if len(raw) != row_bytes * count:
+            raise ValueError(f"truncated {type_name} rows")
+        at = 0
+        for _ in range(count):
+            row = []
+            for _block in range(blocks_per_row):
+                if type_name == "Q6_K":
+                    d = struct.unpack_from("<e", raw, at + 208)[0]
+                    scales = struct.unpack_from("<16b", raw, at + 192)
+                    for half in range(2):
+                        for group in range(4):
+                            low = at + half * 64 + (group % 2) * 32
+                            high = at + 128 + half * 32
+                            for lane in range(32):
+                                q = (raw[low + lane] >> (4 * (group // 2))) & 15
+                                q |= ((raw[high + lane] >> (2 * group)) & 3) << 4
+                                scale = scales[half * 8 + group * 2 + lane // 16]
+                                row.append(_float32(_float32(d * scale) * (q - 32)))
+                else:
+                    d, dmin = struct.unpack_from("<2e", raw, at)
+                    scales = raw[at + 4:at + 16]
+                    low = at + (48 if type_name == "Q5_K" else 16)
+                    for group in range(8):
+                        if group < 4:
+                            scale = scales[group] & 63
+                            minimum = scales[group + 4] & 63
+                        else:
+                            scale = ((scales[group + 4] & 15)
+                                     | ((scales[group - 4] >> 6) << 4))
+                            minimum = ((scales[group + 4] >> 4)
+                                       | ((scales[group] >> 6) << 4))
+                        ds = _float32(d * scale)
+                        dm = _float32(dmin * minimum)
+                        for lane in range(32):
+                            packed = raw[low + (group // 2) * 32 + lane]
+                            q = (packed >> (4 * (group % 2))) & 15
+                            if type_name == "Q5_K":
+                                q |= ((raw[at + 16 + lane] >> group) & 1) << 4
+                            row.append(_float32(_float32(ds * q) - dm))
+                at += block_bytes
             rows.append(row)
         return rows
 

@@ -91,16 +91,20 @@ class ReaderTests(unittest.TestCase):
                          [[1.5, -0.75]])
 
     def test_an_unsupported_type_refuses_by_name(self) -> None:
-        """A reader that guessed at Q4_K blocks would produce numbers,
-        and wrong numbers nobody checked are worse than a refusal."""
-        _write_gguf(self.path, [("w", (2, 1), 12, [0.0, 0.0])])
+        """A reader that guessed at Q2_K blocks would produce numbers,
+        and wrong numbers nobody checked are worse than a refusal.
+
+        This used Q4_K until 11.123 made Q4_K, Q5_K and Q6_K readable -
+        each checked bit for bit against ggml's own decoder. The rule
+        it pins is unchanged: whatever is not verified is refused."""
+        _write_gguf(self.path, [("w", (2, 1), 10, [0.0, 0.0])])
         opened = gguf.read(self.path)
         info = opened.by_name("w")
-        self.assertEqual(info.type_name, "Q4_K")
+        self.assertEqual(info.type_name, "Q2_K")
         self.assertFalse(info.readable)
         with self.assertRaises(gguf.UnsupportedTensorType) as caught:
             opened.rows_of(info)
-        self.assertIn("Q4_K", str(caught.exception))
+        self.assertIn("Q2_K", str(caught.exception))
 
     def test_metadata_and_census(self) -> None:
         _write_gguf(self.path, [("a", (2, 1), 0, [1.0, 2.0]),
