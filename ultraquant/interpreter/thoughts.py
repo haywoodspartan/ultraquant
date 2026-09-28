@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -902,6 +902,12 @@ class Reason(Thought):
                             f"actions, explored {plan.explored} states")
 
     def _question(self, ctx: ThoughtContext) -> None:
+        # §11.121: polar conjuncts keep the single-question polar machinery.
+        if (_COMPOUND_POLAR and re.search(r"\s+and\s+", ctx.text, re.I)
+                and not re.match(r"\s*(what|which|who|where|when|how|why)\b",
+                                 ctx.text, re.I)
+                and self._answer_polar_compound(ctx)):
+            return
         compound = self._compound_parts(ctx.text)
         if compound is not None:
             self._answer_compound(ctx, compound)
@@ -1397,6 +1403,39 @@ class Reason(Thought):
         ctx.note(self.name,
                  f"compound: {len(parts)} part(s), {len(pieces)} answered, "
                  f"{len(unknown_parts)} unknown")
+
+    def _answer_polar_compound(self, ctx: ThoughtContext) -> bool:
+        """Compose polar clauses; return False for a conjoined bare value."""
+        pieces = []
+        unsafe = False
+        for index, part in enumerate(re.split(r"\s+and\s+", ctx.text.strip(),
+                                               flags=re.I)):
+            question = part.strip().rstrip("?!. ")
+            # Keep the original phrase: an explicit question head supplies
+            # clause structure even when the polar reader cannot answer it.
+            bare = re.sub(r"^(the|a|an)\s+", "", question, flags=re.I)
+            if not re.match(r"^(is|are|was|were)\s+", question, re.I):
+                question = "is " + question
+            sub = ThoughtContext(text=question + "?",
+                                 session=replace(ctx.session))
+            answered = _NEGATION_AWARE and self._polar_answer(sub)
+            reply = " ".join(sub.response_parts).strip()
+            if not answered or not reply.startswith(
+                    ("Yes - ", "No - ", "I don't know - ")):
+                # A bare continuation has no separate subject and claim.
+                # Check this only after the polar reader, which also accepts
+                # compact arithmetic such as "2+2=4" as a complete clause.
+                if index and len(bare.split()) < 2:
+                    return False
+                unsafe = True
+            pieces.append(reply.rstrip(".!?"))
+        if unsafe:
+            ctx.say("I can't answer that conjunction safely as polar questions.")
+            ctx.note(self.name, "polar conjunction refused")
+            return True
+        ctx.say("; ".join(pieces) + ".")
+        ctx.note(self.name, f"polar compound: {len(pieces)} part(s)")
+        return True
 
     def _polar_answer(self, ctx: ThoughtContext) -> bool:
         """Answer "is X Y?" with yes, no, or an honest don't-know.
@@ -2537,6 +2576,10 @@ class Reason(Thought):
 #: it off to measure shipped behavior ("not steel" stored as a value,
 #: no polar questions). Sessions run with it on.
 _NEGATION_AWARE = True
+
+#: The §11.121 rung: polar conjunctions use the single-part polar answers
+#: without queuing curiosities. False restores the old replies byte for byte.
+_COMPOUND_POLAR = True
 
 #: The §11.50 rung: polar questions with no direct fact may DERIVE
 #: their verdict through the chain machinery. The polar-derive gate's

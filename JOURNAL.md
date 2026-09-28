@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.121](#11121-a-conjunction-of-polar-questions-gets-polar-answers) | A conjunction of polar questions gets polar answers |
 | [11.119](#11119-a-yes-confirms-what-was-asserted) | A "yes" confirms what was asserted |
 | [11.120](#11120-a-curiosity-is-revalidated-before-it-is-asked) | A curiosity is revalidated before it is asked |
 | [11.118](#11118-a-recovered-turn-meets-the-standard-a-stored-fact-does) | A recovered turn meets the standard a stored fact does |
@@ -808,6 +809,42 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.121 A conjunction of polar questions gets polar answers
+
+GPT-6 Astra's review, finding 5, reproduced end to end before anything
+changed - and worse than reported. The compound rung rewrote every part
+of a conjunction as a "what is" question, which cannot read a polar
+part at all. With the tower iron and the bridge steel, "is the tower
+material iron and the bridge material steel?" answered **"none of it is
+held"** - both parts held, both true - and queued curiosities named
+"iron iron" and "steel steel". Calibration found the same on every
+polar conjunction in the battery: 8 of 8. Polar conjunctions had no
+working path at all.
+
+The fix answers each part through the single-question polar machinery
+and joins the replies; a part that cannot be answered safely abstains
+on the whole, and nothing is queued. `_COMPOUND_POLAR = False` restores
+the old rung byte for byte.
+
+**PASSED**, by the second version. Polar conjunctions answered per
+part: 0 of 8 -> **8 of 8**; junk curiosities: 8 of 8 cases -> **0**;
+"what is" compounds byte-identical 8 of 8; the §11.115 worlds moved
+nothing. "is 3 + 4 equal to 7 and 2 + 2 equal to 4?", which had
+answered "I can't compare those", now reads "Yes - 3 + 4 is 7; Yes - 2
++ 2 is 4".
+
+**Version one passed the gate and was not shipped.** Review probed
+questions the battery does not hold and found the trigger capturing an
+"and" that joins two VALUES: "is the tower material steel and iron?"
+had answered "No - tower material is steel, not steel and iron" and now
+abstained. The gate stayed as frozen; the finding became its own tests,
+failing on version one, and the second version falls back to the old
+path when a later part is a bare continuation with no subject of its
+own. After it, every value form probed is byte-identical to before; a
+two-word value ("steel and cast iron") is read as a clause and abstains
+- where the old path had claimed "none of it is held". Suite: 2,245
+passed, 2 skipped, 0 failed.
 
 ### 11.119 A "yes" confirms what was asserted
 
