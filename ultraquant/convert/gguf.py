@@ -242,7 +242,7 @@ def _read_string(handle) -> str:
     return handle.read(length).decode("utf-8", errors="replace")
 
 
-def _read_value(handle, value_type: int):
+def _read_value(handle, value_type: int, keep_strings: bool = False):
     if value_type == _UINT8:
         return struct.unpack("<B", handle.read(1))[0]
     if value_type == _INT8:
@@ -270,20 +270,24 @@ def _read_value(handle, value_type: int):
     if value_type == _ARRAY:
         (item_type,) = struct.unpack("<I", handle.read(4))
         (length,) = struct.unpack("<Q", handle.read(8))
-        # A vocabulary is a million strings and nothing here needs
+        # A vocabulary is a million strings and most callers never need
         # it in memory; the length is kept, the contents skipped.
-        if item_type == _STRING and length > 4096:
+        # §11.124: a caller that does - the tokenizer - names the
+        # arrays it wants kept.
+        if item_type == _STRING and length > 4096 and not keep_strings:
             for _ in range(length):
                 (size,) = struct.unpack("<Q", handle.read(8))
                 handle.seek(size, 1)
             return f"<{length} strings, skipped>"
-        return [_read_value(handle, item_type) for _ in range(length)]
+        return [_read_value(handle, item_type, keep_strings)
+                for _ in range(length)]
     raise ValueError(f"unknown metadata value type {value_type}")
 
 
-def read(path: str | Path) -> GgufFile:
-    """Open a GGUF file and read its tables, not its tensors."""
+def read(path: str | Path, *, keep: tuple[str, ...] = ()) -> GgufFile:
+    """Read tables, not tensors; retain large string arrays named in `keep`."""
     path = Path(path)
+    keep = frozenset(keep)
     with path.open("rb") as handle:
         magic = handle.read(4)
         if magic != b"GGUF":
@@ -296,7 +300,7 @@ def read(path: str | Path) -> GgufFile:
         for _ in range(kv_count):
             key = _read_string(handle)
             (value_type,) = struct.unpack("<I", handle.read(4))
-            metadata[key] = _read_value(handle, value_type)
+            metadata[key] = _read_value(handle, value_type, key in keep)
 
         tensors: list = []
         for _ in range(tensor_count):

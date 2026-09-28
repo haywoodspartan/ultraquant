@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.124](#11124-command-rs-text-becomes-exactly-llamacpps-token-ids) | Command-R's text becomes exactly llama.cpp's token ids |
 | [11.123](#11123-k-quant-weights-decoded-exactly-as-llamacpp-decodes-them) | K-quant weights, decoded exactly as llama.cpp decodes them |
 | [11.122](#11122-the-bill-describes-the-work) | The bill describes the work |
 | [11.121](#11121-a-conjunction-of-polar-questions-gets-polar-answers) | A conjunction of polar questions gets polar answers |
@@ -811,6 +812,37 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.124 Command-R's text becomes exactly llama.cpp's token ids
+
+The second unit of running Command-R: a model reads ids, not text, and an
+id that differs from the one it was trained on is a different word. GPT-6
+Astra built the tokenizer from the GGUF's own metadata alone - byte-level
+BPE, 256,000 tokens, 253,333 merges, and Command-R's two-pass
+pre-tokenizer, which splits every Unicode number before the GPT-2
+pattern runs - after an opt-in in the reader to keep named large string
+arrays, whose default still skips them. Claude wrote the exam against
+llama.cpp's own tokenizer: `llama-server.exe` from LM Studio's runtime
+folder, serving this exact GGUF on 127.0.0.1.
+
+**The first run was VOID, and the reason is a finding.** The planted
+defect - digits not pre-split - mismatched 0 of 207 texts, because it is
+not a defect for this model: **0 of Command-R's 253,333 merges touch a
+digit**, so BPE can never join a digit to anything and the pre-split is
+behaviourally redundant. No text could reveal it. Amendment A, made
+after that run and before the second, planted a defect of a different
+kind chosen a priori: GPT-2's whitespace lookahead removed, so the last
+space of a run no longer attaches to the next word. It mismatched 15
+texts.
+
+**PASSED**, with the harness shown able to fail: 207 texts - prose,
+numbers, whitespace, contractions, seven scripts, emoji with ZWJ and
+skin tones, code, URLs, and 40 sentences of this repo's own prose -
+produce exactly llama.cpp's ids, 0 mismatched; decode(encode(t)) == t for
+all 207; our decode equals llama.cpp's /detokenize on all 207. The pins
+carry llama.cpp's ids for four texts, so the model file alone is enough
+to hold the tokenizer to them. Suite: 2,269 passed, 2 skipped, 0
+failed - run once over this unit and §11.125.
 
 ### 11.123 K-quant weights, decoded exactly as llama.cpp decodes them
 
