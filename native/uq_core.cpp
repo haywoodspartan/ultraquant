@@ -143,6 +143,69 @@ UQ_EXPORT int uq_kq_matvec(int type, const uint8_t* w, int64_t rows,
     return 0;
 }
 
+// Prefill: decode each packed row once, then use it for every input vector.
+// Each dot still adds columns in exactly uq_kq_matvec's order. Parallelism
+// is over output rows, never over the reduction, so batching cannot change
+// a result through reassociation or a different partial-sum tree.
+UQ_EXPORT int uq_kq_matvec_batch(int type, const uint8_t* w, int64_t rows,
+                                int64_t cols, const double* x, int64_t batch,
+                                double* y, int threads) {
+    const int bytes = kq_block_bytes(type);
+    const int64_t max_doubles = INT64_MAX / int64_t(sizeof(double));
+    if (!bytes || rows < 0 || cols <= 0 || cols % 256 || batch < 0
+        || cols > max_doubles || rows > max_doubles
+        || batch > max_doubles / cols
+        || (rows && batch > max_doubles / rows)) return 1;
+    const int64_t row_bytes = (cols / 256) * bytes;
+    if (rows > INT64_MAX / row_bytes) return 1;
+    if (!rows || !batch) return 0;
+    if (!w || !x || !y) return 1;
+    if (threads <= 0) {
+        const unsigned hc = std::thread::hardware_concurrency();
+        threads = hc ? int(hc) : 1;
+    }
+    if (threads > rows) threads = int(rows);
+    std::vector<std::thread> pool;
+    std::vector<std::vector<float>> scratch;
+    try {
+        // Allocate before starting workers: allocation failure must return
+        // through the C ABI, not escape a worker and terminate the process.
+        scratch.resize(threads);
+        for (auto& row : scratch) row.resize(size_t(cols));
+        auto worker = [&](int t, int64_t begin, int64_t end) {
+            float* decoded = scratch[t].data();
+            for (int64_t row = begin; row < end; ++row) {
+                const uint8_t* packed = w + row * row_bytes;
+                for (int64_t block = 0; block < cols / 256; ++block)
+                    kq_decode(type, packed + block * bytes, decoded + block * 256);
+                for (int64_t item = 0; item < batch; ++item) {
+                    const double* vector = x + item * cols;
+                    double sum = 0.0;
+                    for (int64_t col = 0; col < cols; ++col)
+                        sum += double(decoded[col]) * vector[col];
+                    y[item * rows + row] = sum;
+                }
+            }
+        };
+        if (threads == 1) {
+            worker(0, 0, rows);
+        } else {
+            pool.reserve(threads);
+            int64_t begin = 0;
+            for (int t = 0; t < threads; ++t) {
+                const int64_t end = begin + rows / threads + (t < rows % threads);
+                pool.emplace_back(worker, t, begin, end);
+                begin = end;
+            }
+        }
+    } catch (...) {
+        for (auto& th : pool) th.join();
+        return 2;
+    }
+    for (auto& th : pool) th.join();
+    return 0;
+}
+
 #pragma float_control(pop)
 
 namespace {

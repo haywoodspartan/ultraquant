@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.126](#11126-command-rs-next-token-computed-by-our-own-engine) | Command-R's next token, computed by our own engine |
 | [11.125](#11125-command-rs-matrices-multiplied-natively) | Command-R's matrices, multiplied natively |
 | [11.124](#11124-command-rs-text-becomes-exactly-llamacpps-token-ids) | Command-R's text becomes exactly llama.cpp's token ids |
 | [11.123](#11123-k-quant-weights-decoded-exactly-as-llamacpp-decodes-them) | K-quant weights, decoded exactly as llama.cpp decodes them |
@@ -813,6 +814,47 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.126 Command-R's next token, computed by our own engine
+
+**Command-R 08-2024 runs in UltraQuant.** The user's own 32B model -
+embedding, 40 blocks, the tied output head, next-token logits - in
+`infer/command_r.py`: LayerNorm without bias, Q/K/V, RoPE on adjacent
+coordinate pairs, grouped-query attention with 64 query heads over 8
+key/value heads, the parallel SwiGLU feed-forward, one residual sum, the
+final LayerNorm and the logit scale, with a KV cache for generation.
+Every weight product goes through §11.125's native kernel - extended in
+this unit with a batched export, so a prompt's tokens share one pass
+over each matrix, matching the single-vector kernel exactly - and
+everything else runs in float64. GPT-6 Astra wrote the engine, and
+settled the RoPE pairing empirically rather than from memory: adjacent
+pairs, because halves put the error at 0.69 nats. Claude reviewed the
+code and wrote the exam.
+
+**How close counts as correct.** Not bitwise: llama.cpp quantizes every
+activation vector to 8 bits and this engine does not. The yardstick is
+llama.cpp's disagreement with itself - its CPU backend and its CUDA
+backend (a second llama-server from LM Studio's cuda12 runtime, the
+whole model on the 4090), measured on the same token ids before any
+engine here existed: they agree on the top token and differ by up to
+0.09 nats in their top-five log-probabilities.
+
+**PASSED** on all four measured criteria. Twelve prompts: top-1 agrees
+with llama.cpp on every one that is not a near-tie (one excluded, and it
+agreed anyway); every prompt within its noise-floor bound, with seven of
+the twelve closer to llama.cpp's CPU backend than llama.cpp's own GPU
+backend is. "The capital of France is" -> " Paris" at 0.035 nats from
+llama.cpp; the widest, "Water boils at", at 0.366 - where llama.cpp
+disagrees with itself by 0.377. The planted defect, RoPE pairing the
+wrong coordinates, failed all twelve prompts; the same prompt twice
+gives bit-identical logits.
+
+**The speed, as it came out**: about 17 s a prompt, against 0.5 s for
+llama.cpp on this CPU and 0.036 s on the 4090. The work so far bought
+exactness; the next units buy speed - SIMD decoding, then the CUDA path
+with all 17.6 GB resident, each owing this engine the same agreement. Suite: 2,276 passed, 3
+skipped, 0 failed - the third skip is the two-oracle gate, which runs
+with ULTRAQUANT_SLOW_GATES=1.
 
 ### 11.125 Command-R's matrices, multiplied natively
 

@@ -51,6 +51,7 @@ __all__ = [
     "ternary_forward_cpu",
     "ternary_forward_batch_cpu",
     "kq_matvec_cpu",
+    "kq_matvec_batch_cpu",
     "kq_dequant_cpu",
     "gpu_available",
     "gpu_device_name",
@@ -159,6 +160,12 @@ def _declare_cpu(dll: ctypes.CDLL) -> None:
             c_int, p_u8, ctypes.c_int64, ctypes.c_int64, p_dbl, p_dbl, c_int,
         ]
         dll.uq_kq_matvec.restype = c_int
+    if hasattr(dll, "uq_kq_matvec_batch"):
+        dll.uq_kq_matvec_batch.argtypes = [
+            c_int, p_u8, ctypes.c_int64, ctypes.c_int64, p_dbl,
+            ctypes.c_int64, p_dbl, c_int,
+        ]
+        dll.uq_kq_matvec_batch.restype = c_int
     if hasattr(dll, "uq_kq_dequant"):
         dll.uq_kq_dequant.argtypes = [
             c_int, p_u8, ctypes.c_int64, ctypes.POINTER(ctypes.c_float),
@@ -213,6 +220,32 @@ def kq_matvec_cpu(type: int, raw: bytes, rows: int, cols: int,
     if dll.uq_kq_matvec(type, packed, rows, cols, vector, out, threads):
         raise RuntimeError("native k-quant matvec failed")
     return list(out)
+
+
+def kq_matvec_batch_cpu(type: int, raw: bytes, rows: int, cols: int,
+                        xs: Sequence[Sequence[float]],
+                        threads: int = 0) -> list[list[float]]:
+    """Packed W against many vectors, each dot identical to kq_matvec_cpu."""
+    import operator
+
+    rows, cols, threads = map(operator.index, (rows, cols, threads))
+    if rows < 0 or cols <= 0 or cols % 256 or any(len(x) != cols for x in xs):
+        raise ValueError("k-quant matrix and vector shapes do not match")
+    if not -(2**31) <= threads < 2**31:
+        raise ValueError("threads must fit a C int")
+    raw = bytes(raw)
+    packed = _kq_raw(type, raw, rows * cols)
+    dll = load_cpu()
+    if dll is None or not hasattr(dll, "uq_kq_matvec_batch"):
+        raise RuntimeError("native batched k-quant matvec is unavailable")
+    batch = len(xs)
+    vectors = (ctypes.c_double * (batch * cols))(
+        *(value for x in xs for value in x))
+    out = (ctypes.c_double * (batch * rows))()
+    if dll.uq_kq_matvec_batch(type, packed, rows, cols, vectors, batch,
+                              out, threads):
+        raise RuntimeError("native batched k-quant matvec failed")
+    return [out[i * rows:(i + 1) * rows] for i in range(batch)]
 
 
 def _declare_gpu(dll: ctypes.CDLL) -> None:
