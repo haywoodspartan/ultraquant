@@ -1,7 +1,19 @@
 """Own one lupine job, its deadline, process tree and lease release.
 
-This file also runs directly inside WSL. It needs only the standard library;
-neither importing UltraQuant nor reading a pipe is part of its lifecycle.
+Round three follows the second review of 11.128. An ordinary exit left
+background children alive; the Windows descendant snapshot missed orphans
+and could select a reused PID. A Job Object now owns Windows processes
+before they start, and every exit cleans up that job or the POSIX process
+group before release. Linux parent-death signals also cover a lost WSL relay.
+
+The environment flag is configuration, not isolation. The sealed namespace
+IS enforcement against Windows interop inside WSL: it covers /run/WSL and
+drops capabilities before starting lupine. A failed probe refuses the job
+and still attempts release. --remote remains the isolation from the local
+GPU; the seal does not hide Linux GPU devices.
+
+This file runs directly inside WSL using only the standard library. Output
+goes to regular files, so inherited pipes cannot defeat bounded cleanup.
 """
 
 from __future__ import annotations
@@ -47,89 +59,124 @@ def _read_output(handle, tail=None) -> str:
     return text[-tail:] if tail is not None else text
 
 
-def _windows_descendants(pid):
-    """Hold descendant handles before taskkill can remove their parent.
+def _under_wsl() -> bool:
+    if os.name != "posix":
+        return False
+    if os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"):
+        return True
+    try:
+        with open("/proc/version", encoding="utf-8") as handle:
+            return "microsoft" in handle.read().lower()
+    except OSError:
+        return False
 
-    Restricted Windows tokens can deny taskkill's process enumeration while
-    permitting termination of our own children. Toolhelp needs no WMI service.
-    Creation times reject stale parent PIDs; handles prevent PID reuse between
-    this snapshot and termination. No unrelated process is selected.
-    """
+
+def sealed(argv) -> list:
+    """Prevent even shell-wrapped or copied Windows binaries using interop."""
+    if not _under_wsl():
+        return list(argv)
+    return ["unshare", "-rm", "sh", "-c",
+            'mount -t tmpfs none /run/WSL && exec setpriv '
+            '--bounding-set=-all --inh-caps=-all --ambient-caps=-all '
+            '--no-new-privs -- "$@"', "sh", *argv]
+
+
+def _windows_job_api():
+    """Declare the handle APIs and native layouts, including pointer widths."""
     import ctypes
     from ctypes import wintypes
 
-    class Entry(ctypes.Structure):
-        _fields_ = [("size", wintypes.DWORD), ("usage", wintypes.DWORD),
-                    ("pid", wintypes.DWORD), ("heap", ctypes.c_size_t),
-                    ("module", wintypes.DWORD), ("threads", wintypes.DWORD),
-                    ("parent", wintypes.DWORD), ("priority", wintypes.LONG),
-                    ("flags", wintypes.DWORD), ("exe", wintypes.WCHAR * 260)]
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong),
+                    ("PerJobUserTimeLimit", ctypes.c_longlong),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in
+                    ("ReadOperationCount", "WriteOperationCount",
+                     "OtherOperationCount", "ReadTransferCount",
+                     "WriteTransferCount", "OtherTransferCount")]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", BasicLimits),
+                    ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
 
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     signatures = {
-        "CreateToolhelp32Snapshot": ([wintypes.DWORD, wintypes.DWORD], wintypes.HANDLE),
-        "Process32FirstW": ([wintypes.HANDLE, ctypes.POINTER(Entry)], wintypes.BOOL),
-        "Process32NextW": ([wintypes.HANDLE, ctypes.POINTER(Entry)], wintypes.BOOL),
-        "OpenProcess": ([wintypes.DWORD, wintypes.BOOL, wintypes.DWORD], wintypes.HANDLE),
+        "CreateJobObjectW": ([ctypes.c_void_p, wintypes.LPCWSTR], wintypes.HANDLE),
+        "SetInformationJobObject": ([wintypes.HANDLE, ctypes.c_int,
+                                     ctypes.c_void_p, wintypes.DWORD], wintypes.BOOL),
+        "AssignProcessToJobObject": ([wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
+        "TerminateJobObject": ([wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
         "CloseHandle": ([wintypes.HANDLE], wintypes.BOOL),
-        "TerminateProcess": ([wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
-        "GetProcessTimes": ([wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4,
-                            wintypes.BOOL),
     }
     for name, (argtypes, restype) in signatures.items():
         getattr(kernel, name).argtypes = argtypes
         getattr(kernel, name).restype = restype
+    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+    ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    ntdll.NtResumeProcess.restype = wintypes.LONG
+    return kernel, ntdll, ExtendedLimits
 
-    def created(handle):
-        times = [wintypes.FILETIME() for _ in range(4)]
-        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
-            return None
-        return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
 
-    root = kernel.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
-    if not root:
-        return kernel, []
+def launch(argv, env, log, *, cwd=None) -> subprocess.Popen:
+    """Create a session, or assign a suspended Windows process to its job."""
+    options = dict(env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+                   stdout=log, stderr=subprocess.STDOUT)
+    if os.name != "nt":
+        return subprocess.Popen(argv, start_new_session=True, **options)
+    import ctypes
+
+    kernel, ntdll, ExtendedLimits = _windows_job_api()
+    job = kernel.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    process = None
     try:
-        root_time = created(root)
-    finally:
-        kernel.CloseHandle(root)
-    if root_time is None:
-        return kernel, []
-    snapshot = kernel.CreateToolhelp32Snapshot(2, 0)  # TH32CS_SNAPPROCESS
-    if snapshot == ctypes.c_void_p(-1).value:
-        return kernel, []
-    children = {}
-    try:
-        entry = Entry()
-        entry.size = ctypes.sizeof(entry)
-        more = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
-        while more:
-            children.setdefault(entry.parent, []).append(entry.pid)
-            more = kernel.Process32NextW(snapshot, ctypes.byref(entry))
-    finally:
-        kernel.CloseHandle(snapshot)
-    handles, pending, seen = [], [(pid, root_time)], {pid}
-    try:
-        while pending:
-            parent, parent_time = pending.pop()
-            for child in children.get(parent, ()):
-                if child in seen:
-                    continue
-                seen.add(child)
-                handle = kernel.OpenProcess(0x1001, False, child)  # QUERY | TERMINATE
-                if not handle:
-                    continue
-                child_time = created(handle)
-                if child_time is None or child_time < parent_time:
-                    kernel.CloseHandle(handle)
-                    continue
-                handles.append(handle)
-                pending.append((child, child_time))
-        return kernel, handles
+        limits = ExtendedLimits()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+        if not kernel.SetInformationJobObject(job, 9, ctypes.byref(limits),
+                                               ctypes.sizeof(limits)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        process = subprocess.Popen(
+            argv, creationflags=0x00000004 | subprocess.CREATE_NEW_PROCESS_GROUP,
+            **options)                       # CREATE_SUSPENDED
+        if not kernel.AssignProcessToJobObject(job, process._handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+        process._uq_job = job
+        status = ntdll.NtResumeProcess(process._handle)
+        if status < 0:
+            raise OSError(f"NtResumeProcess failed: NTSTATUS {status & 0xffffffff:#x}")
+        return process
     except BaseException:
-        for handle in handles:
-            kernel.CloseHandle(handle)
+        if process is not None:
+            with contextlib.suppress(BaseException):
+                process.kill()
+            with contextlib.suppress(BaseException):
+                process.wait(timeout=1.0)
+            process._uq_job = None
+        kernel.CloseHandle(job)
         raise
+
+
+def close_job(process) -> None:
+    """Drop our non-inheritable job handle on every path."""
+    with contextlib.suppress(BaseException):
+        job = getattr(process, "_uq_job", None)
+        if job is not None:
+            kernel, _, _ = _windows_job_api()
+            if kernel.CloseHandle(job):
+                process._uq_job = None
 
 
 def kill_tree(process, grace) -> None:
@@ -138,30 +185,14 @@ def kill_tree(process, grace) -> None:
         stop_at = min(time.monotonic() + max(0.0, grace),
                       getattr(process, "_uq_stop_deadline", math.inf))
         if os.name == "nt":
-            killer = None
-            kernel, handles = None, []
+            job = getattr(process, "_uq_job", None)
+            if job is not None:
+                kernel, _, _ = _windows_job_api()
+                kernel.TerminateJobObject(job, 1)
+            else:
+                process.kill()
             with contextlib.suppress(BaseException):
-                kernel, handles = _windows_descendants(process.pid)
-            try:
-                killer = subprocess.Popen(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW)
-                killer.wait(timeout=max(0.0, stop_at - time.monotonic()))
-            except BaseException:
-                if killer is not None:
-                    with contextlib.suppress(BaseException):
-                        killer.kill()
-                    with contextlib.suppress(BaseException):
-                        killer.wait(timeout=max(0.0, stop_at - time.monotonic()))
-            finally:
-                for handle in reversed(handles):
-                    with contextlib.suppress(BaseException):
-                        kernel.TerminateProcess(handle, 1)
-                    kernel.CloseHandle(handle)
-                if process.poll() is None:
-                    process.kill()
+                process.wait(timeout=max(0.0, stop_at - time.monotonic()))
         else:
             with contextlib.suppress(OSError):
                 os.killpg(process.pid, signal.SIGTERM)
@@ -188,20 +219,17 @@ def release(lupine, env, attempts, timeout) -> tuple[bool, str]:
             with tempfile.TemporaryFile(mode="w+b") as log:
                 process = None
                 try:
-                    process = subprocess.Popen(
-                        [*lupine, "end"], env=env, stdin=subprocess.DEVNULL,
-                        stdout=log, stderr=subprocess.STDOUT, **_group_options())
+                    process = launch([*lupine, "end"], env, log)
                     process._uq_stop_deadline = end
                     remaining = max(0.0, end - time.monotonic())
                     cleanup = min(1.0, remaining / 2)
                     process.wait(timeout=min(timeout, remaining - cleanup))
-                except BaseException:
+                finally:
                     if process is not None:
                         kill_tree(process, 1.0)
                         with contextlib.suppress(BaseException):
                             process.wait(timeout=min(1.0, max(0.0, end - time.monotonic())))
-                    raise
-                finally:
+                        close_job(process)
                     output = _read_output(log)
                 outputs.append(output)
                 if process.returncode == 0 and (
@@ -226,7 +254,24 @@ class _Interrupted(BaseException):
     pass
 
 
+def _parent_death_signal(parent):
+    """Have Linux notify us when the relay dies, including the setup race."""
+    if not sys.platform.startswith("linux"):
+        return False
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong,
+                          ctypes.c_ulong, ctypes.c_ulong]
+    libc.prctl.restype = ctypes.c_int
+    if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+    return os.getppid() != parent or parent == 1
+
+
 def main(argv) -> int:
+    parent = os.getppid()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deadline", type=float, required=True)
     parser.add_argument("--kill-grace", type=float, default=10.0)
@@ -263,11 +308,13 @@ def main(argv) -> int:
     interrupted = False
     waiting = False
     deadline_hit = False
-    process = None
+    process = log = None
     released = False
     release_output = ""
     failure = ""
+    output = ""
     seconds = 0.0
+    attached_seconds = 0.0
     signals = [signal.SIGINT]
     signals += ([signal.SIGBREAK] if os.name == "nt"
                 else [signal.SIGTERM, signal.SIGHUP])
@@ -285,46 +332,62 @@ def main(argv) -> int:
 
     started = time.monotonic()
     try:
-        for signum in signals:
-            saved[signum] = signal.signal(signum, on_signal)
-        with tempfile.TemporaryFile(mode="w+b") as log:
-            try:
-                started = time.monotonic()
-                process = subprocess.Popen(
-                    [*args.lupine, *args.run_args[1:]], env=env,
-                    stdin=subprocess.DEVNULL, stdout=log,
-                    stderr=subprocess.STDOUT, **_group_options())
-                waiting = True
-                if interrupted:
-                    raise _Interrupted()
-                process.wait(timeout=args.deadline)
-            except subprocess.TimeoutExpired:
-                deadline_hit = True
-            except _Interrupted:
-                interrupted = True
-            except BaseException as exc:
-                interrupted |= isinstance(exc, KeyboardInterrupt)
-                failure = f"{type(exc).__name__}: {exc}"
-            finally:
-                waiting = False
-                ignore_signals()
+        try:
+            for signum in signals:
+                saved[signum] = signal.signal(signum, on_signal)
+            interrupted |= _parent_death_signal(parent)
+            log = tempfile.TemporaryFile(mode="w+b")
+            if _under_wsl():
+                # Probe outside the workload namespace. Failure must never
+                # fall back to an unsealed launch; release is still harmless.
                 try:
-                    if process is not None and (
-                            deadline_hit or interrupted or failure):
-                        kill_tree(process, args.kill_grace)
-                        with contextlib.suppress(subprocess.TimeoutExpired):
-                            process.wait(timeout=1.0)
-                finally:
-                    seconds = max(0.0, time.monotonic() - started)
-                    try:
-                        released, release_output = release(
-                            args.lupine, env, args.release_attempts,
-                            args.release_timeout)
-                    except BaseException as exc:
-                        release_output = f"{type(exc).__name__}: {exc}"
-                    attached_seconds = max(0.0, time.monotonic() - started)
+                    probe = subprocess.run(
+                        ["unshare", "-rm", "sh", "-c",
+                         "mount -t tmpfs none /run/WSL"], env=env,
+                        stdin=subprocess.DEVNULL, stdout=log,
+                        stderr=subprocess.STDOUT, timeout=2.0)
+                    if probe.returncode:
+                        raise RuntimeError(f"probe exited {probe.returncode}")
+                except Exception as exc:
+                    raise RuntimeError(f"WSL sealing failed: {exc}") from exc
+            if interrupted:
+                raise _Interrupted()
+            argv = sealed([*args.lupine, *args.run_args[1:]])
+            process = launch(argv, env, log)
+            waiting = True
+            if interrupted:
+                raise _Interrupted()
+            process.wait(timeout=max(0.0, args.deadline - (time.monotonic() - started)))
+        except subprocess.TimeoutExpired:
+            deadline_hit = True
+        except _Interrupted:
+            interrupted = True
+        except BaseException as exc:
+            interrupted |= isinstance(exc, KeyboardInterrupt)
+            failure = f"{type(exc).__name__}: {exc}"
+        finally:
+            waiting = False
+            ignore_signals()
+            try:
+                if process is not None:
+                    kill_tree(process, args.kill_grace)
+                    with contextlib.suppress(BaseException):
+                        process.wait(timeout=1.0)
+            finally:
+                seconds = max(0.0, time.monotonic() - started)
+                try:
+                    released, release_output = release(
+                        args.lupine, env, args.release_attempts,
+                        args.release_timeout)
+                except BaseException as exc:
+                    release_output = f"{type(exc).__name__}: {exc}"
+                attached_seconds = max(0.0, time.monotonic() - started)
+        if log is not None:
             output = _read_output(log, 4000)
     finally:
+        close_job(process)
+        if log is not None:
+            log.close()
         for signum, handler in saved.items():
             signal.signal(signum, handler)
 

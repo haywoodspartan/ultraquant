@@ -101,7 +101,7 @@ class LaunchTests(unittest.TestCase):
             launcher.supervised(["run", "--", "x"], workdir=r"H:\w",
                                 deadline=60.0, kill_grace=10.0,
                                 release_attempts=3, release_timeout=5.0),
-            ["wsl.exe", "-d", "Ubuntu", "--cd", r"H:\w", "--", "python3",
+            ["wsl.exe", "-d", "Ubuntu", "--cd", r"H:\w", "--exec", "python3",
              "/mnt/h/repo/sup.py", "--deadline", "60", "--kill-grace", "10",
              "--release-attempts", "3", "--release-timeout", "5",
              "--lupine", "/home/u/.local/bin/lupine", "--", "run", "--",
@@ -200,11 +200,26 @@ class LedgerTests(unittest.TestCase):
 
     def test_an_open_reservation_counts_until_its_receipt(self) -> None:
         now = time.time()
-        self.ledger.reserve("r1", now, 0.30, "crashed")
-        self.ledger.reserve("r2", now, 0.40, "finished")
+        self.ledger.reserve("r1", now, 0.30, "crashed", now + 60)
+        self.ledger.reserve("r2", now, 0.40, "finished", now + 60)
         self.ledger.append(self._receipt(now, 0.01, reservation="r2"))
         self.assertAlmostEqual(self.ledger.spent_in_month(), 0.31)
         self.assertEqual(len(self.ledger.receipts()), 1)
+
+    def test_a_failed_release_keeps_its_hold_until_settled(self) -> None:
+        """Review R2-3: a failed release once stopped being charged."""
+        now = time.time()
+        self.ledger.reserve("r3", now, 0.40, "failed release", now + 60)
+        self.ledger.append(self._receipt(now, 0.02, released=False,
+                                         reservation="r3"))
+        self.assertEqual([r["reservation"] for r in
+                          self.ledger.open_reservations()], ["r3"])
+        # while open, both the cost so far and the hold count
+        self.assertAlmostEqual(self.ledger.spent_in_month(), 0.42)
+        self.assertAlmostEqual(self.ledger.settled_in_month(), 0.02)
+        self.ledger.settle("r3", 0.05, "released an hour later")
+        self.assertEqual(self.ledger.open_reservations(), [])
+        self.assertAlmostEqual(self.ledger.spent_in_month(), 0.07)
 
     def test_an_unreleased_lease_stays_outstanding_until_cleared(self) -> None:
         now = time.time()
@@ -322,7 +337,7 @@ class GateTests(unittest.TestCase):
             self.skipTest("set ULTRAQUANT_SLOW_GATES=1 for the on-demand exam")
         report = G.run_gate()
         self.assertTrue(report.passes, report.reason)
-        self.assertEqual(len(report.planted), 9)
+        self.assertEqual(len(report.planted), 14)
 
     def test_the_exam_exits_nonzero_unless_it_passes(self) -> None:
         """Review F13: the exam used to exit 0 on a failing verdict."""
@@ -339,7 +354,8 @@ class GateTests(unittest.TestCase):
                        "The exam can fail", "was not ready"):
             self.assertIn(phrase, doc)
         self.assertIn("PASSED", doc)
-        self.assertIn("9 of 9 planted defects", doc)
+        self.assertIn("14 of 14 planted defects", doc)
+        self.assertIn("Amendment E", doc)
 
 
 if __name__ == "__main__":

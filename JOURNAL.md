@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.129](#11129-the-on-demand-runner-round-three-sealed-and-contained) | The on-demand runner, round three: sealed and contained |
 | [11.128](#11128-the-on-demand-runner-rebuilt-after-adversarial-review) | The on-demand runner, rebuilt after adversarial review |
 | [11.127](#11127-paid-gpus-attach-on-demand) | Paid GPUs attach on demand |
 | [11.126](#11126-command-rs-next-token-computed-by-our-own-engine) | Command-R's next token, computed by our own engine |
@@ -816,6 +817,84 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.129 The on-demand runner, round three: sealed and contained
+
+**§11.128 passed, and Astra's second adversarial review still found
+nine defects**, six rated high. Claude verified each before any fix.
+- A crashed runner's reservation was never reconciled before the next
+  job.
+- Lupine's usage figure, taken in a `max()`, could hide a reservation
+  that was still open.
+- A failed release stopped being charged the moment it was receipted.
+- A workload that exited normally could leave a background child
+  running.
+- The Windows descendant snapshot could select an unrelated process that
+  had reused a PID, and it missed orphans whose parent had exited.
+- The exam accepted a zero price.
+- No exam path ran the real WSL supervisor.
+- A shell could wrap a Windows program past the interop guard.
+
+**Claude found one more, in both the runner and its own exam**, while
+checking the exam's WSL harness. `wsl.exe -d D -- CMD` does not execute
+CMD. It hands the joined command line to a shell. Measured from Python
+exactly as the runner calls it, the argument ``a;b $HOME `id -u` ``
+arrived as `a;b /home/stephen 1000`: `$HOME` was expanded and the
+backticks ran. `wsl.exe --exec` passes it literally.
+
+**The interop remedy was measured in WSL before it was written.**
+- Removing `WSL_INTEROP` does not block interop, because WSL falls back
+  to its sockets in /run/WSL.
+- A private mount namespace with /run/WSL covered does block it, for
+  programs under /mnt/c and for Windows executables copied into Linux.
+- With every capability dropped, the job cannot unmount the cover.
+- python3 and lupine still run inside.
+So each paid job now runs sealed. It is enforcement, where §11.128 had
+only a filter on the first word of the command.
+
+**Version 3**:
+- On Windows, a Job Object owns every process before it can start,
+  created suspended, assigned, then resumed. The supervisor never
+  terminates anything by a PID it did not create.
+- On Linux, the whole process group is killed after every exit, not
+  only a deadline.
+- The supervisor asks Linux for a signal when its parent dies.
+- A reservation carries its time window. Inside it, a job with no
+  receipt means another runner may still be working, and admission is
+  refused. Past it, the lease is released and the hold settled at its
+  worst case.
+- A failed release keeps its hold open, and is charged until the release
+  is confirmed.
+- Open holds are added to lupine's usage figure, never hidden by a
+  `max()`.
+
+**The exam, and what went wrong with it along the way, recorded as it
+happened.** Pre-registration sha256 e1a12e89... came first.
+Amendments A-C were recorded before any v3 code:
+- measure the usage-plus-hold case at `month_spent()`;
+- judge plants where nothing else masks them;
+- `--exec`.
+Astra's own runs were VOID at 11 of 14, in a sandbox that could not
+reach WSL at all. Astra also found two defects in the exam:
+- the stub's banner repeats the command, so the interop marker was
+  present whether or not interop ran;
+- a correct outer Job Object masked P11.
+Amendment D, recorded as made after that run, fixed both: markers now
+exist only if a program really ran (`INTEROP-%OS%` expands only in cmd,
+`LINUX-$((6*7))` only in sh), and P11 removes both layers. Claude's
+first full run then held every criterion and was VOID on P4 alone,
+which Astra had predicted: v3's reservation window refused the second
+runner, a correct second layer. Amendment E, also recorded as
+post-run, makes P4 remove both layers.
+
+**PASSED** twice in a row on Claude's machine, WSL included: all 8
+measured criteria and 14 of 14 planted defects, 120.0 s and 119.9 s.
+The production WSL path, exercised for the first time at no cost with
+the stub as lupine under WSL python3, held all 7 of its cases: literal
+arguments, a process tree, a background child, an orphan, wsl.exe
+killed mid-job, a sealed shell, and success.
+
+Suite: 2,301 passed, 5 skipped, 0 failed.
 
 ### 11.128 The on-demand runner, rebuilt after adversarial review
 

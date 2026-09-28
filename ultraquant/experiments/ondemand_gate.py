@@ -64,9 +64,9 @@ result stay in the journal. This is the amended exam.
 Not gated here: a real lease. That is criterion R, run only with the
 user's OK and a cost estimate.
 
-**PASSED on every measured criterion, with 9 of 9 planted defects
-caught.** Astra's two runs took 62.1 s each, and Claude's own rerun
-took 67.5 s. Nothing was spent.
+**§11.128: PASSED on every measured criterion, with 9 of 9 planted
+defects caught.** Astra's two runs took 62.1 s each, and Claude's own
+rerun took 67.5 s. Nothing was spent.
 
 | criterion | cases | result |
 |---|---|---|
@@ -85,6 +85,78 @@ stdout for 6 s now costs a 0.5 s job 1.15 s, against 6.20 s in v1.
 changed: ``grace()`` bounds the time from launch to release, not the
 wait for the lock before admission. That wait bills nothing, because no
 GPU is attached, and every bounded case here runs uncontended.
+
+**Round three (§11.129).** Astra's second review found nine more
+defects:
+- a crashed runner's reservation was never reconciled;
+- lupine's usage figure could hide an open reservation;
+- a failed release stopped being charged;
+- a workload exiting normally could leave a background child running;
+- the Windows descendant snapshot could select a process that reused a
+  PID, and it missed orphans;
+- this exam accepted a zero price;
+- no scenario ran the real WSL path;
+- a shell could wrap a Windows program past the interop guard.
+
+Claude measured the remedy for the last one in WSL before anything was
+written. Removing WSL_INTEROP does not block interop. A private mount
+namespace with /run/WSL covered, and every capability dropped, blocks
+it, and the job cannot undo it.
+
+Added, and frozen (sha256 e1a12e89..., with Amendments A ab80408f...
+and B, recorded before runner v3 existed):
+- 1 (l)-(n): a background child after exit 0, and after exit 3; an
+  orphaned grandchild. No survivor after any of them.
+- 2 (m): a reservation inside its window refuses admission. Past its
+  window, it is reconciled first and settled at its worst case.
+  2 (n): lupine's usage plus an open reservation, measured at
+  ``month_spent()``.
+- 3: the rate is the stub's own price, the cost covers the stub's own
+  charge, and a failed release is charged until it is reconciled.
+- 10: the production WSL path at no cost: the stub as lupine under WSL
+  python3, with Linux survivors checked inside WSL. It covers success, a
+  process tree, a background child, an orphan, the supervisor's
+  wsl.exe killed mid-job, and a shell-wrapped Windows program, which
+  must print nothing. A positive control proves the shell itself ran.
+- Amendment E, made AFTER Claude's first full v3 run and stated as
+  such. Every measured criterion held there, including all of criterion
+  10. P4 alone went uncaught: v3's reservation window refused the second
+  runner, a correct second layer, and the exam counted that as a crash.
+  Like P1, P3 and P11, P4 now removes both layers.
+- Amendment D, made AFTER Astra's first v3 run and stated as such.
+  Astra found two defects in this exam. The stub's banner repeats the
+  command, so the interop marker was present whether or not interop
+  ran. The markers now exist only if a program really ran:
+  ``INTEROP-%OS%`` and ``LINUX-$((6*7))``. P11 was masked by the
+  runner's outer Job Object, so like P1 and P3 it now removes both
+  layers.
+- Amendment C, found by Claude while checking this exam's own harness:
+  ``wsl.exe -- CMD`` hands the command line to a shell, which expanded
+  ``$HOME`` and ran backticks in a measured argument. ``--exec``
+  passes it literally. The pinned argv now uses ``--exec``, and a WSL
+  job must see ``a;b $HOME`` unexpanded.
+- Plants P10-P14. Each is aimed where nothing else could mask it
+  (Amendment B): on Windows, a Job Object with kill-on-close would
+  mask a plant that only skips a kill, so P7 and P10 are judged under
+  WSL.
+
+**§11.129: PASSED on every measured criterion, with 14 of 14 planted
+defects caught**, in two consecutive runs of 120.0 s and 119.9 s on
+Claude's machine, WSL included. Nothing was spent. The record of how
+it got there:
+- Astra's own runs were VOID at 11 of 14, in a sandbox that could not
+  reach WSL (E_ACCESSDENIED even for a plain stub query).
+- Amendment D corrected two exam defects that Astra found.
+- Claude's first full run held every criterion, but was VOID on P4
+  alone. Amendment E corrected that.
+
+| criterion | new in round three | result |
+|---|---|---|
+| 1 release on every path | background child after exit 0 and 3; an orphan | 14 of 14 cases |
+| 2 refused before attach | reservation windows; usage plus a hold | 16 of 16 cases |
+| 3 the ledger | the stub's own price and charge; charging until reconciled | 8 of 8 |
+| 10 the production WSL path | literal arguments, a process tree, a background child, an orphan, wsl.exe killed mid-job, a sealed shell | 7 of 7 |
+
 """
 
 from __future__ import annotations
@@ -108,6 +180,7 @@ __all__ = ["OnDemandReport", "run_gate"]
 STUB = Path(__file__).with_name("lupine_stub.py")
 REPO = Path(__file__).resolve().parents[2]
 HIGH, LOW = 1.50, 1.10            # the stub's price list, as lupine's
+WSL_DISTRO = "Ubuntu"
 TIMING = {"kill_grace": 1.0, "release_attempts": 3, "release_timeout": 1.5,
           "drain_timeout": 1.0, "lock_wait": 120.0}
 _SUPERVISOR_OVERRIDE = None        # set by plants that alter the supervisor
@@ -158,8 +231,10 @@ def _reap(pid: int) -> None:
 class Stub:
     """One isolated stand-in lupine: its state, log, ledger and lock."""
 
-    def __init__(self) -> None:
-        self.dir = Path(tempfile.mkdtemp(prefix="uq_lupine_stub_"))
+    def __init__(self, wsl: bool = False) -> None:
+        self.wsl = wsl
+        # resolve() turns the 8.3 temp path into one WSL can reach
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_lupine_stub_")).resolve()
         self.ledger_path = self.dir / "ledger.jsonl"
         self.lock_path = self.dir / "lease.lock"
 
@@ -202,10 +277,23 @@ class Stub:
                 and e.get("phase") == "start"]
 
     def survivors(self) -> list:
-        """Logged stub processes and their descendants still running."""
+        """Logged stub processes and their descendants still running.
+
+        Under WSL the logged PIDs are Linux PIDs, so they are checked
+        inside WSL: a Windows handle check on them would be meaningless.
+        """
         pids = {e["pid"] for e in self.log() if isinstance(e.get("pid"), int)}
-        pids.discard(os.getpid())
-        return sorted(pid for pid in pids if _alive(pid))
+        if not self.wsl:
+            pids.discard(os.getpid())
+            return sorted(pid for pid in pids if _alive(pid))
+        if not pids:
+            return []
+        script = ("for p in " + " ".join(str(p) for p in sorted(pids))
+                  + "; do kill -0 $p 2>/dev/null && echo $p; done; true")
+        out = subprocess.run(["wsl.exe", "-d", WSL_DISTRO, "--exec", "sh",
+                              "-c", script], capture_output=True, timeout=60)
+        text = out.stdout.decode("utf-8", "replace").replace("\x00", "")
+        return sorted(int(t) for t in text.split() if t.isdigit())
 
     def rows(self) -> list:
         try:
@@ -225,9 +313,22 @@ class Stub:
                 if r.get("kind", "receipt") == "receipt"]
 
     def cleanup(self) -> None:
-        for pid in self.survivors():
-            _reap(pid)
+        with contextlib.suppress(Exception):
+            left = self.survivors()
+            if self.wsl and left:
+                subprocess.run(["wsl.exe", "-d", WSL_DISTRO, "--exec", "kill",
+                                "-9", *map(str, left)], capture_output=True,
+                               timeout=60)
+            elif not self.wsl:
+                for pid in left:
+                    _reap(pid)
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def _wsl_path(path) -> str:
+    """The exam's own translation, independent of the runner's."""
+    text = str(path)
+    return f"/mnt/{text[0].lower()}/" + text[3:].replace("\\", "/")
 
 
 @contextlib.contextmanager
@@ -253,7 +354,11 @@ def _runner(stub: Stub, cap: float = 100.0):
     extra = {}
     if _SUPERVISOR_OVERRIDE is not None:
         extra["supervisor"] = str(_SUPERVISOR_OVERRIDE)
-    launcher = od.Launcher(prefix=(sys.executable, str(STUB)), **extra)
+    if getattr(stub, "wsl", False):
+        launcher = od.Launcher(prefix=("python3", _wsl_path(STUB)),
+                               wsl_distro=WSL_DISTRO, **extra)
+    else:
+        launcher = od.Launcher(prefix=(sys.executable, str(STUB)), **extra)
     return od.OnDemand(launcher, od.Ledger(stub.ledger_path), cap,
                        lock_path=stub.lock_path, **TIMING)
 
@@ -273,13 +378,22 @@ def _seed(stub: Stub, cost: float, started: float | None = None) -> None:
         release_output="", output_tail=""))
 
 
-def _scenario(body, **faults):
-    """Run ``body(stub)`` against a fresh stub; reap anything left over."""
-    stub = Stub()
+def _scenario(body, wsl=False, **faults):
+    """Run ``body(stub)`` against a fresh stub; reap anything left over.
+
+    Under WSL the stub directory crosses into Linux through WSLENV with
+    the /p flag, which translates the Windows path.
+    """
+    stub = Stub(wsl=wsl)
+    env = {"LUPINE_STUB_DIR": str(stub.dir)}
+    if wsl:
+        kept = [e for e in os.environ.get("WSLENV", "").split(":")
+                if e and not e.startswith("LUPINE_STUB_DIR")]
+        env["WSLENV"] = ":".join([*kept, "LUPINE_STUB_DIR/p"])
     try:
         if faults:
             stub.set(**faults)
-        with _environ(LUPINE_STUB_DIR=str(stub.dir)):
+        with _environ(**env):
             return body(stub)
     finally:
         stub.cleanup()
@@ -316,7 +430,7 @@ def _run_cases(cases: dict, only=None) -> tuple:
 
 def _release_case(command, max_seconds=30.0, expect_exit=None,
                   expect_timeout=None, bounded=False, contained=False,
-                  **faults):
+                  wsl=False, **faults):
     def body(stub):
         receipt, wall, runner = _timed(stub, _job(command, max_seconds))
         if isinstance(receipt, Exception):
@@ -329,10 +443,10 @@ def _release_case(command, max_seconds=30.0, expect_exit=None,
         if bounded:
             ok = ok and wall <= max_seconds + runner.grace()
         if contained:
-            time.sleep(0.5)             # let killed processes finish dying
+            time.sleep(1.5 if wsl else 0.5)   # let killed processes finish
             ok = ok and not stub.survivors()
         return ok
-    return lambda: _scenario(body, **faults)
+    return lambda: _scenario(body, wsl=wsl, **faults)
 
 
 def _garbled():
@@ -430,6 +544,12 @@ RELEASE_CASES = {
     "i slow end charged": _slow_end,
     "j hung end bounded": _hung_end,
     "k Ctrl-C mid-job": _ctrl_c,
+    "l background child after exit 0": _release_case(
+        ["background", "30", "0"], 30.0, expect_exit=0, contained=True),
+    "m background child after exit 3": _release_case(
+        ["background", "30", "3"], 30.0, expect_exit=3, contained=True),
+    "n orphaned grandchild": _release_case(["orphan", "30"], 2.0,
+                                           bounded=True, contained=True),
 }
 
 
@@ -622,8 +742,10 @@ def _open_reservation():
     def body(stub):
         ledger = od.Ledger(stub.ledger_path)
         now = time.time()
-        ledger.reserve("r-crashed", now, 0.30, "a runner that died")
-        ledger.reserve("r-closed", now, 0.40, "a job that finished")
+        ledger.reserve("r-crashed", now, 0.30, "a runner that died",
+                       now + 3600)
+        ledger.reserve("r-closed", now, 0.40, "a job that finished",
+                       now + 3600)
         ledger.append(od.Receipt(
             label="closed", started=now, seconds=1.0, sku=None, rate=HIGH,
             cost=0.01, worst_case=0.40, exit_code=0, timed_out=False,
@@ -631,6 +753,59 @@ def _open_reservation():
             output_tail="", attached_seconds=24.0, reservation="r-closed"))
         return math.isclose(ledger.spent_in_month(), 0.31, abs_tol=1e-12)
     return _scenario(body)
+
+
+def _reservation_in_window():
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        now = time.time()
+        od.Ledger(stub.ledger_path).reserve("r-live", now, 0.02,
+                                             "maybe still running", now + 600)
+        try:
+            _runner(stub).run(_job(["echo", "x"]))
+        except od.LeaseBusy:
+            return len(stub.runs()) == 0
+        return False
+    return _scenario(body)
+
+
+def _reservation_past_window():
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        now = time.time()
+        od.Ledger(stub.ledger_path).reserve("r-dead", now - 120, 0.02,
+                                             "a runner that died", now - 60)
+        receipt = _runner(stub).run(_job(["echo", "x"]))
+        log = stub.log()
+        first_end = next((i for i, e in enumerate(log)
+                          if e.get("cmd") == "end"), None)
+        first_run = next((i for i, e in enumerate(log)
+                          if e.get("cmd") == "run"), None)
+        settled = [r for r in stub.rows() if r.get("kind") == "settlement"
+                   and r.get("reservation") == "r-dead"]
+        return (receipt.released and first_end is not None
+                and first_run is not None and first_end < first_run
+                and len(settled) == 1
+                and math.isclose(float(settled[0]["cost"]), 0.02,
+                                 abs_tol=1e-12))
+    return _scenario(body)
+
+
+def _usage_plus_open():
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        _seed(stub, 0.10)
+        now = time.time()
+        od.Ledger(stub.ledger_path).reserve("r-open", now, 0.30,
+                                             "still inside its window",
+                                             now + 3600)
+        spent = _runner(stub).month_spent()
+        return math.isclose(spent, max(0.10, 0.50 + 0.005) + 0.30,
+                            abs_tol=1e-9)
+    return _scenario(body, usage_cost=0.50)
 
 
 REFUSAL_CASES = {
@@ -653,6 +828,9 @@ REFUSAL_CASES = {
     "j2 outstanding lease refused": _outstanding_refused,
     "k interop rejected": _interop,
     "l open reservation counts": _open_reservation,
+    "m reservation inside its window": _reservation_in_window,
+    "m2 reservation past its window": _reservation_past_window,
+    "n usage plus open reservation": _usage_plus_open,
 }
 
 
@@ -683,7 +861,9 @@ def criterion_ledger(only=None) -> tuple:
         checks = {"lease and GPU are the stub's": True,
                   "seconds cover the stub's workload": True,
                   "attached seconds cover the stub's attachment": True,
-                  "cost = rate x attached / 3600": True}
+                  "cost = rate x attached / 3600": True,
+                  "rate is the stub's price": True,
+                  "cost covers the stub's own charge": True}
         for row, start, stop, end in zip(rows, starts, stops, ends):
             checks["lease and GPU are the stub's"] &= (
                 row.get("lease") == start["lease"]
@@ -698,12 +878,36 @@ def criterion_ledger(only=None) -> tuple:
                 float(row.get("rate", 0))
                 * float(row.get("attached_seconds", 0)) / 3600,
                 rel_tol=1e-9, abs_tol=1e-15)
+            checks["rate is the stub's price"] &= (
+                float(row.get("rate", 0)) == HIGH)
+            stub_charge = (end["attach_end"] - end["attach_start"]) * HIGH / 3600
+            checks["cost covers the stub's own charge"] &= (
+                float(row.get("cost", 0)) >= stub_charge - 1e-9)
         month = od.Ledger(stub.ledger_path).spent_in_month()
         checks["other months excluded"] = math.isclose(
             month, sum(float(r["cost"]) for r in rows), abs_tol=1e-12)
         return checks
 
+    def charged_until_reconciled(stub):
+        from ultraquant.cloud import ondemand as od
+        runner = _runner(stub)
+        try:
+            runner.run(_job(["echo", "x"]))
+            return False                # the fault should have stopped it
+        except od.LeaseNotReleased:
+            pass
+        failed = stub.receipt_rows()[-1]
+        time.sleep(2.0)
+        stub.set(end_failures=0)
+        runner.run(_job(["echo", "y"]))
+        settled = [r for r in stub.rows() if r.get("kind") == "settlement"
+                   and r.get("reservation") == failed.get("reservation")]
+        return (len(settled) == 1
+                and float(settled[0]["cost"]) >= HIGH * 2.0 / 3600 - 1e-12)
+
     outcomes = _scenario(body)
+    outcomes["a failed release is charged until reconciled"] = _scenario(
+        charged_until_reconciled, end_failures=99)
     return all(outcomes.values()), {"outcomes": outcomes}
 
 
@@ -791,7 +995,11 @@ def criterion_one_lease(only=None) -> tuple:
              "_child_job(sys.argv[2])", str(REPO), str(stub.dir)],
             cwd=str(REPO))
         time.sleep(0.3)
-        _runner(stub).run(_job(["sleep", "1"], label="first process"))
+        try:
+            _runner(stub).run(_job(["sleep", "1"], label="first process"))
+        except Exception:               # recorded as a failure, not a crash
+            child.wait(120)
+            return False
         child.wait(120)
         return child.returncode == 0 and _apart(stub)
 
@@ -828,13 +1036,14 @@ def criterion_flags(only=None) -> tuple:
         wsl.supervised(["run", "--", "nvidia-smi", "-L"], workdir=r"H:\w",
                        deadline=30.0, kill_grace=10.0, release_attempts=3,
                        release_timeout=5.0)
-        == ["wsl.exe", "-d", "Ubuntu", "--cd", r"H:\w", "--", "python3",
+        == ["wsl.exe", "-d", "Ubuntu", "--cd", r"H:\w", "--exec", "python3",
             "/mnt/h/AI Model AGI/ultraquant/cloud/supervisor.py",
             "--deadline", "30", "--kill-grace", "10",
             "--release-attempts", "3", "--release-timeout", "5",
             "--lupine", lupine, "--", "run", "--", "nvidia-smi", "-L"])
     outcomes["WSL direct argv exact"] = (
-        wsl.argv(["end"]) == ["wsl.exe", "-d", "Ubuntu", "--", lupine, "end"])
+        wsl.argv(["end"]) == ["wsl.exe", "-d", "Ubuntu", "--exec", lupine,
+                              "end"])
     plain = od.Launcher(prefix=("lupine",), python=("py",),
                         supervisor="sup.py")
     outcomes["plain argv exact"] = (
@@ -865,16 +1074,100 @@ def criterion_timeouts(only=None) -> tuple:
     return all(outcomes.values()), {"outcomes": outcomes}
 
 
+# -- criterion 10: the production WSL path, at no cost ------------------------
+
+def _wsl_killed():
+    """The runner is interrupted; its Job Object takes wsl.exe with it."""
+    from ultraquant.cloud import ondemand as od
+
+    def body(stub):
+        runner = _runner(stub)
+
+        def interrupted(self, process, timeout):
+            time.sleep(4.0)             # WSL starts, the stub takes a lease
+            raise KeyboardInterrupt
+
+        raised = False
+        with mock.patch.object(od.OnDemand, "_wait", interrupted):
+            try:
+                runner.run(_job(["sleep", "60"]))
+            except KeyboardInterrupt:
+                raised = True
+        time.sleep(4.0)                 # the Linux side cleans up on its own
+        rows = stub.receipt_rows()
+        return (raised and len(stub.runs()) == 1 and stub.lease() is None
+                and bool(rows) and rows[-1].get("released") is True
+                and rows[-1].get("interrupted") is True
+                and not stub.survivors())
+    return _scenario(body, wsl=True)
+
+
+def _wsl_interop():
+    """A shell-wrapped Windows program runs nothing; Linux still runs.
+
+    The markers exist only if a program really ran (Amendment D): the
+    stub echoes its command in the banner, so a marker copied from the
+    command line would prove nothing. cmd expands %OS% to Windows_NT; sh
+    expands $((6*7)) to 42.
+    """
+    def body(stub):
+        runner = _runner(stub)
+        blocked = runner.run(_job(["shell", "/mnt/c/Windows/System32/cmd.exe",
+                                   "/c", "echo", "INTEROP-%OS%"]))
+        control = runner.run(_job(["shell", "sh", "-c",
+                                   "echo LINUX-$((6*7))"]))
+        return (blocked.released and control.released
+                and "INTEROP-Windows_NT" not in blocked.output_tail
+                and "LINUX-42" in control.output_tail)
+    return _scenario(body, wsl=True)
+
+
+def _wsl_literal():
+    """Amendment C: nothing between Windows and lupine re-parses arguments."""
+    def body(stub):
+        receipt = _runner(stub).run(_job(["echo", "a;b $HOME `id -u`"]))
+        lines = [line.strip() for line in receipt.output_tail.splitlines()]
+        # the echo's own output line, not the banner that repeats the command
+        return receipt.released and "a;b $HOME `id -u`" in lines
+    return _scenario(body, wsl=True)
+
+
+WSL_CASES = {
+    "arguments arrive literally (WSL)": _wsl_literal,
+    "success (WSL)": _release_case(["echo", "hi"], expect_exit=0, wsl=True),
+    "process tree overrun (WSL)": _release_case(
+        ["sleep-tree", "60"], 2.0, bounded=True, contained=True, wsl=True),
+    "background child after exit (WSL)": _release_case(
+        ["background", "60", "0"], 30.0, expect_exit=0, contained=True,
+        wsl=True),
+    "orphaned grandchild (WSL)": _release_case(
+        ["orphan", "60"], 2.0, bounded=True, contained=True, wsl=True),
+    "supervisor killed mid-job (WSL)": _wsl_killed,
+    "4 interop blocked (WSL)": _wsl_interop,
+}
+
+
+def criterion_wsl(only=None) -> tuple:
+    return _run_cases(WSL_CASES, only)
+
+
 # -- criterion 6: the planted defects -----------------------------------------
 
 def _wrapper(lines: str) -> Path:
-    """A supervisor that is the real one with one function replaced."""
-    where = Path(tempfile.mkdtemp(prefix="uq_planted_supervisor_"))
+    """A supervisor that is the real one with one function replaced.
+
+    It loads supervisor.py by path, from Windows or from WSL, so the same
+    wrapper serves both sides of criterion 10.
+    """
+    where = Path(tempfile.mkdtemp(prefix="uq_planted_supervisor_")).resolve()
     script = where / "planted_supervisor.py"
+    real = REPO / "ultraquant" / "cloud" / "supervisor.py"
     script.write_text(
-        "import os, sys\n"
-        f"sys.path.insert(0, {str(REPO)!r})\n"
-        "from ultraquant.cloud import supervisor as S\n"
+        "import importlib.util, os, sys\n"
+        f"path = {str(real)!r} if os.name == 'nt' else {_wsl_path(real)!r}\n"
+        "spec = importlib.util.spec_from_file_location('uq_planted', path)\n"
+        "S = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(S)\n"
         f"{lines}\n"
         "raise SystemExit(S.main(sys.argv[1:]))\n", encoding="utf-8")
     return script
@@ -924,6 +1217,20 @@ def _plants():
                                     "attached_seconds": 0.0, "cost": 0.0})
         return original_append(self, receipt)
 
+    def max_only(self, *args, **kwargs):
+        rates = self.rates()
+        code, output = self._query(["usage"])
+        usage = od.parse_usage(output)
+        return max(self.ledger.spent_in_month(), usage["cost"] + 0.005,
+                   usage["gpu_seconds"] * max(rates.by_sku.values()) / 3600)
+
+    def halved(self, receipt):
+        if isinstance(receipt, od.Receipt):
+            receipt = od.Receipt(**{**receipt.__dict__,
+                                    "rate": receipt.rate / 2,
+                                    "cost": receipt.cost / 2})
+        return original_append(self, receipt)
+
     def lenient(text):
         prices = {}
         for line in text.splitlines():
@@ -952,8 +1259,12 @@ def _plants():
              mock.patch.object(od.OnDemand, "_environment", unhidden))),
         ("P4 the per-instance lock of 11.127", criterion_one_lease,
          "two instances never overlap",
+         # Amendment E: the reservation window is a second, correct layer
+         # that also keeps concurrent jobs apart, so the plant removes both.
          lambda: _planted(None, mock.patch.object(od.OnDemand, "_exclusive",
-                                                  per_instance))),
+                                                  per_instance),
+                          mock.patch.object(od.OnDemand, "_reconcile",
+                                            lambda self: None))),
         ("P5 lupine's usage ignored", criterion_refusal,
          "b lupine's figure governs",
          lambda: _planted(None, mock.patch.object(od.OnDemand, "month_spent",
@@ -962,8 +1273,8 @@ def _plants():
          "seconds cover the stub's workload",
          lambda: _planted(None, mock.patch.object(od.Ledger, "append",
                                                   zeroed))),
-        ("P7 parent-only kill", criterion_release,
-         "h process tree contained",
+        ("P7 parent-only kill", criterion_wsl,
+         "process tree overrun (WSL)",
          lambda: _planted("S.kill_tree = lambda process, grace: "
                           "process.kill()")),
         ("P8 no reconciliation", criterion_refusal,
@@ -973,7 +1284,60 @@ def _plants():
         ("P9 lenient price parse", criterion_refusal, "g partial price table",
          lambda: _planted(None, mock.patch.object(od, "parse_gpus",
                                                   lenient))),
+        ("P10 no kill after an ordinary exit", criterion_wsl,
+         "background child after exit (WSL)",
+         lambda: _planted("_kill = S.kill_tree\n"
+                          "S.kill_tree = lambda p, g: (None if p.poll() "
+                          "is not None else _kill(p, g))")),
+        ("P11 the snapshot kill of 11.128, no Job Object", criterion_release,
+         "n orphaned grandchild",
+         lambda: _planted(_SNAPSHOT_PLANT,
+                          mock.patch.object(od.supervisor, "launch",
+                                            _plain_launch),
+                          mock.patch.object(od.supervisor, "kill_tree",
+                                            _snapshot_kill))),
+        ("P12 max() hides an open reservation", criterion_refusal,
+         "n usage plus open reservation",
+         lambda: _planted(None, mock.patch.object(od.OnDemand, "month_spent",
+                                                  max_only))),
+        ("P13 halved rate and cost", criterion_ledger,
+         "rate is the stub's price",
+         lambda: _planted(None, mock.patch.object(od.Ledger, "append",
+                                                  halved))),
+        ("P14 no sealed namespace", criterion_wsl, "4 interop blocked (WSL)",
+         lambda: _planted("S.sealed = lambda argv: list(argv)")),
     ]
+
+
+#: P11: the §11.128 way to kill, with no Job Object to fall back on - a
+#: plain process group, then taskkill following parent links. An orphan
+#: whose parent has exited has no link to follow.
+_SNAPSHOT_PLANT = """
+import subprocess as _sp
+def _launch(argv, env, log, *, cwd=None):
+    return _sp.Popen(argv, env=env, cwd=cwd, stdin=_sp.DEVNULL, stdout=log,
+                     stderr=_sp.STDOUT,
+                     creationflags=getattr(_sp, 'CREATE_NEW_PROCESS_GROUP', 0))
+def _kill(process, grace):
+    _sp.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+S.launch = _launch
+S.kill_tree = _kill
+"""
+
+
+def _plain_launch(argv, env, log, *, cwd=None):
+    """P11, runner side: the supervisor started with no Job Object."""
+    return subprocess.Popen(
+        argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log,
+        stderr=subprocess.STDOUT,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+
+
+def _snapshot_kill(process, grace):
+    """P11, runner side: taskkill following parent links, as in 11.128."""
+    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 @dataclass
@@ -1005,7 +1369,8 @@ CRITERIA = (("1 release on every path", criterion_release),
             ("4 the local GPU stays hidden", criterion_hidden),
             ("5 one lease at a time", criterion_one_lease),
             ("7 flags reach lupine", criterion_flags),
-            ("8 timeouts are named by the deadline", criterion_timeouts))
+            ("8 timeouts are named by the deadline", criterion_timeouts),
+            ("10 the production WSL path", criterion_wsl))
 
 
 def run_gate() -> OnDemandReport:

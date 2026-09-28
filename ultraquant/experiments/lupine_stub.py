@@ -19,6 +19,11 @@ workload stops. So now:
 - ``sleep S`` runs in a real child process, and ``sleep-tree S`` in a
   child that starts a grandchild and waits for it. Every process logs
   its PID, so the exam can check that none survive.
+- Round three (§11.129) added what that review found next:
+  ``background S [code]`` exits at once and leaves a child running;
+  ``orphan S`` leaves a grandchild whose parent has already exited,
+  then overruns; ``shell ARGS`` runs a real program, which is how the
+  exam checks that a job cannot reach Windows through WSL.
 - The attachment clock runs from lease acquisition to ``end``, and
   ``usage`` charges from that clock, rounded to cents as the real CLI
   shows it.
@@ -117,6 +122,15 @@ _TREE = (
     "raise SystemExit(grandchild.wait())\n")
 
 
+_ORPHAN = (
+    "import json, os, subprocess, sys, time\n"
+    "grandchild = subprocess.Popen([sys.executable, '-c', "
+    "'import time, sys; time.sleep(float(sys.argv[1]))', sys.argv[1]])\n"
+    "with open(os.path.join(sys.argv[2], 'log.jsonl'), 'a') as handle:\n"
+    "    handle.write(json.dumps({'t': time.time(), 'cmd': 'grandchild',\n"
+    "                             'pid': grandchild.pid}) + '\\n')\n")
+
+
 def _workload(argv: list) -> int:
     if not argv:
         return 0
@@ -128,6 +142,23 @@ def _workload(argv: list) -> int:
                                   *extra])
         log_event({"cmd": "child", "pid": child.pid})
         return child.wait()
+    if head == "background":        # exit at once, leaving a child running
+        child = subprocess.Popen([sys.executable, "-c", _SLEEPER, argv[1]])
+        log_event({"cmd": "child", "pid": child.pid})
+        return int(argv[2]) if len(argv) > 2 else 0
+    if head == "orphan":            # a grandchild whose parent exits at once
+        child = subprocess.Popen([sys.executable, "-c", _ORPHAN, argv[1],
+                                  str(_dir())])
+        log_event({"cmd": "child", "pid": child.pid})
+        child.wait()
+        time.sleep(float(argv[1]))  # then the job itself overruns
+        return 0
+    if head == "shell":             # a real program, its output inherited
+        try:
+            return subprocess.run(argv[1:]).returncode
+        except OSError as exc:
+            _say(f"stub: shell failed: {exc}")
+            return 127
     if head == "exit":
         return int(argv[1])
     if head == "echo":
