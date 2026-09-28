@@ -43,6 +43,13 @@ from ultraquant.interpreter.stash import StashError
 
 __all__ = ["Question", "Answer", "LearningSession"]
 
+#: The §11.120 rung: a stored gap is checked against the store before it
+#: is asked. It was read back verbatim, so `:learn` asked for premises it
+#: now held and told the user "I hold that X is Y" about bridges it no
+#: longer believed. Values are stored without their polarity, so both
+#: checks look at `negated` too. False restores the old survey.
+_CURIOSITY_REVALIDATE = True
+
 #: Where research looks a term up. Templates, not code: tests point these at a
 #: local server, and a deployment can swap in any source it trusts. Everything
 #: fetched still goes through the contemporary stash - the source being
@@ -171,8 +178,23 @@ class LearningSession:
         USER actually asked that one held bridge nearly answered. The
         prompt shows the whole chain so the human sees why it is asked.
         """
+        curiosities = getattr(self.session, "curiosities", [])
+        if _CURIOSITY_REVALIDATE and curiosities:
+            # §11.120: Drop resolved gaps and gaps whose bridge is stale.
+            memory = self.session.memory
+            remaining = []
+            for gap in curiosities:
+                premise = memory.recall_fact(gap["premise_key"])
+                if premise is not None and not premise.get("negated", False):
+                    continue
+                bridge = memory.recall_fact(gap["via_key"])
+                if (bridge is None or bridge.get("value") != gap["via_value"]
+                        or bridge.get("negated", False)):
+                    continue
+                remaining.append(gap)
+            curiosities[:] = remaining
         out = []
-        for gap in getattr(self.session, "curiosities", []):
+        for gap in curiosities:
             out.append(self._new(
                 "missing-premise",
                 f"I was asked {gap['original']!r} and could not connect "

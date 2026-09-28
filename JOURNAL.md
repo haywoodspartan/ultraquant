@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.120](#11120-a-curiosity-is-revalidated-before-it-is-asked) | A curiosity is revalidated before it is asked |
 | [11.118](#11118-a-recovered-turn-meets-the-standard-a-stored-fact-does) | A recovered turn meets the standard a stored fact does |
 | [11.117](#11117-a-why-question-takes-the-stance-of-the-question-inside-it) | A why-question takes the stance of the question inside it |
 | [11.116](#11116-the-denial-the-semantic-route-forgot) | The denial the semantic route forgot |
@@ -806,6 +807,40 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.120 A curiosity is revalidated before it is asked
+
+GPT-6 Astra's review, finding 10, reproduced end to end before
+anything changed. A refused inference that knows which premise it
+lacked leaves a curiosity (§11.33), and `:learn` asks for it. But the
+survey read each stored gap back verbatim and never checked it against
+the store: told "the steel conductivity is high" directly, it still
+asked "What is the steel conductivity?"; with the tower material
+revised to iron, it still said "I hold that tower material is steel" -
+misstating its own belief to the person it was asking.
+
+The fix revalidates every gap as the survey builds its questions:
+a premise now held drops the gap, and so does a bridge that is gone or
+changed. `_CURIOSITY_REVALIDATE = False` restores the old survey byte
+for byte.
+
+**Review before the gate ran.** GPT-6 Astra's first implementation
+compared the bridge's *value* - and values are stored without their
+polarity, so "the tower material is not steel" kept value "steel" and
+the prompt went on saying "I hold that tower material is steel". It
+also counted a premise held only as a denial as fulfilled, though a
+denial names no value (§11.48) and the chain still cannot close. Both
+went back to the implementer, and the battery was widened by a
+recorded amendment before its fixed arm ever ran. The same polarity
+blind spot as §11.116, in a third place.
+
+**PASSED** on all five measured criteria. Asks for a premise it now
+holds: 6 of 6 -> **0**. States a bridge it no longer holds: 8 of 8 ->
+**0**, including both polarity flips. Live gaps held at exactly one
+prompt (6 of 6); a premise held only as a denial is still asked once
+(2 of 2); the `:learn` loop closed 6 of 6 in both arms; the §11.115
+worlds moved nothing. Suite: 2,196 passed, 2 skipped, 0 failed - run
+once over this unit and §11.118 together, which touch different files.
 
 ### 11.118 A recovered turn meets the standard a stored fact does
 
