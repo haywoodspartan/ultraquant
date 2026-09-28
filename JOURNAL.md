@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.134](#11134-the-filter-on-harder-facts) | The filter on harder facts |
 | [11.133](#11133-distillation-and-the-runner-after-the-fourth-review) | Distillation and the runner, after the fourth review |
 | [11.132](#11132-quarantined-knowledge-approved-automatically-and-disputable-exactly) | Quarantined knowledge, approved automatically and disputable exactly |
 | [11.131](#11131-the-on-demand-runner-round-four-and-the-first-paid-runs) | The on-demand runner, round four, and the first paid runs |
@@ -821,6 +822,49 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.134 The filter on harder facts
+
+**§11.130's facts were easy, so the filter never had to choose.** This
+tier keeps every answer beyond dispute and drops fame:
+- US-state, Canadian and Australian capitals;
+- heavy-element atomic numbers;
+- rare-element symbols;
+- authors of less famous novels.
+That is 211 known answers and 40 invented subjects. Anything that
+names more than one book is left out ("Invisible Man" is Ellison's,
+"The Invisible Man" Wells's), and US states are always asked as "the
+US state of Washington". The same three local teachers and the same
+filter as §11.133 are used, unchanged.
+
+**PASSED** (pre-registration sha256 444dab75...) in 6.1 minutes of the
+4090, at no cost:
+- held out: **101 of 101** promoted answers right, at coverage 0.96.
+  Capitals 34 of 35 promoted, atomic numbers 23 of 24, symbols 25 of
+  25, authors 19 of 21;
+- **1 of 40** invented subjects promoted, against a limit of 1;
+- confidence **0.964**;
+- all three planted defects caught.
+Stricter filters, re-scored from the same records, all keep precision
+at 1.000. Holding at 4 of 5 gives coverage 0.98, holding at 5 of 5
+gives 0.92, and requiring all three families gives 0.95 with no
+invented promotions.
+
+**The invented promotion is the benchmark's fault, the second time.**
+"Varnadium" sits one letter from vanadium, and the teachers answered
+"V". §11.130's "Mordavia" sat one letter from Mordovia. Names checked
+by eye have failed twice, so the next tier checks them by edit
+distance. Nobelium's "No" was refused by the negation rule all 15
+times: a cost the review had just called a defect, fixed in §11.135.
+
+**The plain reading.** The local teachers know more than this tier
+asked, and even "hard" facts barely made them disagree. The filter's
+trade-off is still mostly unmeasured. It lives in the questions the
+local teachers get wrong, which is also where a massive teacher would
+earn its cost.
+
+Suite: see §11.135, which lands next. This unit adds only new files,
+and its 4 pins pass.
 
 ### 11.133 Distillation and the runner, after the fourth review
 
