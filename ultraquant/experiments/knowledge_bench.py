@@ -274,13 +274,13 @@ def is_correct(item: Item, answer: str) -> bool:
     if item.fictitious or is_abstention(answer):
         return False
     folded = normalize(answer)
+    if folded in item.answers:
+        return True
     # §11.133: "Ag, not Au" ends in "au" and was scored right. An answer
     # that negates or offers alternatives names nothing.
     if _HEDGED_ANSWER.search(folded):
         return False
     for accepted in item.answers:
-        if folded == accepted:
-            return True
         tail_ok = " " in accepted or item.category in ("symbol", "number")
         if tail_ok and folded.endswith(" " + accepted):
             return True

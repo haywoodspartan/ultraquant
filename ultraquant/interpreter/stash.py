@@ -239,6 +239,19 @@ def _split_claim(claim: str, *, structured: bool = False) -> tuple[str, str] | N
     return None
 
 
+def _claim_provenance(entry: dict) -> tuple | None:
+    """Identify a distilled question, including entries predating question_id."""
+    provenance = entry.get("provenance") or {}
+    run_id = provenance.get("run_id")
+    qid = provenance.get("question_id")
+    if run_id is None:
+        return None
+    prefix = f"https://distill.invalid/{run_id}/"
+    if qid is None and entry.get("url", "").startswith(prefix):
+        qid = entry["url"][len(prefix):]
+    return (run_id, qid) if qid else None
+
+
 class ContemporaryStash:
     """Holding area where web claims are analysed before they can become fact."""
 
@@ -273,6 +286,8 @@ class ContemporaryStash:
         tmp = self.path.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=1, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, self.path)
 
     # ------------------------------------------------------------------ intake
@@ -366,7 +381,8 @@ class ContemporaryStash:
 
     def add_claim(self, url: str, title: str, claim: str, *,
                   measured_confidence: float | None = None,
-                  provenance: dict | None = None) -> int:
+                  provenance: dict | None = None,
+                  fields: dict | None = None) -> int:
         """Stage one complete claim, preserving its measured provenance."""
         from copy import deepcopy
         from urllib.parse import urlparse
@@ -385,10 +401,21 @@ class ContemporaryStash:
             "sources": [netloc], "notes": "",
             "measured_confidence": measured_confidence,
             "provenance": deepcopy(provenance),
+            "fields": deepcopy(fields),
         }
         self._next_id += 1
         self.save()
         return entry_id
+
+    def _fields_of(self, entry: dict) -> dict | None:
+        """The authoritative slots of a structured claim, when supplied."""
+        return entry.get("fields")
+
+    def _split_entry(self, entry: dict) -> tuple[str, str] | None:
+        fields = self._fields_of(entry)
+        if fields is not None:
+            return fields["key"], fields["value"]
+        return _split_claim(entry["claim"], structured="provenance" in entry)
 
     # ---------------------------------------------------------------- analysis
 
@@ -404,7 +431,7 @@ class ContemporaryStash:
             return "factual-claim"
         return "unclassified"
 
-    def analyze(self, memory: Any | None = None) -> dict:
+    def analyze(self, memory: Any | None = None, *, reinforce: bool = True) -> dict:
         """Classify staged entries and update their corroboration status.
 
         Args:
@@ -425,7 +452,7 @@ class ContemporaryStash:
 
             disputed = False
             if memory is not None:
-                split = _split_claim(entry["claim"], structured="provenance" in entry)
+                split = self._split_entry(entry)
                 if split is not None:
                     known = memory.recall_fact(split[0])
                     if known is not None:
@@ -441,11 +468,12 @@ class ContemporaryStash:
                             # The web restating what is already held is
                             # evidence for it, not a rival to it. The old
                             # string-inequality test called this a dispute.
-                            memory.confirm_fact(
-                                split[0],
-                                min(0.95, float(known.get("confidence", 0.5))
-                                    + 0.05),
-                            )
+                            if reinforce:
+                                memory.confirm_fact(
+                                    split[0],
+                                    min(0.95, float(known.get("confidence", 0.5))
+                                        + 0.05),
+                                )
                             entry["notes"] = "agrees with stored fact"
             # A claim that memory backs does not become disputed because some
             # other source clashes with it - the *rival* carries the dispute
@@ -659,7 +687,7 @@ class ContemporaryStash:
                 "not eligible for promotion; use force to override"
             )
 
-        split = _split_claim(entry["claim"], structured="provenance" in entry)
+        split = self._split_entry(entry)
         if split is not None:
             key, value = split
         else:

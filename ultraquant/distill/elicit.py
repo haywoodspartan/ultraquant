@@ -74,12 +74,19 @@ def is_abstention(text: str) -> bool:
         _REFUSAL.search(normalize(_THINK.sub("", text))))
 
 
-def is_position(text: str) -> bool:
-    return not is_abstention(text) and not _HEDGED_ANSWER.search(
-        normalize(extract(text)))
+def is_position(text: str, category=None) -> bool:
+    if is_abstention(text):
+        return False
+    reply = _THINK.sub("", text)
+    reply = re.sub(r"<\|[^|>\r\n]{1,64}\|>", "", reply)
+    if category == "symbol" and re.fullmatch(r"[A-Za-z]{1,2}", extract(text)):
+        # The answer line may be the symbol No. Later lines still veto it.
+        lines = [line for line in reply.splitlines() if line.strip()]
+        reply = "\n".join(lines[1:])
+    return not _HEDGED_ANSWER.search(normalize(reply))
 
 
-def held(answers, min_count: int = 3) -> str | None:
+def held(answers, min_count: int = 3, category=None) -> str | None:
     """The modal answer, judged on whole replies.
 
     Each reply is tested for refusal as a whole, so "Veltra" followed by
@@ -88,7 +95,8 @@ def held(answers, min_count: int = 3) -> str | None:
     the first line.
     """
     counts = Counter(normalize(extract(answer)) for answer in answers
-                     if is_position(answer) and normalize(extract(answer)))
+                     if is_position(answer, category=category)
+                     and normalize(extract(answer)))
     if not counts:
         return None
     answer, count = counts.most_common(1)[0]
@@ -96,6 +104,10 @@ def held(answers, min_count: int = 3) -> str | None:
 
 
 def agree(a: str, b: str) -> bool:
+    # held() has already checked the whole reply and its category. Identical
+    # symbols (including No) must survive the family and lineage reductions.
+    if a == b and re.fullmatch(r"[a-z]{1,2}", a):
+        return True
     if any(_HEDGED_ANSWER.search(normalize(answer)) for answer in (a, b)):
         return False
     if a == b:
@@ -194,7 +206,8 @@ def decide(records, items) -> dict[str, str | None]:
             lineage = samples[0].lineage
             if any(record.lineage != lineage for record in samples):
                 raise ValueError(f"Inconsistent lineage for teacher {teacher!r}")
-            lineages[lineage][teacher] = held([r.raw for r in samples])
+            lineages[lineage][teacher] = held([r.raw for r in samples],
+                                              category=item.category)
         # Multiple teachers contribute one family position, including dissent.
         positions = {lineage: family_position(answers)
                      for lineage, answers in lineages.items()}

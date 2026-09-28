@@ -217,7 +217,7 @@ def _plant_single_sample(records, items):
             for item in items}
 
 
-def _plant_least_common(answers, min_count=3):
+def _plant_least_common(answers, min_count=3, **_ignored):
     """P3: the rarest non-abstaining answer, whatever its count."""
     from ultraquant.distill import elicit as E
     counts = Counter(E.normalize(a) for a in answers
@@ -285,7 +285,7 @@ def replay_without_models(records_path: Path = RECORDS) -> bool:
             return False
 
 
-def _old_is_position(text):
+def _old_is_position(text, category=None):
     """P4: before §11.133, anything not an abstention was a position."""
     from ultraquant.distill import elicit as E
     return not E.is_abstention(text)

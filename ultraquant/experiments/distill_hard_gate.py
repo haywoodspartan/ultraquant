@@ -68,6 +68,12 @@ asked. Even "hard" facts barely made them disagree, so the filter's
 trade-off is still mostly unmeasured, and the questions that would
 measure it are ones the local teachers get wrong. Those are also where
 a massive teacher would earn its cost.
+
+**§11.135: replayed under the corrected filter.** The verdict is
+unchanged: held-out 101/101 right, 1/40 invented, confidence 0.964.
+Nobelium is now promoted. All 15 of its samples said "No", and the
+symbol exception keeps a one- or two-letter answer a position, while
+later lines can still veto it.
 """
 
 from __future__ import annotations
@@ -130,8 +136,9 @@ def _decide(records, **strict):
     min_lineages = strict.get("min_lineages", 2)
     original_held, original_promote = E.held, E.promote
     with mock.patch.object(E, "held",
-                           lambda answers, min_count_=3:
-                           original_held(answers, min_count)), \
+                           lambda answers, min_count_=3, category=None:
+                           original_held(answers, min_count,
+                                         category=category)), \
             mock.patch.object(E, "promote",
                               lambda held, min_lineages_=2:
                               original_promote(held, min_lineages)):

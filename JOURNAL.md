@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.135](#11135-an-undo-that-respects-what-came-after) | An undo that respects what came after |
 | [11.134](#11134-the-filter-on-harder-facts) | The filter on harder facts |
 | [11.133](#11133-distillation-and-the-runner-after-the-fourth-review) | Distillation and the runner, after the fourth review |
 | [11.132](#11132-quarantined-knowledge-approved-automatically-and-disputable-exactly) | Quarantined knowledge, approved automatically and disputable exactly |
@@ -822,6 +823,55 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.135 An undo that respects what came after
+
+**Auto-approval had gone live (§11.132) on the promise that "we can
+always dispute a claim later".** GPT-6 Astra's fifth adversarial review
+showed where that promise failed, with every case reproduced:
+- a dispute restored its snapshot whatever had happened since, so a
+  user's correction made after an approval would be erased, and two
+  approvals of one key disputed oldest-first ended at the wrong value;
+- persistence was not atomic;
+- derived conclusions came back although their other premises had
+  changed;
+- re-filing a run re-approved a disputed claim;
+- a negation on a later line of a reply still manufactured agreement;
+- a title containing "is" split the claim at the wrong copula;
+- nobelium's "No" was refused as a negation.
+The user was told, while this was being fixed, what the undo could not
+yet do. Auto-approval stayed on, because they had asked for it.
+
+**v2** (Astra):
+- approvals journal the record after them as well as before;
+- a dispute undoes exactly only when the fact still holds that record.
+  A later approval of the same key must be disputed first, and any
+  other later change, such as a user's correction, is kept, with an
+  episode saying so;
+- a derived conclusion comes back only if every premise it names still
+  holds;
+- approvals and disputes are transactions: an intent line, an atomic
+  save, then a commit. On start-up an unfinished approval is rolled
+  back and an unfinished dispute completed;
+- filing is idempotent;
+- structured claims carry their key and value;
+- a whole reply is checked for negations, and a one- or two-letter
+  symbol stays a position.
+
+**PASSED** twice (pre-registration sha256 f13065f6...): 9 cases, 8 of 8
+plants. §11.132's gate still passes, and so do the §11.130 and §11.134
+replays. Under the corrected filter nobelium is now promoted, since all
+15 of its samples said "No".
+
+**Claude's review caught what the exam did not.** The user's library
+already held 179 approvals journalled in the first format, with no
+`after` snapshot. v2 read all of them as superseded, so disputing any
+one would have kept the fact, which is precisely where the user's
+"dispute later" had to work. Such a legacy approval now counts as an
+exact undo when the key still holds the approved value, and a test pins
+it with a first-format journal.
+
+Suite: 2,334 passed, 5 skipped, 0 failed.
 
 ### 11.134 The filter on harder facts
 

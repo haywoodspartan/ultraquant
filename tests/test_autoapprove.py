@@ -98,8 +98,25 @@ class ExactUndoTests(_World):
                              self.memory, self.journal)
         fresh.dispute("capital of kenya", "checking the undo")
         self.assertIsNone(self.memory._fact_record("capital of kenya"))
+        # 11.135: a retried dispute returns the finished one; it never raises
+        again = fresh.dispute("capital of kenya", "twice")
+        self.assertTrue(again.disputed)
         with self.assertRaises(KeyError):
-            fresh.dispute("capital of kenya", "twice")
+            fresh.dispute("never approved", "no such approval")
+
+    def test_a_first_version_journal_can_still_be_undone(self) -> None:
+        """Claude's review of 11.135: approvals journalled before `after`
+        existed - 179 of them in the user's library - must stay disputable."""
+        self.memory.remember_fact("chemical symbol of gold", "Au", 0.959)
+        legacy = {"event": "approval", "approval_id": "legacy-1",
+                  "entry_id": 1, "key": "chemical symbol of gold",
+                  "value": "Au", "confidence": 0.959, "sources": ["x"],
+                  "time": 1.0, "before": {"chemical symbol of gold": None},
+                  "outcome": "new"}
+        self.journal.write_text(json.dumps(legacy) + chr(10), encoding="utf-8")
+        self.seed([("The chemical symbol of gold is Au.", "distill.invalid")])
+        self.approver().dispute("chemical symbol of gold", "legacy undo")
+        self.assertIsNone(self.memory._fact_record("chemical symbol of gold"))
 
 
 class SessionIsolationTests(unittest.TestCase):
