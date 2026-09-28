@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.130](#11130-facts-distilled-from-local-teachers-and-what-they-are-worth) | Facts distilled from local teachers, and what they are worth |
 | [11.129](#11129-the-on-demand-runner-round-three-sealed-and-contained) | The on-demand runner, round three: sealed and contained |
 | [11.128](#11128-the-on-demand-runner-rebuilt-after-adversarial-review) | The on-demand runner, rebuilt after adversarial review |
 | [11.127](#11127-paid-gpus-attach-on-demand) | Paid GPUs attach on demand |
@@ -817,6 +818,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.130 Facts distilled from local teachers, and what they are worth
+
+**The user wants "distilling information out of a massive model."**
+Before any GPU is rented for it, the method has to prove itself where
+it costs nothing: three local teachers from three model families, one
+at a time on the RTX 4090, each llama.cpp server started when it was
+needed and stopped afterwards. The teachers were Command-R 08-2024
+(Cohere), Qwen3.8-27B (Qwen) and Cydonia 22B (a Mistral Small
+fine-tune). They were identified as independent from their own GGUF
+metadata, not from their file names. GPT-6 Astra built `distill/`:
+- the teachers;
+- the elicitation;
+- the filter.
+Claude wrote the exam and its benchmark. That benchmark holds 180
+questions with answers beyond dispute (element symbols, capitals,
+authors, atomic numbers) and 80 about subjects invented for it, to
+which the only right answer is "unknown".
+
+**What distillation may claim.** The stash never counts a model as a
+corroborating source, and this unit does not change that. It measures
+instead how often an answer that passes a filter fixed in advance is
+right. The filter:
+- 5 samples per teacher;
+- a teacher holds an answer given by 3 of its 5 samples;
+- abstentions are never positions;
+- two independent families must hold agreeing answers, and no family
+  may hold a different one;
+- the benchmark's answers are never shown to it.
+
+**Before the run** Claude's review found that the filter judged only
+each reply's first line. "Veltra", followed by a line calling the
+country fictional, would have counted as a position. It now judges
+whole replies. That change and Astra's own concern about the exam are
+recorded as Amendment A, made before any elicitation.
+
+**PASSED**, in 6.3 minutes of the 4090, at no cost:
+- **90 of 90** held-out known answers promoted, and **90 of 90** right;
+- **0 of 80** invented subjects promoted;
+- the confidence a distilled fact may carry, the calibration half's
+  Wilson 95% lower bound, is **0.959**;
+- all three planted defects breached their criteria.
+The teachers abstained on 88-94% of their samples about invented
+subjects. The other 99 were hallucinations that no two families shared.
+One was the benchmark's own fault: Qwen read "Mordavia" as Mordovia and
+answered Saransk, its real capital.
+
+**What it does not show.** The facts were chosen to be beyond dispute,
+which made them easy. All three teachers knew every one, so coverage
+and precision sit at their ceiling. The 0.959 is limited by 90 samples,
+not by any error. The filter's real trade-off shows only on obscure
+facts, where teachers disagree, so that is the next measurement, and
+the one to make before a massive teacher is paid for. The 3,900 raw
+samples are committed, and the verdict recomputes from them in the
+suite.
 
 ### 11.129 The on-demand runner, round three: sealed and contained
 
