@@ -293,3 +293,131 @@ class SecondReviewRegressionTests(unittest.TestCase):
             "what is the tower height?")
         self.assertTrue(found.metered)
         self.assertIsInstance(found.lookup_attempts, int)
+
+
+class ThirdReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's third review: bills that called themselves complete."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r3_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_synchronous_bill_is_complete(self) -> None:
+        found = R.RetrievalEngine(self.memory).retrieve(
+            "what is the tower height?")
+        self.assertTrue(found.bill_complete)
+        self.assertEqual(found.unattributed_memory_calls, 0)
+
+    def test_a_workers_own_bill_does_not_hide_the_parents_gap(self) -> None:
+        """An uncarried task that opens a bill of its own."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        memory = self.memory
+
+        class Delegating:
+            def suggest(inner, question, mem):
+                child = R.RetrievalEngine(memory)
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(child.retrieve,
+                                "what is the tower height?").result()
+                return None
+
+        found = R.RetrievalEngine(self.memory, suggester=Delegating()) \
+            .retrieve("how tall is the spire?", routes=("semantic",))
+        self.assertFalse(found.bill_complete)
+        self.assertGreater(found.unattributed_memory_calls, 0)
+
+    def test_an_unmetered_nested_call_taints_the_enclosing_bill(self) -> None:
+        class Stub:
+            def recall_fact(inner, key):
+                return None
+
+            def find_facts(inner, text, top_k=5):
+                return []
+
+        class Nesting:
+            def suggest(inner, question, mem):
+                R.RetrievalEngine(Stub()).retrieve("what is the tower height?")
+                return None
+
+        found = R.RetrievalEngine(self.memory, suggester=Nesting()) \
+            .retrieve("how tall is the spire?", routes=("semantic",))
+        self.assertTrue(found.metered)
+        self.assertFalse(found.bill_complete)
+
+    def test_carried_work_still_running_makes_the_bill_incomplete(self) -> None:
+        """The suggester stops waiting; the worker is still going."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+        from ultraquant.memory.metering import carry
+
+        release = threading.Event()
+        started = threading.Event()
+        pool = ThreadPoolExecutor(max_workers=1)
+
+        class Impatient:
+            def suggest(inner, question, mem):
+                def work():
+                    started.set()
+                    release.wait(timeout=5)
+                    mem.recall_fact("tower height")
+                future = pool.submit(carry(work))
+                started.wait(timeout=5)
+                try:
+                    future.result(timeout=0.05)
+                except TimeoutError:
+                    pass
+                return None
+
+        try:
+            found = R.RetrievalEngine(self.memory, suggester=Impatient()) \
+                .retrieve("how tall is the spire?", routes=("semantic",))
+        finally:
+            release.set()
+            pool.shutdown(wait=True)
+        self.assertFalse(found.bill_complete)
+
+    def test_unscoped_reads_cost_the_same_with_many_bills_open(self) -> None:
+        """Was O(open bills) under one lock: 2.6 ms -> 664 ms at 1,000.
+
+        The bills are held open on ANOTHER thread, so the reads here are
+        outside every bill - the review's case. (Reads nested inside a
+        thousand enclosing bills are charged to all of them, by policy.)
+        """
+        import threading
+        import time
+        from contextlib import ExitStack
+
+        from ultraquant.memory.metering import Bill, metering
+
+        def reads() -> float:
+            start = time.perf_counter()
+            for _ in range(5000):
+                self.memory.recall_fact("no such key")
+            return time.perf_counter() - start
+
+        def hold(count: int, opened, release) -> None:
+            with ExitStack() as stack:
+                for _ in range(count):
+                    stack.enter_context(metering(Bill()))
+                opened.set()
+                release.wait(timeout=30)
+
+        timings = {}
+        for count in (1, 1000):
+            opened, release = threading.Event(), threading.Event()
+            holder = threading.Thread(target=hold,
+                                      args=(count, opened, release))
+            holder.start()
+            try:
+                opened.wait(timeout=30)
+                timings[count] = min(reads(), reads())
+            finally:
+                release.set()
+                holder.join(timeout=30)
+        self.assertLess(timings[1000], timings[1] * 5 + 0.02)

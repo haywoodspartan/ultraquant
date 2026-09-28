@@ -17,18 +17,30 @@ other's bills, and a call nested inside another is charged to both -
 one policy, for every counter. Phrase depth is raised only by the code
 that IS the phrase path, through :func:`phrase_path`.
 
-**Work that leaves the context.** The second review found memory work a
-suggester handed to a thread pool vanishing from the bill: worker
-threads do not inherit context variables. :func:`carry` hands the
-caller's open bills to such work. Work that is NOT carried cannot be
-attributed - but it is not hidden either: memory work done outside any
-bill while a bill is open anywhere is counted on every open bill as
-``unattributed``, so a bill that may be short says so. That count can
-include unrelated work on other threads; it is a warning, never a
-charge.
+**A bill is exact, or it says it is not.** Two more reviews found work
+escaping the context and the bill reporting itself complete anyway:
+delegated to a thread pool; delegated to a thread that opened a bill of
+its own; done by a nested retrieval over a memory that does not meter;
+still running when the call returned. Patching each route in turn was
+the wrong shape, so the guarantee is made once instead:
+
+* every metered memory operation, anywhere in the process, advances one
+  counter - O(1), and only while some bill is open;
+* a bill records that counter when it opens and when it closes, and
+  anything that happened in the window which was not charged to it is
+  counted as ``unattributed`` - an upper bound on missed work, which
+  may include unrelated work on other threads;
+* :func:`carry` hands the caller's bills to delegated work, and a bill
+  that closes while carried work is still running is incomplete;
+* :func:`mark_enclosing_incomplete` lets a call that cannot meter itself
+  taint every bill that encloses it.
+
+A bill is **complete** only if none of those fired. The one thing no
+in-process meter can see is work queued but not yet started when the
+call returns: a suggester must not abandon work it submitted.
 
 With no bill open anywhere, each hook costs one context-variable read
-and one dictionary truth test.
+and one integer truth test.
 """
 
 from __future__ import annotations
@@ -40,7 +52,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 __all__ = ["Bill", "carry", "charge_index", "charge_lookup",
-           "charge_semantic", "metering", "phrase_path"]
+           "charge_semantic", "mark_enclosing_incomplete", "metering",
+           "phrase_path"]
 
 
 @dataclass
@@ -51,16 +64,28 @@ class Bill:
     index: int = 0
     phrase: int = 0
     semantic: int = 0
+    #: Operations in this bill's window it was not charged for.
     unattributed: int = 0
+    #: Set when something the bill cannot see touched its call.
+    incomplete: bool = False
+    #: Carried invocations running now, and at the moment of closing.
+    in_flight: int = 0
+    in_flight_at_close: int = 0
+    _opened_at: int = 0
+
+    @property
+    def complete(self) -> bool:
+        return (not self.incomplete and self.unattributed == 0
+                and self.in_flight_at_close == 0)
 
 
 _BILLS: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_bills", default=())
 _PHRASE: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_phrase_depth", default=0)
-#: Every bill open anywhere in the process, for work no context carries.
-_OPEN: dict = {}
 _LOCK = threading.Lock()
+#: [bills open anywhere, metered operations while any was open]
+_STATE = [0, 0]
 
 
 @contextmanager
@@ -68,13 +93,17 @@ def metering(bill: Bill):
     """Charge ``bill`` for everything done to memory inside the block."""
     token = _BILLS.set(_BILLS.get() + (bill,))
     with _LOCK:
-        _OPEN[id(bill)] = bill
+        _STATE[0] += 1
+        bill._opened_at = _STATE[1]
     try:
         yield bill
     finally:
         _BILLS.reset(token)
         with _LOCK:
-            _OPEN.pop(id(bill), None)
+            window = _STATE[1] - bill._opened_at
+            _STATE[0] -= 1
+            bill.in_flight_at_close = bill.in_flight
+        bill.unattributed = max(0, window - bill.lookups - bill.index)
 
 
 def carry(fn):
@@ -82,14 +111,23 @@ def carry(fn):
 
     For work a suggester hands to a thread or an executor. Each call gets
     its own copy of the context, so the same carried function can run on
-    several workers at once; the bills themselves are shared, and charged
-    under a lock.
+    several workers at once; the bills are shared, charged under a lock,
+    and told how many carried calls are still running.
     """
     base = contextvars.copy_context()
+    bills = base.get(_BILLS, ())
 
     @functools.wraps(fn)
     def carried(*args, **kwargs):
-        return base.copy().run(fn, *args, **kwargs)
+        with _LOCK:
+            for bill in bills:
+                bill.in_flight += 1
+        try:
+            return base.copy().run(fn, *args, **kwargs)
+        finally:
+            with _LOCK:
+                for bill in bills:
+                    bill.in_flight -= 1
 
     return carried
 
@@ -104,37 +142,35 @@ def phrase_path():
         _PHRASE.reset(token)
 
 
-def _unattributed() -> None:
-    """Memory work outside every bill, while some bill is open."""
-    if _OPEN:
-        with _LOCK:
-            for bill in _OPEN.values():
-                bill.unattributed += 1
+def mark_enclosing_incomplete(own: Bill | None = None) -> None:
+    """Every bill open in this context, except ``own``, is now unsure."""
+    with _LOCK:
+        for bill in _BILLS.get():
+            if bill is not own:
+                bill.incomplete = True
+
+
+def _charge(field: str) -> None:
+    if not _STATE[0]:
+        return                    # nothing open anywhere: the fast path
+    bills = _BILLS.get()
+    phrase = field == "index" and _PHRASE.get() > 0
+    with _LOCK:
+        _STATE[1] += 1
+        for bill in bills:
+            setattr(bill, field, getattr(bill, field) + 1)
+            if phrase:
+                bill.phrase += 1
 
 
 def charge_lookup() -> None:
     """One fact read, charged to every bill open in this context."""
-    bills = _BILLS.get()
-    if not bills:
-        _unattributed()
-        return
-    with _LOCK:
-        for bill in bills:
-            bill.lookups += 1
+    _charge("lookups")
 
 
 def charge_index() -> None:
     """One index query - a phrase probe too, if inside the phrase path."""
-    bills = _BILLS.get()
-    if not bills:
-        _unattributed()
-        return
-    phrase = _PHRASE.get() > 0
-    with _LOCK:
-        for bill in bills:
-            bill.index += 1
-            if phrase:
-                bill.phrase += 1
+    _charge("index")
 
 
 def charge_semantic() -> None:

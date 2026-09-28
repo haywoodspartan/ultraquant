@@ -57,7 +57,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ultraquant.memory.metering import (Bill, charge_semantic, metering,
+from ultraquant.memory.metering import (Bill, charge_semantic,
+                                         mark_enclosing_incomplete, metering,
                                          phrase_path)
 
 from ultraquant.shards.router import _informative, normalize_token
@@ -138,9 +139,12 @@ class Retrieval:
     #: memory counters are None - unknown - never a zero that looks
     #: like a measurement.
     metered: bool = False
-    #: Memory work done outside every bill while this one was open:
-    #: nonzero means the bill may be short (see memory/metering.py).
+    #: Memory operations in this call's window that were not charged
+    #: to it - an upper bound on missed work (see memory/metering.py).
     unattributed_memory_calls: int = 0
+    #: True only if the bill is exact: metered, nothing unattributed, no
+    #: carried work still running, no unmetered call nested inside it.
+    bill_complete: bool = False
 
     @property
     def keys(self) -> list:
@@ -303,11 +307,17 @@ class RetrievalEngine:
         if not _HONEST_BILL:
             return self._retrieve(question, exhaustive, routes)
         bill = Bill()
+        metered = bool(getattr(self.memory, "metered", False))
         with metering(bill):
+            if not metered:
+                # This call cannot see its own reads, so nothing that
+                # encloses it can vouch for its total either.
+                mark_enclosing_incomplete(own=bill)
             result = self._retrieve(question, exhaustive, routes)
-        result.metered = bool(getattr(self.memory, "metered", False))
+        result.metered = metered
         result.semantic_calls = bill.semantic
         result.unattributed_memory_calls = bill.unattributed
+        result.bill_complete = metered and bill.complete
         if result.metered:
             result.lookup_attempts = result.examined = bill.lookups
             result.index_probes = bill.index
