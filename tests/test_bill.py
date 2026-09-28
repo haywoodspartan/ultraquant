@@ -503,3 +503,87 @@ class FourthReviewRegressionTests(unittest.TestCase):
             release.set()
             pool.shutdown(wait=True)
         self.assertFalse(found.bill_complete)
+
+
+class FifthReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's fifth review: the contract, made attainable."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r5_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_carried_work_still_queued_at_close_is_outstanding(self) -> None:
+        """Registered when wrapped, so a busy pool cannot hide it."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ultraquant.memory.metering import carry
+
+        busy = threading.Event()
+        pool = ThreadPoolExecutor(max_workers=1)
+        pool.submit(busy.wait, 5)          # the only worker is occupied
+
+        class Queueing:
+            def suggest(inner, question, mem):
+                pool.submit(carry(lambda: mem.recall_fact("tower height")))
+                return None                 # returns while it is queued
+
+        try:
+            found = R.RetrievalEngine(self.memory, suggester=Queueing()) \
+                .retrieve("how tall is the spire?", routes=("semantic",))
+        finally:
+            busy.set()
+            pool.shutdown(wait=True)
+        self.assertFalse(found.bill_complete)
+
+    def test_a_carried_function_runs_once(self) -> None:
+        from ultraquant.memory.metering import Bill, carry, metering
+
+        with metering(Bill()):
+            task = carry(lambda: None)
+        task()
+        with self.assertRaises(RuntimeError):
+            task()
+
+    def test_suggester_calls_are_billed_where_they_happen(self) -> None:
+        """A suggester calling the real one twice: three calls, not one."""
+        from ultraquant.reason.semantic import SemanticSuggester
+
+        class Constant:
+            def embed(inner, texts, model=None):
+                return [[1.0, 0.0] for _ in texts]
+
+            def available(inner):
+                return True
+
+        real = SemanticSuggester(embedder=Constant())
+
+        class Twice:
+            def suggest(inner, question, mem):
+                real.suggest(question, mem)
+                return real.suggest(question, mem)
+
+        found = R.RetrievalEngine(self.memory, suggester=Twice()) \
+            .retrieve("how tall is the tower?", routes=("semantic",))
+        self.assertEqual(found.semantic_calls, 3)
+        self.assertFalse(found.bill_complete)   # Twice cannot be seen into
+
+    def test_a_metering_suggester_alone_is_exact_and_complete(self) -> None:
+        from ultraquant.reason.semantic import SemanticSuggester
+
+        class Constant:
+            def embed(inner, texts, model=None):
+                return [[1.0, 0.0] for _ in texts]
+
+            def available(inner):
+                return True
+
+        found = R.RetrievalEngine(
+            self.memory, suggester=SemanticSuggester(embedder=Constant())) \
+            .retrieve("how tall is the tower?", routes=("semantic",))
+        self.assertEqual(found.semantic_calls, 1)
+        self.assertTrue(found.bill_complete)

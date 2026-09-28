@@ -32,6 +32,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from ultraquant.memory.metering import charge_semantic
 from ultraquant.shards.router import _informative, normalize_token
 
 __all__ = ["SemanticSuggester", "Suggestion", "COSINE_FLOOR"]
@@ -79,6 +80,10 @@ class SemanticSuggester:
             lives on a different scale and must bring its own number
             rather than inherit this one.
     """
+
+    #: §11.122: every call charges the open bills itself, at its own entry,
+    #: so a suggester that calls this one is billed for each call it makes.
+    metered = True
 
     def __init__(self, client=None, embedder=None,
                  floor: float | None = None) -> None:
@@ -146,6 +151,7 @@ class SemanticSuggester:
             The best :class:`Suggestion` clearing BOTH the cosine floor
             and the anchor rule, or None.
         """
+        charge_semantic()             # §11.122: billed where it happens
         ready = self._ready()
         if ready is None:
             return None

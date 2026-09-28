@@ -43,11 +43,26 @@ other than the bill's own, outside a :func:`carry` invocation, marks
 the bill incomplete (a hand-copied context carries charges but no
 lifetime).
 
-A bill is **complete** only if none of those fired. What no in-process
-meter can see is work that has not begun when the call returns - queued,
-scheduled, or started later on a hand-copied context: a bill describes
-work done before its call returned, and work left running or queued past
-that point is out of its contract.
+**Where an operation happens.** The fifth review showed that "began
+before the call returned" cannot be observed: an operation paused one
+instruction before registering is invisible to any snapshot, and moving
+the snapshot later only moves the gap. So an operation counts at its
+**registration point** - its entry hook, under the same lock the bill's
+open and close snapshots take. What a bill promises is then exact and
+linearizable, and it is this:
+
+* **complete** means every operation registered while the bill was open
+  was charged to it; no work delegated through :func:`carry` was still
+  outstanding - queued or running - when it closed; and no charge from
+  another thread outside carry(), no unmetered memory, and no suggester
+  that does not meter itself registered in its window;
+* **out of contract** is work that registers nothing before the bill
+  closes and was not delegated through carry(). No in-process meter can
+  observe it; a bill says nothing about it.
+
+carry() registers its work when it WRAPS the function, not when a worker
+starts it, and a carried function runs once - so work queued behind a
+busy pool is outstanding at close, and the bill knows.
 
 With no bill open anywhere, each hook costs one context-variable read
 and one integer truth test.
@@ -78,16 +93,17 @@ class Bill:
     unattributed: int = 0
     #: Set when something the bill cannot see touched its call.
     incomplete: bool = False
-    #: Carried invocations running now, and at the moment of closing.
-    in_flight: int = 0
-    in_flight_at_close: int = 0
+    #: Carried calls registered and not yet finished - queued or running -
+    #: now, and at the moment of closing.
+    outstanding: int = 0
+    outstanding_at_close: int = 0
     _opened_at: tuple = (0, 0, 0)
     _owner: int = 0
 
     @property
     def complete(self) -> bool:
         return (not self.incomplete and self.unattributed == 0
-                and self.in_flight_at_close == 0)
+                and self.outstanding_at_close == 0)
 
 
 _BILLS: contextvars.ContextVar = contextvars.ContextVar(
@@ -119,22 +135,27 @@ def metering(bill: Bill):
             suggester_calls = _STATE[2] - bill._opened_at[1]
             unmetered_calls = _STATE[3] - bill._opened_at[2]
             _STATE[0] -= 1
-            bill.in_flight_at_close = bill.in_flight
+            bill.outstanding_at_close = bill.outstanding
         bill.unattributed = max(0, memory_ops - bill.lookups - bill.index)
         if suggester_calls > bill.semantic or unmetered_calls:
             bill.incomplete = True
 
 
 def carry(fn):
-    """``fn``, run with this context's open bills wherever it runs.
+    """``fn``, to run ONCE elsewhere, charged to this context's open bills.
 
-    For work a suggester hands to a thread or an executor. Each call gets
-    its own copy of the context, so the same carried function can run on
-    several workers at once; the bills are shared, charged under a lock,
-    and told how many carried calls are still running.
+    For work a suggester hands to a thread or an executor. The work is
+    registered on every open bill here, when it is wrapped - so a bill
+    that closes while it is queued or running knows it is outstanding -
+    and released when the one call finishes. Carry each call separately:
+    a second call raises, because its lifetime could not be observed.
     """
     base = contextvars.copy_context()
     bills = base.get(_BILLS, ())
+    with _LOCK:
+        for bill in bills:
+            bill.outstanding += 1
+    state = {"used": False}
 
     def inside(*args, **kwargs):
         _CARRIED.set(True)
@@ -143,14 +164,16 @@ def carry(fn):
     @functools.wraps(fn)
     def carried(*args, **kwargs):
         with _LOCK:
-            for bill in bills:
-                bill.in_flight += 1
+            if state["used"]:
+                raise RuntimeError("a carried function runs once - carry() "
+                                   "each call, so its lifetime is observed")
+            state["used"] = True
         try:
             return base.copy().run(inside, *args, **kwargs)
         finally:
             with _LOCK:
                 for bill in bills:
-                    bill.in_flight -= 1
+                    bill.outstanding -= 1
 
     return carried
 

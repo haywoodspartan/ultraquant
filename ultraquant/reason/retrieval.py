@@ -268,7 +268,12 @@ class RetrievalEngine:
         """
         if self.suggester is None:
             return []
-        charge_semantic()
+        if not getattr(self.suggester, "metered", False):
+            # A suggester that does not meter itself is charged here for the
+            # one call the engine can see - and whatever it does inside that
+            # call cannot be seen, so no bill around it can vouch for itself.
+            charge_semantic()
+            mark_enclosing_incomplete()
         try:
             suggestion = self.suggester.suggest(question, self.memory)
         except Exception:                          # noqa: BLE001
