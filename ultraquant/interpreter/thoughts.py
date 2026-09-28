@@ -1453,23 +1453,21 @@ class Reason(Thought):
                              in _TOKEN_RE.findall(str(text).lower())
                              if _informative(tok)}
         matches = fold(claimed) == fold(str(fact.get("value", "")))
+        agree = _claim_stance(matches, claim_negated,
+                              bool(fact.get("negated")))
         held = fact.get("value", "")
         confidence = f"(confidence {fact['confidence']:.2f})"
+        verdict = "Yes" if agree else "No"
         if not fact.get("negated"):
             if matches:
-                verdict = ("No" if claim_negated else "Yes")
                 ctx.say(f"{verdict} - {key} is {held} {confidence}.")
                 if verdict == "Yes":
                     ctx.session.pending_confirmation = {"key": key}
-            elif claim_negated:
-                ctx.say(f"Yes - {key} is {held}, not {claimed} "
-                        f"{confidence}.")
             else:
-                ctx.say(f"No - {key} is {held}, not {claimed} "
+                ctx.say(f"{verdict} - {key} is {held}, not {claimed} "
                         f"{confidence}.")
         else:
-            if matches:
-                verdict = ("Yes" if claim_negated else "No")
+            if agree is not None:
                 ctx.say(f"{verdict} - believed not {held} {confidence}.")
             else:
                 # A negation of one value says nothing about another:
@@ -1545,8 +1543,17 @@ class Reason(Thought):
             shown = _shown_value(fact)
             confidence = f"(confidence {fact['confidence']:.2f})"
             if claimed:
-                agree = (fold(claimed) == fold(str(fact.get("value", "")))
-                         and claim_negated == bool(fact.get("negated")))
+                matches = fold(claimed) == fold(str(fact.get("value", "")))
+                negated = bool(fact.get("negated"))
+                agree = (_claim_stance(matches, claim_negated, negated)
+                         if _WHY_THREE_WAY else
+                         matches and claim_negated == negated)
+                if agree is None:
+                    ctx.say(f"I don't know that it is - I hold only that "
+                            f"{key} is {shown} {confidence}.")
+                    ctx.note(self.name,
+                             f"why-question unknown against {key!r}")
+                    return True
                 if not agree:
                     # The anti-rationalisation line: a why-question
                     # carrying a claim the library does not believe is
@@ -1576,8 +1583,17 @@ class Reason(Thought):
             if claimed:
                 value = str(derived.conclusion[1]
                             if derived.conclusion else "")
-                agree = (fold(claimed) == fold(value)
-                         and claim_negated == bool(derived.negated))
+                matches = fold(claimed) == fold(value)
+                negated = bool(derived.negated)
+                agree = (_claim_stance(matches, claim_negated, negated)
+                         if _WHY_THREE_WAY else
+                         matches and claim_negated == negated)
+                if agree is None:
+                    ctx.say(f"I don't know that it is - I hold only that "
+                            f"{derived.answer} {suffix}.")
+                    ctx.note(self.name, "why-question unknown against "
+                                        "a derivation")
+                    return True
                 if not agree:
                     ctx.say(f"It isn't - {derived.answer} {suffix}.")
                     ctx.note(self.name, "why-question corrected against "
@@ -2475,6 +2491,13 @@ _POLAR_DERIVES = True
 #: arm turns it off.
 _WHY_ANSWERS = True
 
+#: The §11.117 rung: a why-question takes the stance the polar question
+#: inside it takes - supported, contradicted or unknown - through one
+#: shared comparison, because two copies of that rule had drifted: a
+#: denial of one value was answered "It isn't" for another. False
+#: restores the two-way comparison and its replies byte for byte.
+_WHY_THREE_WAY = True
+
 #: The §11.53 rung: a statement that conflicts with held belief is
 #: revised ALOUD - the old belief named, the retracted derivatives
 #: counted - instead of behind a bare "Noted:". The revision gate's
@@ -2768,6 +2791,17 @@ def _split_polarity(value: str) -> tuple[str, bool]:
             if rest:
                 return rest, True
     return value, False
+
+
+def _claim_stance(matches: bool, claim_negated: bool,
+                  held_negated: bool) -> bool | None:
+    """Return True for support, False for contradiction, None for unknown."""
+    # §11.117: polar and why must share the same three-way comparison.
+    if matches:
+        return claim_negated == held_negated
+    if held_negated:
+        return None
+    return claim_negated
 
 
 def _shown_value(fact: dict) -> str:

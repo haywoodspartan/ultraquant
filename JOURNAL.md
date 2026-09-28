@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.117](#11117-a-why-question-takes-the-stance-of-the-question-inside-it) | A why-question takes the stance of the question inside it |
 | [11.116](#11116-the-denial-the-semantic-route-forgot) | The denial the semantic route forgot |
 | [11.115](#11115-the-engine-actually-in-the-pipeline) | The engine, actually in the pipeline |
 | [11.113](#11113-one-call-and-the-bill) | One call, and the bill |
@@ -804,6 +805,45 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.117 A why-question takes the stance of the question inside it
+
+GPT-6 Astra's review, finding 2, reproduced end to end before
+anything changed. Holding only "the tower material is not steel", the
+polar question "is it iron?" answered **"I don't know"** and the
+why-question "why is it iron?" answered **"It isn't"** - the same
+belief, asked two ways, given two stances, and the why-question's was
+the §11.48 error: a denial of one value read as a denial of another.
+
+**Why.** Polar compared a claim with what is held three ways -
+supported, contradicted, unknown. Why compared two ways - agree, or
+"It isn't" - once for a stored fact and again for a derivation. Two
+copies of a rule that has to agree had drifted: §11.94 again, in a new
+place. The fix is one helper, `_claim_stance`, used by both handlers;
+`_WHY_THREE_WAY = False` restores the two-way test byte for byte.
+
+**Wider than reported.** Laying out the full matrix for the gate found
+a second face of the defect: holding "steel", "why is the tower
+material not iron?" answered "It isn't - tower material is steel" - a
+**true** claim denied, where polar says "Yes - steel, not iron".
+
+**The matrix**: held {affirmed V, denied V} x claim {V, W, not V, not
+W}, stored and derived - sixteen cells, each in a fresh session.
+Criteria frozen before the fix existed; criterion 2 was a prediction
+read off the code - that the old arm would disagree on exactly six
+cells.
+
+**PASSED.** Old arm 10 of 16 in agreement, fixed arm **16 of 16**; the
+old arm disagreed on exactly the six predicted cells; 0 "Because" for
+an unsupported claim in either arm; the §11.47 why gate reproduced its
+record (why 1.000, recall 1.000, 0 rationalised, 0 fabricated); the
+§11.115 worlds moved nothing.
+
+**The reference was checked against the old code.** The fix moved
+polar onto the shared helper too, outside the flag, so neither arm ran
+the old polar and the matrix could not see a polar regression. Polar's
+sixteen replies were byte-compared against the pre-fix code instead: 0
+differ.
 
 ### 11.116 The denial the semantic route forgot
 
