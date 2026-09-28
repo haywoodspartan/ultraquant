@@ -1071,8 +1071,12 @@ class Reason(Thought):
             if suggester is not None:
                 reading = suggester.suggest(ctx.text, memory)
                 if reading is not None:
+                    # §11.116: a suggested reading must keep the held denial.
+                    value = (_shown_value({"value": reading.value,
+                                           "negated": reading.negated})
+                             if _SEMANTIC_POLARITY else reading.value)
                     ctx.say(f"Reading that as '{reading.key}': "
-                            f"{reading.key} is {reading.value} "
+                            f"{reading.key} is {value} "
                             f"(confidence {reading.confidence:.2f}, "
                             f"embedding match {reading.similarity:.2f}).")
                     ctx.note(self.name,
@@ -2651,6 +2655,15 @@ _ARITHMETIC_SKIPS_RECALL = False
 #: for byte, which is what makes "identical answers, fewer reads" a
 #: measurable claim rather than an assertion.
 _RETRIEVAL_ENGINE = True
+
+#: The §11.116 rung: a semantic reading speaks the held polarity.
+#: `Suggestion` carried the stored value and nothing else, so a denial
+#: reached through the suggester was spoken as its opposite - "kettle
+#: is not hot" came back "kettle is hot" - while the lexical route and
+#: the engine's own semantic route spoke the same record correctly.
+#: Off restores the old render byte for byte; it is the gate's arm,
+#: not an option.
+_SEMANTIC_POLARITY = True
 
 #: The §11.83 rung: a comparison side may be an EXPRESSION, and
 #: equality is a comparison. "is 3 * 4 greater than 10?" named

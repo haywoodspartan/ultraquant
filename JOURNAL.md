@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.116](#11116-the-denial-the-semantic-route-forgot) | The denial the semantic route forgot |
 | [11.115](#11115-the-engine-actually-in-the-pipeline) | The engine, actually in the pipeline |
 | [11.113](#11113-one-call-and-the-bill) | One call, and the bill |
 | [11.112](#11112-the-suggester-with-the-network-unplugged) | The suggester, with the network unplugged |
@@ -803,6 +804,73 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.116 The denial the semantic route forgot
+
+The first unit found by the pair. GPT-6 Astra's read-only review of
+the pipeline - twelve findings, each cited, most reproduced - put this
+one first, and Claude reproduced it independently, with controls,
+before anything changed.
+
+**The defect.** `Reason._question` carried its own copy of the
+semantic route and built its reply from `Suggestion.value` - the
+stored value and nothing else. A held denial reached that way was
+spoken as an assertion: "the kettle is not hot", asked "what is the
+copper kettle?", answered **"kettle is hot"**. The lexical route spoke
+the same record correctly, and so did the engine's own semantic route,
+which re-reads the record. The defect lived only in the duplicate -
+the strongest argument yet for finishing the unification §11.115 left
+open.
+
+Five pipeline sites speak a raw value rather than `_shown_value`. The
+other four were checked and are guarded: the superlative counts
+denials apart, because a denial names no number, and the comparison
+refuses a negated operand on either side before it renders.
+
+**The fix** carries polarity in `Suggestion`, defaulted so every
+existing constructor keeps working, and renders it through
+`_shown_value`. `_SEMANTIC_POLARITY = False` restores the old render
+byte for byte.
+
+**The criteria**, frozen before the fix existed, with one amendment
+also made before any run - the §11.115 worlds state no denials, so
+criterion 3 on them alone would pass whatever the fix did:
+
+1. **No inverted assertion** - ten negated facts, single-word,
+   multi-word and numeric; the old arm must invert all ten or the
+   gate is void.
+2. **Positives untouched.**
+3. **Changes are exactly the negated semantic readings**, in both
+   directions.
+4. **Nothing else moves** in the §11.115 worlds.
+5. **The full suite is green.**
+
+**PASSED.**
+
+| battery (10 negated facts) | old arm | fixed arm |
+|---|---:|---:|
+| spoken as an assertion | 10 | **0** |
+| spoken as a denial | 0 | **10** |
+
+Affirmed: 0 of 10 moved. Denial-bearing worlds, 240 turns: **29
+replies changed, exactly the 29 semantic readings of a negated
+record**, 0 spurious, 0 missed. The §11.115 worlds, 284 turns: 0
+replies, 0 intents, 0 stores differed. Suite: 2,165 passed, 2
+skipped, and one Tk start-up failure under full-suite load
+(`test_gui`) that passes alone and with its module, 58 of 58, and
+touches nothing this unit changed.
+
+The 29-in-240 exposure comes from a stress embedder that makes every
+cosine 1.0, so it is an upper bound, not a field rate. What it
+establishes is that the defect was not a corner: wherever the semantic
+route answered a denial, it answered it backwards.
+
+**How the pair worked.** Found by one model, reproduced by the other.
+The implementer, GPT-6 Astra, did not write its own exam; Claude did.
+Its first attempt ran in a read-only sandbox and was refused, and it
+reported that rather than claiming a fix. The review's other eleven
+findings are queued, each to be reproduced end to end before it
+becomes a unit.
 
 ### 11.115 The engine, actually in the pipeline
 

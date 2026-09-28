@@ -53,12 +53,14 @@ class Suggestion:
         value: That fact's stored value.
         confidence: The fact's stored confidence.
         similarity: The cosine match that proposed the reading.
+        negated: Whether the fact denies its stored value.
     """
 
     key: str
     value: str
     confidence: float
     similarity: float
+    negated: bool = False
 
 
 class SemanticSuggester:
@@ -211,5 +213,6 @@ class SemanticSuggester:
                     value=str(record.get("value", "")),
                     confidence=float(record.get("confidence", 0.0)),
                     similarity=similarity,
+                    negated=bool(record.get("negated", False)),
                 )
         return best
