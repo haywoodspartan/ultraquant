@@ -210,7 +210,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2279 tests, ~4 min
+python -m unittest discover -s tests      # 2295 tests, ~4 min
 ```
 
 In the chat, try:
@@ -249,8 +249,10 @@ ultraquant/
   forge/       build libraries from scratch - deployment languages - seed facts
   native/      C++/CUDA accelerators - the learned dispatch scheduler
   storage/     NVMe-oF / Ceph / SAN backends - RAM tier - paged index
+  cloud/       rented GPUs, on demand only - priced before leasing,
+               released on every path, every second on a ledger
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2279 tests across 158 modules
+tests/         2295 tests across 159 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

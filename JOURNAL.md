@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.127](#11127-paid-gpus-attach-on-demand) | Paid GPUs attach on demand |
 | [11.126](#11126-command-rs-next-token-computed-by-our-own-engine) | Command-R's next token, computed by our own engine |
 | [11.125](#11125-command-rs-matrices-multiplied-natively) | Command-R's matrices, multiplied natively |
 | [11.124](#11124-command-rs-text-becomes-exactly-llamacpps-token-ids) | Command-R's text becomes exactly llama.cpp's token ids |
@@ -814,6 +815,68 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.127 Paid GPUs attach on demand
+
+**The requirement, in the user's words: "The Usage needs to be
+on-Demand."** It came right after the first rented GPU answered: an
+RTX PRO 6000 Blackwell on lupine.sh, seen from this machine through
+lupine's shim as "(via lupine ...)", leased for one second and
+released. Before it, the user had said "money is an issue". lupine
+bills each attached GPU per second, and nothing attached is nothing
+billed. A lease is kept after a run until `lupine end`.
+
+**`ultraquant/cloud/ondemand.py` is now the only way this project may
+touch a paid GPU.** A job is priced before it is leased: at the
+dearest listed rate unless its GPU type is pinned, with fifteen
+seconds' grace. It is refused when the month's spend would pass the
+cap. That spend is the higher of our own ledger and lupine's own usage
+report, and a price list or report the runner cannot read refuses
+too. Otherwise the GPU is attached for the job's seconds, stopped at
+its limit, and released on every path, and a receipt goes on the
+ledger. One job holds a lease at a time, so no job's release can cut
+off another's GPU. On this machine lupine runs in WSL, which can see
+the user's own 4090. `LUPINE_DISABLE_LOCAL=1` is carried through
+WSLENV, so a job can never quietly run on the local card while paying
+for the rental. GPT-6 Astra wrote the runner; Claude wrote the exam.
+
+**No money was spent testing it.** The exam drives the runner through
+a stand-in lupine that prints what v0.3.1 prints, copied from the real
+CLI. The stand-in keeps its own lease state, and that state is what
+the exam believes, not the runner's claim to have released anything.
+
+**PASSED** on every measured criterion, with 5 of 5 planted defects
+caught (release claimed but never done, unpinned jobs priced at the
+cheapest rate, the local GPU left visible, no lock, lupine's usage
+ignored). Every release path held: success, a failing workload, an
+overrun, garbled CLI output, a flaky `end`. When `end` never succeeds,
+the runner raises with the unreleased receipt already on the ledger.
+Every over-budget job was refused with zero `run` calls.
+
+**The review found what the exam could not.** A job interrupted with
+Ctrl-C was released and recorded correctly, but its receipt said
+"timed out": the cleanup path labelled every kill a timeout. A ledger
+that misdescribes the work is §11.122's defect again, in a new place.
+It is fixed, receipts now name the error that stopped a job, and the
+test pinning it fails on the code before the fix.
+
+**Not known yet, and stated so it is not mistaken for done:**
+- whether killing a `--remote` client stops the remote pod;
+- whether two processes' runs share one cached lease (the lock
+  serialises one process);
+- how lupine gives one job several GPUs;
+- which rate an unpinned job is charged. The CLI lists the RTX PRO
+  6000 at $1.50 an hour, and the pricing page promises a flat $1.10
+  "whichever gpu you get". The runner budgets at $1.50 until a bill
+  says otherwise.
+
+The first real run through the runner, and a few probes, answer all
+four for well under a dollar. Each waits for the user's OK.
+
+Suite: 2,291 passed, 4 skipped, 0 failed. The fourth skip is the
+tokenizer's live-oracle check: this unit also stopped the two local
+llama.cpp servers, which had held 19 GB of the 4090 idle since
+§11.126. They start again when a gate needs them.
 
 ### 11.126 Command-R's next token, computed by our own engine
 

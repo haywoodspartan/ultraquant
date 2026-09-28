@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 5.15 · 2279 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 5.16 · 2295 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -243,10 +243,11 @@ ultraquant/
   interpreter/ codefunc · webaccess · stash · thoughts ·       the chat layer
                selflearn · learning · chat                     (learning = it asks you)
   native/      accel · backends · hetero · dispatch · _bin/    C++/CUDA tiers
+  cloud/       ondemand                                        rented GPUs, on demand only
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         158 modules, 2279 tests
+tests/         159 modules, 2295 tests
 ```
 
 ---
