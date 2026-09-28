@@ -421,3 +421,85 @@ class ThirdReviewRegressionTests(unittest.TestCase):
                 release.set()
                 holder.join(timeout=30)
         self.assertLess(timings[1000], timings[1] * 5 + 0.02)
+
+
+class FourthReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's fourth review: escape routes combined."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r4_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_delegated_semantic_call_is_not_a_complete_bill(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        class Silent:
+            def suggest(inner, question, mem):
+                return None               # no memory read at all
+
+        class Delegating:
+            def suggest(inner, question, mem):
+                child = R.RetrievalEngine(mem, suggester=Silent())
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(child.retrieve, "how tall is it?",
+                                routes=("semantic",)).result()
+                return None
+
+        found = R.RetrievalEngine(self.memory, suggester=Delegating()) \
+            .retrieve("how tall is the spire?", routes=("semantic",))
+        self.assertFalse(found.bill_complete)
+
+    def test_an_awaited_unmetered_worker_taints_the_parent(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        class Stub:
+            def recall_fact(inner, key):
+                return None
+
+            def find_facts(inner, text, top_k=5):
+                return []
+
+        class Delegating:
+            def suggest(inner, question, mem):
+                child = R.RetrievalEngine(Stub())
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(child.retrieve, "what is the tower height?",
+                                routes=("lexical",)).result()
+                return None
+
+        found = R.RetrievalEngine(self.memory, suggester=Delegating()) \
+            .retrieve("how tall is the spire?", routes=("semantic",))
+        self.assertFalse(found.bill_complete)
+
+    def test_a_hand_copied_context_is_not_a_tracked_lifetime(self) -> None:
+        """Charges arrive through the copy, but nothing tracks the worker."""
+        import contextvars
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        read_once = threading.Event()
+        release = threading.Event()
+        pool = ThreadPoolExecutor(max_workers=1)
+
+        class HandCopied:
+            def suggest(inner, question, mem):
+                def work():
+                    mem.recall_fact("tower height")
+                    read_once.set()
+                    release.wait(timeout=5)
+                    mem.recall_fact("tower height")
+                pool.submit(contextvars.copy_context().run, work)
+                read_once.wait(timeout=5)
+                return None
+
+        try:
+            found = R.RetrievalEngine(self.memory, suggester=HandCopied()) \
+                .retrieve("how tall is the spire?", routes=("semantic",))
+        finally:
+            release.set()
+            pool.shutdown(wait=True)
+        self.assertFalse(found.bill_complete)

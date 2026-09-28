@@ -35,9 +35,19 @@ the wrong shape, so the guarantee is made once instead:
 * :func:`mark_enclosing_incomplete` lets a call that cannot meter itself
   taint every bill that encloses it.
 
-A bill is **complete** only if none of those fired. The one thing no
-in-process meter can see is work queued but not yet started when the
-call returns: a suggester must not abandon work it submitted.
+A fourth review combined those routes and got past each safeguard, so
+everything a bill cannot see moves a process-wide signal it samples at
+open and close - memory operations, suggester calls, and calls over
+memories that do not meter - and a charge that arrives from a thread
+other than the bill's own, outside a :func:`carry` invocation, marks
+the bill incomplete (a hand-copied context carries charges but no
+lifetime).
+
+A bill is **complete** only if none of those fired. What no in-process
+meter can see is work that has not begun when the call returns - queued,
+scheduled, or started later on a hand-copied context: a bill describes
+work done before its call returned, and work left running or queued past
+that point is out of its contract.
 
 With no bill open anywhere, each hook costs one context-variable read
 and one integer truth test.
@@ -71,7 +81,8 @@ class Bill:
     #: Carried invocations running now, and at the moment of closing.
     in_flight: int = 0
     in_flight_at_close: int = 0
-    _opened_at: int = 0
+    _opened_at: tuple = (0, 0, 0)
+    _owner: int = 0
 
     @property
     def complete(self) -> bool:
@@ -83,9 +94,12 @@ _BILLS: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_bills", default=())
 _PHRASE: contextvars.ContextVar = contextvars.ContextVar(
     "ultraquant_phrase_depth", default=0)
+_CARRIED: contextvars.ContextVar = contextvars.ContextVar(
+    "ultraquant_carried", default=False)
 _LOCK = threading.Lock()
-#: [bills open anywhere, metered operations while any was open]
-_STATE = [0, 0]
+#: [bills open anywhere, then - counted while any bill is open - metered
+#: memory operations, suggester calls, unmetered calls]
+_STATE = [0, 0, 0, 0]
 
 
 @contextmanager
@@ -94,16 +108,21 @@ def metering(bill: Bill):
     token = _BILLS.set(_BILLS.get() + (bill,))
     with _LOCK:
         _STATE[0] += 1
-        bill._opened_at = _STATE[1]
+        bill._opened_at = (_STATE[1], _STATE[2], _STATE[3])
+        bill._owner = threading.get_ident()
     try:
         yield bill
     finally:
         _BILLS.reset(token)
         with _LOCK:
-            window = _STATE[1] - bill._opened_at
+            memory_ops = _STATE[1] - bill._opened_at[0]
+            suggester_calls = _STATE[2] - bill._opened_at[1]
+            unmetered_calls = _STATE[3] - bill._opened_at[2]
             _STATE[0] -= 1
             bill.in_flight_at_close = bill.in_flight
-        bill.unattributed = max(0, window - bill.lookups - bill.index)
+        bill.unattributed = max(0, memory_ops - bill.lookups - bill.index)
+        if suggester_calls > bill.semantic or unmetered_calls:
+            bill.incomplete = True
 
 
 def carry(fn):
@@ -117,13 +136,17 @@ def carry(fn):
     base = contextvars.copy_context()
     bills = base.get(_BILLS, ())
 
+    def inside(*args, **kwargs):
+        _CARRIED.set(True)
+        return fn(*args, **kwargs)
+
     @functools.wraps(fn)
     def carried(*args, **kwargs):
         with _LOCK:
             for bill in bills:
                 bill.in_flight += 1
         try:
-            return base.copy().run(fn, *args, **kwargs)
+            return base.copy().run(inside, *args, **kwargs)
         finally:
             with _LOCK:
                 for bill in bills:
@@ -143,11 +166,27 @@ def phrase_path():
 
 
 def mark_enclosing_incomplete(own: Bill | None = None) -> None:
-    """Every bill open in this context, except ``own``, is now unsure."""
+    """A call that cannot meter itself: every bill that may enclose it is
+    unsure - those in this context directly, any other through the
+    process-wide unmetered count it samples."""
     with _LOCK:
+        if _STATE[0]:
+            _STATE[3] += 1
         for bill in _BILLS.get():
             if bill is not own:
                 bill.incomplete = True
+
+
+def _foreign(bills: tuple) -> None:
+    """Charges from another thread, outside carry(): no lifetime known.
+
+    Called with the lock held."""
+    if _CARRIED.get():
+        return
+    me = threading.get_ident()
+    for bill in bills:
+        if bill._owner != me:
+            bill.incomplete = True
 
 
 def _charge(field: str) -> None:
@@ -157,6 +196,7 @@ def _charge(field: str) -> None:
     phrase = field == "index" and _PHRASE.get() > 0
     with _LOCK:
         _STATE[1] += 1
+        _foreign(bills)
         for bill in bills:
             setattr(bill, field, getattr(bill, field) + 1)
             if phrase:
@@ -175,8 +215,11 @@ def charge_index() -> None:
 
 def charge_semantic() -> None:
     """One call to a suggester, charged to every bill open in context."""
+    if not _STATE[0]:
+        return
     bills = _BILLS.get()
-    if bills:
-        with _LOCK:
-            for bill in bills:
-                bill.semantic += 1
+    with _LOCK:
+        _STATE[2] += 1
+        _foreign(bills)
+        for bill in bills:
+            bill.semantic += 1
