@@ -9,6 +9,9 @@ __pycache__/
 uq_home/
 uq_home_demo/
 uq_probe/
+# Whole-library backups taken before an operation changes uq_home; they
+# are the user's data and never belong in the repository.
+uq_backups/
 uq_gui_home*/
 artchive_store/
 forged/
