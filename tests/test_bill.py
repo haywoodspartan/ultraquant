@@ -223,3 +223,73 @@ class ReviewRegressionTests(unittest.TestCase):
         outer = engine.retrieve("how tall is the spire?",
                                 routes=("semantic",))
         self.assertEqual(outer.semantic_calls, 2)
+
+
+class SecondReviewRegressionTests(unittest.TestCase):
+    """GPT-6 Astra's second adversarial review: work that went unbilled."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="uq_bill_r2_"))
+        self.memory = SystematicMemory(self.dir / "memory.json")
+        self.memory.remember_fact("tower height", "300 meters")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _executor_suggester(self, carried: bool):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ultraquant.memory.metering import carry
+
+        class Pooled:
+            def suggest(inner, question, memory):
+                def work():
+                    memory.find_facts(question, top_k=3)
+                    memory.recall_fact("tower height")
+                task = carry(work) if carried else work
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(task).result()
+                return None
+
+        return Pooled()
+
+    def test_carried_executor_work_is_billed(self) -> None:
+        engine = R.RetrievalEngine(self.memory,
+                                   suggester=self._executor_suggester(True))
+        found = engine.retrieve("how tall is the spire?",
+                                routes=("semantic",))
+        self.assertEqual(found.lookup_attempts, 1)
+        self.assertEqual(found.index_probes, 1)
+        self.assertEqual(found.unattributed_memory_calls, 0)
+
+    def test_uncarried_executor_work_is_flagged_not_hidden(self) -> None:
+        """It cannot be attributed - so the bill must say it is short."""
+        engine = R.RetrievalEngine(self.memory,
+                                   suggester=self._executor_suggester(False))
+        found = engine.retrieve("how tall is the spire?",
+                                routes=("semantic",))
+        self.assertEqual(found.lookup_attempts, 0)
+        self.assertEqual(found.unattributed_memory_calls, 2)
+
+    def test_an_unmetered_memory_reports_unknown_not_zero(self) -> None:
+        class Stub:
+            def recall_fact(inner, key):
+                return ({"value": "300 meters", "confidence": 0.6}
+                        if key == "tower height" else None)
+
+            def find_facts(inner, text, top_k=5):
+                return ["tower height"]
+
+        found = R.RetrievalEngine(Stub()).retrieve(
+            "what is the tower height?")
+        self.assertEqual(found.keys, ["tower height"])
+        self.assertFalse(found.metered)
+        self.assertIsNone(found.lookup_attempts)
+        self.assertIsNone(found.examined)
+        self.assertIsNone(found.index_probes)
+
+    def test_systematic_memory_declares_itself_metered(self) -> None:
+        found = R.RetrievalEngine(self.memory).retrieve(
+            "what is the tower height?")
+        self.assertTrue(found.metered)
+        self.assertIsInstance(found.lookup_attempts, int)

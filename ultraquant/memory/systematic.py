@@ -46,6 +46,12 @@ class SystematicMemory:
         (bounded FIFO — oldest ids are evicted first).
     """
 
+    #: §11.122: this memory charges the metering hooks itself, so a bill
+    #: over it is a measurement. A subclass overriding recall_fact or
+    #: find_facts must charge them too (or call super()); a memory that
+    #: does not declare this is billed as unknown, never as zero.
+    metered = True
+
     def __init__(
         self,
         path: str | os.PathLike | None = None,

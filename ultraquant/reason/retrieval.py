@@ -130,10 +130,17 @@ class Retrieval:
     #: work done inside the suggester is on it too. Per call, never
     #: cumulative.
     unique_facts_returned: int = 0
-    lookup_attempts: int = 0
-    index_probes: int = 0
-    phrase_probes: int = 0
+    lookup_attempts: int | None = 0
+    index_probes: int | None = 0
+    phrase_probes: int | None = 0
     semantic_calls: int = 0
+    #: Whether the memory counts its own work. When it does not, the
+    #: memory counters are None - unknown - never a zero that looks
+    #: like a measurement.
+    metered: bool = False
+    #: Memory work done outside every bill while this one was open:
+    #: nonzero means the bill may be short (see memory/metering.py).
+    unattributed_memory_calls: int = 0
 
     @property
     def keys(self) -> list:
@@ -298,11 +305,16 @@ class RetrievalEngine:
         bill = Bill()
         with metering(bill):
             result = self._retrieve(question, exhaustive, routes)
-        result.lookup_attempts = bill.lookups
-        result.examined = bill.lookups
-        result.index_probes = bill.index
-        result.phrase_probes = bill.phrase
+        result.metered = bool(getattr(self.memory, "metered", False))
         result.semantic_calls = bill.semantic
+        result.unattributed_memory_calls = bill.unattributed
+        if result.metered:
+            result.lookup_attempts = result.examined = bill.lookups
+            result.index_probes = bill.index
+            result.phrase_probes = bill.phrase
+        else:
+            result.lookup_attempts = result.examined = None
+            result.index_probes = result.phrase_probes = None
         result.unique_facts_returned = len({item.key
                                             for item in result.facts})
         return result
