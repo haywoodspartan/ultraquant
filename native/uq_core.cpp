@@ -18,11 +18,132 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #define UQ_EXPORT extern "C" __declspec(dllexport)
+
+// Keep ggml's separate float32 operations, including the multiply/subtract.
+#pragma float_control(precise, on, push)
+#pragma fp_contract(off)
+
+namespace {
+
+int kq_block_bytes(int type) {
+    return type == 12 ? 144 : type == 13 ? 176 : type == 14 ? 210 : 0;
+}
+
+float kq_half(const uint8_t* p) {
+    const uint32_t h = p[0] | (uint32_t(p[1]) << 8);
+    const uint32_t exponent = (h >> 10) & 31, mantissa = h & 1023;
+    if (exponent == 0)
+        return std::ldexp(float(mantissa), -24) * ((h & 32768) ? -1.0f : 1.0f);
+    const uint32_t bits = ((h & 32768) << 16) | (mantissa << 13)
+        | (exponent == 31 ? 0x7f800000u : (exponent + 112) << 23);
+    float value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+void kq_decode(int type, const uint8_t* w, float* out) {
+    if (type == 14) {
+        const float d = kq_half(w + 208);
+        for (int half = 0; half < 2; ++half) {
+            for (int group = 0; group < 4; ++group) {
+                const uint8_t* low = w + half * 64 + (group % 2) * 32;
+                const uint8_t* high = w + 128 + half * 32;
+                for (int lane = 0; lane < 32; ++lane) {
+                    const int q = ((low[lane] >> (4 * (group / 2))) & 15)
+                        | (((high[lane] >> (2 * group)) & 3) << 4);
+                    const int s = w[192 + half * 8 + group * 2 + lane / 16];
+                    const float ds = d * float(s < 128 ? s : s - 256);
+                    out[half * 128 + group * 32 + lane] = ds * float(q - 32);
+                }
+            }
+        }
+        return;
+    }
+    const float d = kq_half(w), dmin = kq_half(w + 2);
+    const uint8_t* scales = w + 4;
+    const uint8_t* low = w + (type == 13 ? 48 : 16);
+    for (int group = 0; group < 8; ++group) {
+        const int scale = group < 4 ? scales[group] & 63
+            : (scales[group + 4] & 15) | ((scales[group - 4] >> 6) << 4);
+        const int minimum = group < 4 ? scales[group + 4] & 63
+            : (scales[group + 4] >> 4) | ((scales[group] >> 6) << 4);
+        const float ds = d * float(scale), dm = dmin * float(minimum);
+        for (int lane = 0; lane < 32; ++lane) {
+            int q = (low[(group / 2) * 32 + lane] >> (4 * (group % 2))) & 15;
+            if (type == 13) q |= ((w[16 + lane] >> group) & 1) << 4;
+            const float product = ds * float(q);
+            out[group * 32 + lane] = product - dm;
+        }
+    }
+}
+
+}  // namespace
+
+UQ_EXPORT int uq_kq_dequant(int type, const uint8_t* w, int64_t n, float* out) {
+    const int bytes = kq_block_bytes(type);
+    if (!bytes || n < 0 || n % 256 || n > INT64_MAX / int64_t(sizeof(float))
+        || (n && (!w || !out))) return 1;
+    for (int64_t block = 0; block < n / 256; ++block)
+        kq_decode(type, w + block * bytes, out + block * 256);
+    return 0;
+}
+
+UQ_EXPORT int uq_kq_matvec(int type, const uint8_t* w, int64_t rows,
+                          int64_t cols, const double* x, double* y, int threads) {
+    const int bytes = kq_block_bytes(type);
+    if (!bytes || rows < 0 || cols <= 0 || cols % 256
+        || cols > INT64_MAX / int64_t(sizeof(double))
+        || rows > INT64_MAX / int64_t(sizeof(double))) return 1;
+    const int64_t row_bytes = (cols / 256) * bytes;
+    if (rows > INT64_MAX / row_bytes || (rows && (!w || !x || !y))) return 1;
+    if (!rows) return 0;
+    if (threads <= 0) {
+        const unsigned hc = std::thread::hardware_concurrency();
+        threads = hc ? int(hc) : 1;
+    }
+    if (threads > rows) threads = int(rows);
+    auto worker = [=](int64_t begin, int64_t end) {
+        float decoded[256];
+        for (int64_t row = begin; row < end; ++row) {
+            double sum = 0.0;
+            const uint8_t* packed = w + row * row_bytes;
+            for (int64_t block = 0; block < cols / 256; ++block) {
+                kq_decode(type, packed + block * bytes, decoded);
+                for (int lane = 0; lane < 256; ++lane)
+                    sum += double(decoded[lane]) * x[block * 256 + lane];
+            }
+            y[row] = sum;
+        }
+    };
+    if (threads == 1) {
+        worker(0, rows);
+        return 0;
+    }
+    std::vector<std::thread> pool;
+    try {
+        pool.reserve(threads);
+        int64_t begin = 0;
+        for (int t = 0; t < threads; ++t) {
+            const int64_t end = begin + rows / threads + (t < rows % threads);
+            pool.emplace_back(worker, begin, end);
+            begin = end;
+        }
+    } catch (...) {
+        for (auto& th : pool) th.join();
+        return 2;  // Never unwind a C++ exception across ctypes.
+    }
+    for (auto& th : pool) th.join();
+    return 0;
+}
+
+#pragma float_control(pop)
 
 namespace {
 

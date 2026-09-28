@@ -50,6 +50,8 @@ __all__ = [
     "feature_map_batch_cpu",
     "ternary_forward_cpu",
     "ternary_forward_batch_cpu",
+    "kq_matvec_cpu",
+    "kq_dequant_cpu",
     "gpu_available",
     "gpu_device_name",
     "run_ops_gpu",
@@ -149,6 +151,68 @@ def _declare_cpu(dll: ctypes.CDLL) -> None:
         p_i8, c_dbl, p_dbl, p_dbl, c_int, c_int, c_int, p_dbl, c_int,
     ]
     dll.uq_ternary_forward_batch.restype = None
+
+    # Optional so an older DLL still provides its existing accelerators.
+    p_u8 = ctypes.POINTER(ctypes.c_uint8)
+    if hasattr(dll, "uq_kq_matvec"):
+        dll.uq_kq_matvec.argtypes = [
+            c_int, p_u8, ctypes.c_int64, ctypes.c_int64, p_dbl, p_dbl, c_int,
+        ]
+        dll.uq_kq_matvec.restype = c_int
+    if hasattr(dll, "uq_kq_dequant"):
+        dll.uq_kq_dequant.argtypes = [
+            c_int, p_u8, ctypes.c_int64, ctypes.POINTER(ctypes.c_float),
+        ]
+        dll.uq_kq_dequant.restype = c_int
+
+
+def _kq_raw(type: int, raw: bytes, n: int):
+    """Validate packed block length before passing a pointer to native code."""
+    block_bytes = {12: 144, 13: 176, 14: 210}.get(type)
+    if block_bytes is None or n < 0 or n % 256:
+        raise ValueError("k-quant type or shape is invalid")
+    if len(raw) != n // 256 * block_bytes:
+        raise ValueError("k-quant byte count does not match the shape")
+    return ctypes.cast(raw, ctypes.POINTER(ctypes.c_uint8))
+
+
+def kq_dequant_cpu(type: int, raw: bytes) -> list[float]:
+    """Decode whole Q4_K/Q5_K/Q6_K blocks to exactly widened float32 values."""
+    raw = bytes(raw)
+    block_bytes = {12: 144, 13: 176, 14: 210}.get(type)
+    if block_bytes is None or len(raw) % block_bytes:
+        raise ValueError("k-quant type or block length is invalid")
+    n = len(raw) // block_bytes * 256
+    packed = _kq_raw(type, raw, n)
+    dll = load_cpu()
+    if dll is None or not hasattr(dll, "uq_kq_dequant"):
+        raise RuntimeError("native k-quant dequantization is unavailable")
+    out = (ctypes.c_float * n)()
+    if dll.uq_kq_dequant(type, packed, n, out):
+        raise RuntimeError("native k-quant dequantization failed")
+    return list(out)
+
+
+def kq_matvec_cpu(type: int, raw: bytes, rows: int, cols: int,
+                  x: Sequence[float], threads: int = 0) -> list[float]:
+    """Multiply packed k-quant rows by a double vector; threads <= 0 is auto."""
+    import operator
+
+    rows, cols, threads = map(operator.index, (rows, cols, threads))
+    if rows < 0 or cols <= 0 or cols % 256 or len(x) != cols:
+        raise ValueError("k-quant matrix and vector shapes do not match")
+    if not -(2**31) <= threads < 2**31:
+        raise ValueError("threads must fit a C int")
+    raw = bytes(raw)
+    packed = _kq_raw(type, raw, rows * cols)
+    dll = load_cpu()
+    if dll is None or not hasattr(dll, "uq_kq_matvec"):
+        raise RuntimeError("native k-quant matvec is unavailable")
+    vector = (ctypes.c_double * cols)(*x)
+    out = (ctypes.c_double * rows)()
+    if dll.uq_kq_matvec(type, packed, rows, cols, vector, out, threads):
+        raise RuntimeError("native k-quant matvec failed")
+    return list(out)
 
 
 def _declare_gpu(dll: ctypes.CDLL) -> None:

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.125](#11125-command-rs-matrices-multiplied-natively) | Command-R's matrices, multiplied natively |
 | [11.124](#11124-command-rs-text-becomes-exactly-llamacpps-token-ids) | Command-R's text becomes exactly llama.cpp's token ids |
 | [11.123](#11123-k-quant-weights-decoded-exactly-as-llamacpp-decodes-them) | K-quant weights, decoded exactly as llama.cpp decodes them |
 | [11.122](#11122-the-bill-describes-the-work) | The bill describes the work |
@@ -812,6 +813,41 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.125 Command-R's matrices, multiplied natively
+
+The third unit of running Command-R. §11.123 made its weights readable,
+bit-exact to ggml, at 0.41 s per million weights - 3.6 hours a pass. GPT-6
+Astra wrote the native kernel: `uq_kq_matvec` in the CPU DLL decodes
+Q4_K / Q5_K / Q6_K rows exactly as ggml does and multiplies them by a
+vector straight from the GGUF bytes, float64 accumulation, rows split
+across threads; `infer/matvec.py` wraps it and falls back to the Python
+decoder when the DLL is absent. Claude wrote the exam.
+
+**A design fact, fixed before the run.** llama.cpp's CPU path quantizes
+the activation vector to Q8_K before each dot product; this kernel does
+not. Its agreement with llama.cpp end to end can only ever be
+statistical. Bitwise parity is owed to our own oracle - SPEC-NATIVE's
+1e-9 in double precision.
+
+**The exam's own defect came first.** The first run went VOID: handed
+Q5_K bytes as Q4_K, the kernel decoded garbage fp16 scales into NaN, and
+the harness compared with `> 1e-9` - False for NaN - so NaN counted as
+agreement. The same hole was in criterion 1: `max(0.0, nan)` is 0.0, so
+a kernel returning NaN everywhere would have passed parity. The validity
+check going void is what stopped the exam vouching for anything with
+that hole in it. Non-finite values now always fail, and a pin holds it.
+
+**PASSED.** 24 rows across all eight layer-0 matrices and the Q6_K
+embedding: relative error **0.0** - both sides accumulate each row in
+float64 in the same order; native decode bit-identical; the wrong type
+fails 8 of 8 rows; the fallback agrees exactly. **The speed is the honest
+weak point**: 113 MB of ffn_up in 18.3 ms, **6.2 GB/s**, against the ~46
+GB/s llama.cpp reaches on this CPU - scalar decoding and float64
+accumulation, built exact first. SIMD decoding and the CUDA path, with the
+whole model resident in the 4090, are where that gap is to be closed, each
+owing this kernel the same parity. Suite: 2,269 passed, 2 skipped, 0
+failed, every existing native test running on the rebuilt DLL.
 
 ### 11.124 Command-R's text becomes exactly llama.cpp's token ids
 
