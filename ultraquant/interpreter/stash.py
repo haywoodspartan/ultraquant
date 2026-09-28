@@ -729,7 +729,11 @@ class ContemporaryStash:
             confidence = 0.8 if entry["status"] == "corroborated" else 0.55
             if not eligible:
                 confidence = 0.3
-        result = memory.remember_fact(key, value, confidence=confidence)
+        # §11.139: carry authoritative writer slots into semantic memory.
+        fields = self._fields_of(entry) or {}
+        result = memory.remember_fact(key, value, confidence=confidence,
+                                      subject=fields.get("subject"),
+                                      attribute=fields.get("attribute"))
         # Keep the public key return while exposing the actual memory outcome
         # and supplied confidence to the approval journal.
         self.last_promotion = {**result, "confidence": float(confidence)}

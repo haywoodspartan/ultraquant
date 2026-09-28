@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata  # §11.139: language normalization, without domain rules.
+from copy import deepcopy
 from typing import Any
 
 __all__ = ["FactShards", "DEFAULT_BUCKETS"]
@@ -48,6 +50,25 @@ __all__ = ["FactShards", "DEFAULT_BUCKETS"]
 DEFAULT_BUCKETS = 256
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+# §11.139: shared by addressing, dictionaries and readers in both stores.
+def normalize_subject(subject: str) -> str:
+    """Fold case, accents, punctuation and one leading article."""
+    decomposed = unicodedata.normalize("NFKD", subject.casefold())
+    bare = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    words = "".join(ch if ch.isalnum() else " " for ch in bare).split()
+    if words and words[0] in ("the", "a", "an"):
+        words = words[1:]
+    return " ".join(words)
+
+
+def subject_ngrams(text: str) -> set[str]:
+    """Contiguous normalized phrases of one through eight tokens."""
+    words = normalize_subject(text).split()
+    return {" ".join(words[start:start + size])
+            for start in range(len(words))
+            for size in range(1, min(8, len(words) - start) + 1)}
 
 
 class FactShards:
@@ -66,6 +87,11 @@ class FactShards:
         self.cache = cache
         self.buckets = int(buckets)
         self._dirty: dict[str, dict[str, Any]] = {}
+        # §11.139: index pages are cached independently of fact buckets.
+        self._indexes: dict[str, dict] = {}
+        self._index_before: dict[str, dict | None] = {}
+        self._indexes_ready = False
+        self._duplicates: dict[str, set[str]] = {}
 
     # ------------------------------------------------------------------ #
     # addressing
@@ -88,9 +114,20 @@ class FactShards:
         also how recall is supposed to feel.
         """
         prefix = " ".join(self.tokens(key)[:2]) or key.lower()
-        digest = hashlib.blake2b(prefix.encode("utf-8"),
+        # §11.139: unstructured keys retain their prefix addressing scheme.
+        return self.subject_bucket(prefix)
+
+    def subject_bucket(self, subject: str) -> str:
+        """The bucket addressed by a normalized subject."""
+        digest = hashlib.blake2b(normalize_subject(subject).encode("utf-8"),
                                  digest_size=4).digest()
         return f"fact:{int.from_bytes(digest, 'big') % self.buckets:03d}"
+
+    # §11.139: the only rule assigning a record to its bucket.
+    def address(self, key: str, record: dict) -> str:
+        """Address explicit structure, falling back to the unstructured key."""
+        return (self.subject_bucket(record["subject"]) if record.get("subject")
+                else self.bucket_of(key))
 
     def _legacy_bucket_of(self, key: str) -> str:
         """The pre-prefix-era address, kept so old stores stay readable."""
@@ -102,6 +139,162 @@ class FactShards:
     def tokens(key: str) -> list[str]:
         """Keyword tokens of a fact key, for the vault's inverted index."""
         return _TOKEN_RE.findall(key.lower())
+
+    # §11.139: all four dictionaries use the same paged index machinery.
+    @staticmethod
+    def _index_id(kind: str, key: str = "") -> str:
+        if kind == "attributes":
+            return "index:attributes"
+        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=4).digest()
+        return f"index:{kind}:{int.from_bytes(digest, 'big') % 64:02d}"
+
+    def _index_data(self, kind: str, key: str = "") -> dict:
+        shard_id = self._index_id(kind, key)
+        field = "derived" if kind == "derivations" else kind
+        if shard_id not in self._indexes:
+            payload = self.vault.get(shard_id) if self.vault.has(shard_id) else None
+            self._index_before[shard_id] = deepcopy(payload)
+            self._indexes[shard_id] = deepcopy(payload) if payload is not None else {field: {}}
+        return self._indexes[shard_id][field]
+
+    def _ensure_indexes(self) -> None:
+        """Migrate a library lacking derivation indexes in one bucket scan."""
+        if self._indexes_ready:
+            return
+        entries = self.vault.catalog()
+        if any(e["shard_id"].startswith("index:derivations:") for e in entries):
+            self._indexes_ready = True
+            return
+        # §11.139: even an edgeless library persists a migration marker.
+        # Reads share one batch so a migration does not fsync per bucket.
+        with self.vault.batch():
+            for entry in entries:
+                sid = entry["shard_id"]
+                if entry.get("kind") == "fact-index":
+                    payload = self.vault.get(sid)
+                    self._index_before[sid] = deepcopy(payload)
+                    self._indexes[sid] = {field: {} for field in payload}
+            marker = "index:derivations:00"
+            self._indexes.setdefault(marker, {"derived": {}})
+            self._index_before.setdefault(marker, None)
+            locations: dict[str, set[str]] = {}
+            # §11.139: preserve get's precedence when old stores hold duplicates.
+            # Only catalogue fields are retained during this one-time scan.
+            selected: dict[str, tuple[str, dict]] = {}
+            attribute_subjects: dict[str, set[str]] = {}
+            for entry in entries:
+                if entry.get("kind") != "fact-bucket":
+                    continue
+                bucket = entry["shard_id"]
+                for key, record in self._load(bucket).items():
+                    locations.setdefault(key, set()).add(bucket)
+                    # §11.139: an existing directory outranks both fallbacks.
+                    prior_index = self._index_before.get(self._index_id("keys", key)) or {}
+                    directed = prior_index.get("keys", {}).get(key)
+                    preferred = (directed, self.bucket_of(key), self._legacy_bucket_of(key))
+                    rank = preferred.index(bucket) if bucket in preferred else 3
+                    previous = selected.get(key)
+                    prior_rank = (preferred.index(previous[0])
+                                  if previous and previous[0] in preferred else 3)
+                    if previous is None or rank < prior_rank:
+                        selected[key] = (bucket, {field: record[field] for field in
+                            ("subject", "attribute", "derived_from") if field in record})
+            for key, (bucket, record) in selected.items():
+                directory = self._index_data("keys", key)
+                if bucket != self.bucket_of(key):
+                    directory[key] = bucket
+                subject = normalize_subject(record.get("subject") or "")
+                if subject:
+                    subjects = self._index_data("subjects", subject)
+                    item = subjects.setdefault(subject, {
+                        "name": record["subject"], "bucket": bucket, "keys": []})
+                    item["keys"] = sorted(set(item["keys"]) | {key})
+                    attribute = normalize_subject(record.get("attribute") or "")
+                    if attribute:
+                        attribute_subjects.setdefault(attribute, set()).add(subject)
+                        self._index_data("attributes").setdefault(attribute, {
+                            "name": record["attribute"], "subjects": 0})
+                self._update_derivations(key, None, record)
+            for attribute, subjects in attribute_subjects.items():
+                self._index_data("attributes")[attribute]["subjects"] = len(subjects)
+            self._duplicates = {key: buckets for key, buckets in locations.items()
+                                if len(buckets) > 1}
+        self._indexes_ready = True
+        # §11.139: clean historical duplicate locations in the indexed flush,
+        # so the directory remains sufficient after a restart.
+        for key in list(self._duplicates):
+            self.put(key, self.get(key))
+
+    def _locations(self, key: str) -> list[str]:
+        """Directory address first, followed by both historical fallbacks."""
+        self._ensure_indexes()
+        directory = self._index_data("keys", key).get(key)
+        return list(dict.fromkeys(b for b in [directory, self.bucket_of(key),
+                    self._legacy_bucket_of(key), *sorted(self._duplicates.get(key, ()))]
+                    if b is not None))
+
+    def _update_derivations(self, key: str, old: dict | None, new: dict | None) -> None:
+        before = {p for p, _v in (old or {}).get("derived_from", [])}
+        after = {p for p, _v in (new or {}).get("derived_from", [])}
+        for premise in before | after:
+            index = self._index_data("derivations", premise)
+            children = set(index.get(premise, ()))
+            children.discard(key)
+            if premise in after:
+                children.add(key)
+            if children:
+                index[premise] = sorted(children)
+            else:
+                index.pop(premise, None)
+
+    def derived_candidates(self, key: str) -> set[str]:
+        """Direct dependants from the persisted reverse premise index."""
+        self._ensure_indexes()
+        return set(self._index_data("derivations", key).get(key, ()))
+
+    def subjects_in(self, text: str) -> set[str]:
+        """Held subjects named by any contiguous one-to-eight-token phrase."""
+        self._ensure_indexes()
+        return {phrase for phrase in subject_ngrams(text)
+                if phrase in self._index_data("subjects", phrase)}
+
+    def _other_attribute(self, subject: str, attribute: str, key: str) -> bool:
+        item = self._index_data("subjects", subject).get(subject)
+        if item is None:
+            return False
+        for other in item["keys"]:
+            if other != key:
+                record = self.get(other) or {}
+                if normalize_subject(record.get("attribute") or "") == attribute:
+                    return True
+        return False
+
+    def _update_structure(self, key: str, old: dict | None, new: dict | None,
+                          bucket: str | None) -> None:
+        """Maintain subject membership and counts of subjects per attribute."""
+        old, new = old or {}, new or {}
+        before = tuple(normalize_subject(old.get(f) or "") for f in ("subject", "attribute"))
+        after = tuple(normalize_subject(new.get(f) or "") for f in ("subject", "attribute"))
+        if before != after:
+            for (subject, attribute), record, delta in ((before, old, -1), (after, new, 1)):
+                if subject and attribute and not self._other_attribute(subject, attribute, key):
+                    vocabulary = self._index_data("attributes")
+                    item = vocabulary.setdefault(attribute, {"name": record["attribute"], "subjects": 0})
+                    item["subjects"] += delta
+                    if item["subjects"] <= 0:
+                        vocabulary.pop(attribute, None)
+        if before[0]:
+            subjects = self._index_data("subjects", before[0])
+            item = subjects.get(before[0])
+            if item is not None:
+                item["keys"] = [k for k in item["keys"] if k != key]
+                if not item["keys"]:
+                    subjects.pop(before[0])
+        if after[0]:
+            subjects = self._index_data("subjects", after[0])
+            item = subjects.setdefault(after[0], {"name": new["subject"], "bucket": bucket, "keys": []})
+            item["bucket"] = bucket
+            item["keys"] = sorted(set(item["keys"]) | {key})
 
     # ------------------------------------------------------------------ #
     # reading
@@ -125,12 +318,11 @@ class FactShards:
 
     def get(self, key: str) -> dict | None:
         """The record for ``key``, paging its bucket (legacy as fallback)."""
-        record = self._load(self.bucket_of(key)).get(key)
-        if record is not None:
-            return record
-        legacy = self._legacy_bucket_of(key)
-        if legacy != self.bucket_of(key):
-            return self._load(legacy).get(key)
+        # §11.139: copies protect old metadata and edges until put sees them.
+        for bucket in self._locations(key):
+            record = self._load(bucket).get(key)
+            if record is not None:
+                return deepcopy(record)
         return None
 
     def has(self, key: str) -> bool:
@@ -143,6 +335,7 @@ class FactShards:
         This genuinely pages every bucket, which is the honest cost of asking a
         question about the whole store. Nothing on the recall path uses it.
         """
+        self._ensure_indexes()  # §11.139: also recognize pre-index libraries.
         out: list[str] = []
         for entry in self.vault.catalog():
             if entry.get("kind") == "fact-bucket":
@@ -150,6 +343,11 @@ class FactShards:
         for facts in self._dirty.values():
             out.extend(facts)
         return sorted(set(out))
+
+    # §11.139: the catalogue exposes the same key enumeration as memory.
+    def fact_keys(self) -> list[str]:
+        """Every held key exactly once, including staged moves and drops."""
+        return self.keys()
 
     def count(self) -> int:
         """How many facts are held, from the catalog where possible."""
@@ -191,6 +389,11 @@ class FactShards:
         # of one per bucket. A selective token narrows it to one anyway.
         candidates.sort(key=lambda pair: (-pair[0], pair[1]))
         buckets = [shard_id for _score, shard_id in candidates[:max_buckets]]
+        # §11.139: named subjects select dictionary buckets directly.
+        for subject in sorted(self.subjects_in(text)):
+            bucket = self._index_data("subjects", subject)[subject]["bucket"]
+            if bucket not in buckets:
+                buckets.append(bucket)
         # Addressed retrieval: a probe naming a subject computes that
         # subject's bucket directly. Every adjacent bigram of the probe is
         # tried, because the probe may start mid-phrase; this is what
@@ -199,14 +402,12 @@ class FactShards:
         probe_tokens = self.tokens(text)
         for start in range(max(len(probe_tokens) - 1, 0)):
             prefix = " ".join(probe_tokens[start:start + 2])
-            digest = hashlib.blake2b(prefix.encode("utf-8"),
-                                     digest_size=4).digest()
-            addressed = (f"fact:"
-                         f"{int.from_bytes(digest, 'big') % self.buckets:03d}")
+            addressed = self.bucket_of(prefix)  # §11.139: one addressing rule.
             if addressed not in buckets:
                 buckets.append(addressed)
         hits: list[tuple[int, float, str]] = []
-        for shard_id in buckets or list(self._dirty):
+        # §11.139: staged facts are searchable before the vault is flushed.
+        for shard_id in dict.fromkeys([*buckets, *self._dirty]):
             bucket = self._load(shard_id)
             for key, record in bucket.items():
                 overlap = len(wanted & set(self.tokens(key)))
@@ -228,20 +429,45 @@ class FactShards:
 
     def put(self, key: str, record: dict) -> None:
         """Stage a fact. Call :meth:`flush` to persist."""
-        shard_id = self.bucket_of(key)
+        # §11.139: indexes and all locations change in the same flush.
+        old = self.get(key)
+        locations = self._locations(key)
+        shard_id = self.address(key, record)
+        self._update_structure(key, old, record, shard_id)
+        self._update_derivations(key, old, record)
+        for other in locations:
+            if other == shard_id:
+                continue
+            facts = self._load(other)
+            if key in facts:
+                self._dirty[other] = dict(facts)
+                del self._dirty[other][key]
         if shard_id not in self._dirty:
             self._dirty[shard_id] = self._load(shard_id)
-        self._dirty[shard_id][key] = dict(record)
+        self._dirty[shard_id][key] = deepcopy(record)
+        directory = self._index_data("keys", key)
+        if shard_id == self.bucket_of(key):
+            directory.pop(key, None)
+        else:
+            directory[key] = shard_id
+        self._duplicates.pop(key, None)
 
     def delete(self, key: str) -> bool:
         """Forget a fact, wherever it lives (legacy bucket included)."""
-        removed = False
-        for shard_id in {self.bucket_of(key), self._legacy_bucket_of(key)}:
-            if shard_id not in self._dirty:
-                self._dirty[shard_id] = self._load(shard_id)
-            if self._dirty[shard_id].pop(key, None) is not None:
-                removed = True
-        return removed
+        # §11.139: remove the record's memberships before its bucket entry.
+        old = self.get(key)
+        if old is None:
+            return False
+        self._update_structure(key, old, None, None)
+        self._update_derivations(key, old, None)
+        for shard_id in self._locations(key):
+            facts = self._load(shard_id)
+            if key in facts:
+                self._dirty[shard_id] = dict(facts)
+                del self._dirty[shard_id][key]
+        self._index_data("keys", key).pop(key, None)
+        self._duplicates.pop(key, None)
+        return True
 
     def flush(self) -> int:
         """Write staged buckets into the vault.
@@ -249,7 +475,13 @@ class FactShards:
         Returns:
             How many bucket shards were written.
         """
-        if not self._dirty:
+        # §11.139: unchanged index pages never get rewritten, even on reads.
+        self._ensure_indexes()
+        changed = {sid: payload for sid, payload in self._indexes.items()
+                   if payload != self._index_before[sid]
+                   and (self._index_before[sid] is not None
+                        or any(payload.values()) or sid == "index:derivations:00")}
+        if not self._dirty and not changed:
             return 0
         written = 0
         with self.vault.batch():
@@ -283,6 +515,11 @@ class FactShards:
                 if self.cache is not None:
                     self.cache.invalidate(shard_id)
                 written += 1
+            # §11.139: a failed index write rolls back the bucket writes too.
+            for shard_id, payload in changed.items():
+                self.vault.add_shard(shard_id, shard_id, payload, kind="fact-index")
+        for shard_id, payload in changed.items():
+            self._index_before[shard_id] = deepcopy(payload)
         self._dirty.clear()
         return written
 

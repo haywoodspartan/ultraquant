@@ -596,6 +596,15 @@ def _combine(question_tokens: set[str], text: str,
                      confidence=confidence, kind="combine")
 
 
+# §11.139: the only catalogue constraint on a curiosity bridge.
+def _bridge_allowed(via_record, question_subjects) -> bool:
+    """Structured bridges must belong to a subject named by the question."""
+    from ultraquant.memory.factshards import normalize_subject
+
+    subject = via_record.get("subject")
+    return not subject or normalize_subject(subject) in question_subjects
+
+
 def missing_premise(text: str, memory) -> dict | None:
     """The fact that would let a refused question converge, or None.
 
@@ -658,8 +667,12 @@ def missing_premise(text: str, memory) -> dict | None:
         question_tokens = question_tokens - droppable
     probes = [" ".join(sorted(question_tokens))] + sorted(question_tokens)
     facts = _reachable_facts(memory, probes)
+    # §11.139: ask the catalogue once; unstructured memories remain usable.
+    question_subjects = memory.subjects_in(text) if hasattr(memory, "subjects_in") else set()
     best: tuple | None = None
     for key, record in facts.items():
+        if not _bridge_allowed(record, question_subjects):  # §11.139
+            continue
         if record.get("negated"):
             # "not steel" once minted the premise key "not steel steel";
             # a denial names no bridge to ask through.

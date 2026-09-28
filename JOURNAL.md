@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.139](#11139-facts-catalogued-by-what-they-are-about) | Facts catalogued by what they are about |
 | [11.138](#11138-rivals-only-for-the-same-fact) | Rivals only for the same fact |
 | [11.137](#11137-batches-that-commit-whole-and-an-undo-that-knows-its-own-record) | Batches that commit whole, and an undo that knows its own record |
 | [11.136](#11136-storage-that-survives-a-crash-and-the-sixth-review) | Storage that survives a crash, and the sixth review |
@@ -826,6 +827,75 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.139 Facts catalogued by what they are about
+
+**The user's ruling, applied: "the problem is we are hardcoding instead
+of indexing."** SPEC.md's guiding idea is a library of patterns
+catalogued like a brain. The facts were not catalogued that way:
+- distillation knew every fact's subject and attribute ("capital:Kenya")
+  and filed only the key "capital of kenya";
+- buckets were addressed by a key's first two words, so the user's four
+  large buckets were four ATTRIBUTES: 120 capitals, 100 symbols, 89
+  authors and 75 atomic numbers;
+- readers guessed structure back with grammar. The curiosity hint fired
+  "If I knew the iqaluit veltrania" for 28 of 30 invented capitals and
+  15 of 20 real places the library does not hold;
+- truth maintenance found a fact's derivatives by paging every fact, and
+  every page rewrote and fsync'd the catalog. One build of the 384-fact
+  library took 485 s.
+
+**Stage 1** (Astra; pre-registration sha256 d2c1b9cc..., Amendments A
+39be3f2b... and B 155208e7..., both recorded before any code):
+- **structure is recorded by the writer that knows it.** A fact carries
+  its subject and attribute, filing declares them from its own template,
+  and promotion passes them on;
+- **the catalogue indexes subjects**, as index shards written in the
+  same batch as the facts:
+  - a subject dictionary;
+  - a key directory;
+  - an attribute vocabulary;
+  - a derivation index;
+- **buckets are addressed by subject**, so everything about Kenya lives
+  together;
+- **curiosity bridges only through a subject the question names**, found
+  by looking the question's phrases up in the dictionary. No grammar
+  rule anywhere;
+- **migration from provenance**, never from grammar: the subject comes
+  from the question id, and the attribute is what the key holds besides
+  it;
+- **record identity for undo ignores catalogue fields**, so migrating a
+  record supersedes no approval.
+Amendment A replaced an unmeasured bound. Four subjects per bucket
+would have failed a correct implementation, because hashing the 326
+subjects puts up to 6 in one bucket. The bound is now 10% of the
+structured facts per bucket; the attribute buckets held 20-31%.
+
+**PASSED** twice on Claude's machine and twice in Astra's runs:
+- 8 of 8 cases and 4 of 4 plants;
+- the rebuilt library files in under a minute, against 485 s;
+- the derivation index matched the full scan on 200 random graphs;
+- 0 of 30 and 0 of 20 curiosity hints (baseline 28 and 15);
+- on a copy of the user's library, all 384 distilled facts took the
+  structure of their provenance, all 405 facts stayed readable, all 384
+  approvals kept their exact undo, and disputes still undo.
+Every earlier gate listed for this unit passes, including all five native
+parity gates. The one exception is below.
+
+**Found while checking: two historical gates have failed, silently, for
+five weeks.** The §11.34 ladder gate ("closes nothing") and the §11.31
+consolidation gate ("asking twice consolidated something") both fail on
+the commit before this unit. Bisected: both first fail at f2f4137, §11.52
+"The fourth fact: a stated limit moved by measurement". That unit moved
+the limit their expectations were built on. No unit re-ran them, because
+each unit re-checks a hand-picked list of earlier gates. Whether their
+expectations should move with §11.52, or what they measured regressed,
+is not settled here. The 120 gates need a sweep that runs every one and
+compares it with its recorded verdict: an index of gates, not a
+hand-written list.
+
+Suite: 2,409 passed, 5 skipped, 0 failed. It takes 386 s, up from about
+280, because every fact write now maintains the index.
 
 ### 11.138 Rivals only for the same fact
 

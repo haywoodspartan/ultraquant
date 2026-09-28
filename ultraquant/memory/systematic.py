@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from ultraquant.memory.metering import charge_index, charge_lookup
+# §11.139: one normalization and n-gram rule for both fact stores.
+from ultraquant.memory.factshards import normalize_subject, subject_ngrams
 
 
 def _utc_now() -> str:
@@ -63,6 +65,8 @@ class SystematicMemory:
 
         self._episodes: list[dict[str, Any]] = []
         self._facts: dict[str, dict[str, Any]] = {}
+        # §11.139: reverse premise edges, maintained with the records.
+        self._derived: dict[str, set[str]] = {}
         self._signatures: list[dict[str, Any]] = []
         self._working: deque[int] = deque(maxlen=self.working_capacity)
         self._next_id: int = 1
@@ -175,7 +179,31 @@ class SystematicMemory:
         if self.shards is not None:
             self.shards.put(key, record)
         else:
+            # §11.139: remove old edges before replacing the record.
+            self._index_derivation(key, self._facts.get(key), record)
             self._facts[key] = record
+
+    # §11.139: the in-RAM reverse index has one write path.
+    def _index_derivation(self, key: str, old: dict | None,
+                          new: dict | None) -> None:
+        """Replace the reverse edges belonging to one fact."""
+        for premise, _value in (old or {}).get("derived_from", []):
+            children = self._derived.get(premise)
+            if children is not None:
+                children.discard(key)
+                if not children:
+                    del self._derived[premise]
+        for premise, _value in (new or {}).get("derived_from", []):
+            self._derived.setdefault(premise, set()).add(key)
+
+    # §11.139: structure comes from records, never from parsing their keys.
+    def subjects_in(self, text: str) -> set[str]:
+        """Normalized held subjects named by contiguous tokens in text."""
+        if self.shards is not None:
+            return self.shards.subjects_in(text)
+        subjects = {normalize_subject(record["subject"])
+                    for record in self._facts.values() if record.get("subject")}
+        return subjects & subject_ngrams(text)
 
     def fact_keys(self) -> list[str]:
         """Every fact key held."""
@@ -209,7 +237,7 @@ class SystematicMemory:
         return [key for _o, _w, key in scored[:top_k]]
 
     def remember_fact(self, key: str, value: Any, confidence: float = 0.5,
-                      negated: bool = False) -> dict:
+                      negated: bool = False, *, subject=None, attribute=None) -> dict:  # §11.139
         """Store, reinforce, or revise a semantic fact.
 
         * New key → stored with the given confidence and 0 reinforcements.
@@ -239,6 +267,13 @@ class SystematicMemory:
         """
         now = _utc_now()
         existing = self._fact_record(key)
+        # §11.139: copy before mutation so the index can see the old edges.
+        structure = {name: value for name, value in
+                     (("subject", subject), ("attribute", attribute))
+                     if value is not None}
+        if existing is not None:
+            existing = dict(existing)
+            existing.update(structure)
         if existing is None:
             record = {
                 "value": value,
@@ -249,6 +284,7 @@ class SystematicMemory:
             }
             if negated:
                 record["negated"] = True
+            record.update(structure)  # §11.139: retain the writer's slots.
             self._put_fact(key, record)
             return {"outcome": "new"}
         if (existing["value"] == value
@@ -316,6 +352,7 @@ class SystematicMemory:
         fact = self._fact_record(key)
         if fact is None:
             return False
+        fact = dict(fact)  # §11.139: preserve the indexed pre-write record.
         fact["confidence"] = max(0.0, min(1.0, float(confidence)))
         fact["reinforcements"] += 1
         fact["last_seen"] = _utc_now()
@@ -333,7 +370,8 @@ class SystematicMemory:
     # ------------------------------------------------------------------
 
     def consolidate_fact(self, key: str, value: Any, confidence: float,
-                         premises: list, negated: bool = False) -> None:
+                         premises: list, negated: bool = False, *,
+                         subject=None, attribute=None) -> None:  # §11.139
         """Store a *derived* fact with the premises it rests on.
 
         The brain-shaped move (ARCHITECTURE §11.30's registered successor):
@@ -358,6 +396,13 @@ class SystematicMemory:
             "derived_from": [[str(p_key), str(p_value)]
                              for p_key, p_value in premises],
         }
+        # §11.139: explicit slots replace metadata; omitted slots survive.
+        previous = self._fact_record(key) or {}
+        for name, supplied in (("subject", subject), ("attribute", attribute)):
+            if supplied is not None:
+                record[name] = supplied
+            elif name in previous:
+                record[name] = previous[name]
         if negated:
             # A consolidated denial ("believed not temperate", earned
             # through a chain and confirmed) carries its polarity, so it
@@ -375,6 +420,13 @@ class SystematicMemory:
             self._drop_fact(key)
         return retracted
 
+    # §11.139: the sole candidate source for recursive truth maintenance.
+    def _derived_candidates(self, key) -> set:
+        """Keys indexed as depending directly on this premise."""
+        if self.shards is not None:
+            return self.shards.derived_candidates(key)
+        return set(self._derived.get(key, ()))
+
     def derivatives_of(self, key: str) -> list[str]:
         """Read the recursive retraction set without changing any records."""
         retracted: list[str] = []
@@ -382,7 +434,7 @@ class SystematicMemory:
         stack = [key]
         while stack:
             changed = stack.pop()
-            for key in list(self.fact_keys()):
+            for key in sorted(self._derived_candidates(changed)):  # §11.139
                 if key in seen:
                     continue
                 record = self._fact_record(key)
@@ -409,6 +461,8 @@ class SystematicMemory:
         if self.shards is not None:
             self.shards.delete(key)
         else:
+            # §11.139: drops remove only this record's outgoing premise edges.
+            self._index_derivation(key, self._facts.get(key), None)
             self._facts.pop(key, None)
 
     # ------------------------------------------------------------------
@@ -491,6 +545,10 @@ class SystematicMemory:
             payload = json.load(fh)
         self._episodes = list(payload.get("episodes", []))
         self._facts = dict(payload.get("facts", {}))
+        # §11.139: one rebuild at load; writes maintain it thereafter.
+        self._derived = {}
+        for key, record in self._facts.items():
+            self._index_derivation(key, None, record)
         self._signatures = list(payload.get("signatures", []))
         self._working = deque(
             payload.get("working", []), maxlen=self.working_capacity

@@ -49,6 +49,12 @@ def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
         forms = Counter(extract(r.raw) for r in samples)
         value = min(forms, key=lambda form: (-forms[form], form))
         claim = templates[item.category].format(subject=item.subject, value=value)
+        # §11.139: the template already names its attribute; keep that slot.
+        attribute = templates[item.category].split(" of {subject}")[0].lower()
+        for article in ("the ", "a ", "an "):
+            if attribute.startswith(article):
+                attribute = attribute[len(article):]
+                break
         key = templates[item.category].split(" is {value}")[0].format(
             subject=item.subject).lower()
         for article in ("the ", "a ", "an "):
@@ -62,6 +68,8 @@ def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
                         "lineages": sorted({r.lineage for r in samples}),
                         "samples_agreeing": len(samples), "run_id": run_id,
                         "question_id": qid},
-            fields={"key": key, "value": value},
+            # §11.139: retain the item's structure alongside the claim.
+            fields={"key": key, "value": value, "subject": item.subject,
+                    "attribute": attribute},
         ))
     return filed

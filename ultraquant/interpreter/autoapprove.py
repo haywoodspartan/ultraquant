@@ -40,6 +40,13 @@ class Approval:
     after_states: dict | None = None
 
 
+# §11.139: catalogue metadata is never evidence of a changed belief.
+def _belief_record(record):
+    """The record identity used by approvals, without catalogue fields."""
+    return ({key: value for key, value in record.items()
+             if key not in ("subject", "attribute")} if record is not None else None)
+
+
 class AutoApprover:
     def __init__(self, stash, memory, journal_path) -> None:
         self.stash = stash
@@ -205,7 +212,8 @@ class AutoApprover:
                 for key, record in dropped.items()}
 
     def _still_holds(self, key, expected) -> bool:
-        return self.memory._fact_record(key) == expected
+        # §11.139: migration does not supersede a secondary undo state.
+        return _belief_record(self.memory._fact_record(key)) == _belief_record(expected)
 
     def _journalled_descendants(self, intent) -> list:
         # review 7: replay must also reach descendants whose parent is gone.
@@ -290,7 +298,9 @@ class AutoApprover:
                 later = True
         current = self.memory._fact_record(approval.key)
         if approval.after is not None:
-            return "exact" if current == approval.after else "superseded"
+            # §11.139: structure changes neither the approval nor its undo.
+            return ("exact" if _belief_record(current) == _belief_record(approval.after)
+                    else "superseded")
         return "exact" if self._legacy_untouched(approval, current) else "superseded"
 
     def _confidence(self, entry) -> float | None:
