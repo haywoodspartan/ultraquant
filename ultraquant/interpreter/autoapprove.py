@@ -1,4 +1,9 @@
-"""Automatic approval of factual claims, with a durable, exact undo record."""
+"""Automatic approval of factual claims, with a durable, exact undo record.
+
+Undo checks per-key after states, conservative legacy identity, and the
+premises of restored records. Recorded losses keep arbitration settled
+across passes; rollback restores those entries and removes its episodes.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +36,7 @@ class Approval:
     disputed: bool = False
     dispute_reason: str = ""
     after: dict | None = None
+    after_states: dict | None = None
 
 
 class AutoApprover:
@@ -53,6 +59,8 @@ class AutoApprover:
         approved = []
         self._batch_approved = set()
         for entry in sorted(self.stash.entries(), key=lambda e: e["id"]):
+            # Review 6: a previous winner may have rejected this entry.
+            entry = self.stash.get(entry["id"])
             if entry["status"] in ("promoted", "rejected"):
                 continue
             if _claim_provenance(entry) in rejected:
@@ -68,19 +76,39 @@ class AutoApprover:
                 before = self._snapshot(key)
                 transaction_id = uuid.uuid4().hex
                 confidence = self._confidence(entry)
+                count = len(_independent_sources(entry["sources"]))
+                losers = [copy.deepcopy(other) for other in self.stash.entries()
+                          if other["id"] != entry["id"]
+                          and other.get("classification") == "factual-claim"
+                          and other["status"] in ("staged", "corroborated", "disputed")
+                          and claim_relation(entry["claim"], other["claim"]) == "contradicts"
+                          and len(_independent_sources(other["sources"])) < count]
+                episode_start = self.memory._next_id
                 self._journal({"event": "intent", "operation": "approval",
                                "transaction_id": transaction_id,
                                "entry_id": entry["id"], "key": key,
                                "value": value, "sources": entry["sources"],
                                "confidence": confidence, "time": time.time(),
                                "before": before,
+                               "losers": losers, "episode_start": episode_start,
                                "entry": copy.deepcopy(entry)})
-                self.stash.promote(
-                    entry["id"], self.memory,
-                    force=(entry["status"] == "disputed"
-                           or entry["classification"] != "factual-claim"),
-                    confidence=confidence,
-                )
+                try:
+                    self.stash.promote(
+                        entry["id"], self.memory,
+                        force=(entry["status"] == "disputed"
+                               or entry["classification"] != "factual-claim"),
+                        confidence=confidence,
+                    )
+                    # Review 6: rejection, journalled with the winner, is
+                    # what prevents a defeated rival winning a later pass.
+                    for loser in losers:
+                        self._record_loss(loser, entry)
+                finally:
+                    # Include revision/retraction episodes, even if promotion
+                    # failed partway through and recovery runs in this process.
+                    for episode in self.memory._episodes:
+                        if episode["id"] >= episode_start:
+                            episode["tags"].append(f"transaction:{transaction_id}")
                 result = self.stash.last_promotion
                 approval = Approval(
                     approval_id=transaction_id, entry_id=entry["id"],
@@ -88,6 +116,8 @@ class AutoApprover:
                     sources=copy.deepcopy(entry["sources"]), time=time.time(),
                     before=before, outcome=result["outcome"],
                     after=copy.deepcopy(self.memory._fact_record(key)),
+                    after_states={name: copy.deepcopy(self.memory._fact_record(name))
+                                  for name in before},
                 )
                 self._persist()
                 self._journal({"event": "commit", "operation": "approval",
@@ -96,6 +126,9 @@ class AutoApprover:
                 approved.append(approval)
                 self._batch_approved.add(entry["id"])
         return approved
+
+    def _record_loss(self, entry, winner) -> None:
+        self.stash.reject(entry["id"], f"lost to entry {winner['id']}")
 
     def _eligible(self, entry) -> bool:
         if (entry.get("classification") != "factual-claim"
@@ -142,14 +175,21 @@ class AutoApprover:
         return {name: copy.deepcopy(self.memory._fact_record(name))
                 for name in [key, *self.memory.derivatives_of(key)]}
 
-    def _restore(self, before) -> None:
+    def _restore(self, before) -> dict:
         # The snapshot starts with the approved key. Restore it first, then
         # restore conclusions in dependency order, not dictionary order.
         pending = dict(before)
         if not pending:
-            return
+            return {}
         key = next(iter(pending))
-        self.memory.restore_fact(key, pending.pop(key))
+        record = pending.pop(key)
+        dropped = {}
+        # Review 6: the primary has premises too; stale ones stay absent.
+        if record is None or self._restorable(key, record):
+            self.memory.restore_fact(key, record)
+        else:
+            self.memory.restore_fact(key, None)
+            dropped[key] = record
         while pending:
             ready = [key for key, record in pending.items()
                      if record is None or self._restorable(key, record)]
@@ -157,6 +197,61 @@ class AutoApprover:
                 break
             for key in ready:
                 self.memory.restore_fact(key, pending.pop(key))
+        dropped.update(pending)
+        # Use the same premise predicate for the explanation as for undo.
+        return {key: [p_key for p_key, p_value in record.get("derived_from", [])
+                      if not self._restorable(key, {"derived_from": [(p_key, p_value)]})]
+                for key, record in dropped.items()}
+
+    def _still_holds(self, key, expected) -> bool:
+        return self.memory._fact_record(key) == expected
+
+    def _drop_stale_derivatives(self, key) -> None:
+        """Truth maintenance after an undo: drop what now rests on nothing.
+
+        Claude's review of §11.136: sparing every changed secondary left
+        "safety: unsafe", derived from a height of 200, standing after the
+        height went back to 100. Retracting every derivative instead dropped
+        a conclusion the user had confirmed whose premise the undo never
+        changed. So each derivative of the disputed key is judged by its
+        own premises, after the restore, until nothing else falls.
+        """
+        dropped = True
+        while dropped:
+            dropped = False
+            for name in self.memory.derivatives_of(key):
+                record = self.memory._fact_record(name)
+                if record is not None and not self._restorable(name, record):
+                    self.memory.restore_fact(name, None)
+                    dropped = True
+
+    def _restore_plan(self, approval) -> list:
+        """The secondary keys an exact undo may restore, judged right now.
+
+        Review 6: a secondary comes back only while it still holds the state
+        the approval left it in. Journals without per-key states imply it:
+        a revision retracted every derivative, anything else left it as is.
+        """
+        plan = []
+        for key, record in approval.before.items():
+            if key == approval.key:
+                continue
+            if approval.after_states is not None and key in approval.after_states:
+                expected = approval.after_states[key]
+            else:
+                expected = None if approval.outcome == "revised" else record
+            if self._still_holds(key, expected):
+                plan.append(key)
+        return plan
+
+    def _legacy_untouched(self, approval, current) -> bool:
+        # Review 6: equal values alone cannot identify a legacy approval.
+        return (current is not None
+                and current["value"] == approval.value
+                and not current.get("negated", False)
+                and current["confidence"] == approval.confidence
+                and current.get("reinforcements", 0) == 0
+                and current.get("last_seen") == current.get("first_seen"))
 
     def _restorable(self, key, record) -> bool:
         for premise_key, premise_value in record.get("derived_from", []):
@@ -180,15 +275,7 @@ class AutoApprover:
         current = self.memory._fact_record(approval.key)
         if approval.after is not None:
             return "exact" if current == approval.after else "superseded"
-        # A journal written before `after` existed (the first version, which
-        # approved 179 facts into the user's library) cannot show the exact
-        # record. Claude's review: treating every such approval as superseded
-        # would make them impossible to undo. The key still holding the
-        # approved value, with no polarity flip, is the evidence available.
-        if (current is not None and current.get("value") == approval.value
-                and not current.get("negated", False)):
-            return "exact"
-        return "superseded"
+        return "exact" if self._legacy_untouched(approval, current) else "superseded"
 
     def _confidence(self, entry) -> float | None:
         return entry.get("measured_confidence")
@@ -210,7 +297,11 @@ class AutoApprover:
         intent = {"event": "intent", "operation": "dispute",
                   "transaction_id": uuid.uuid4().hex,
                   "approval": asdict(approval), "mode": mode,
-                  "reason": reason}
+                  "reason": reason,
+                  # Judged once, before anything changes, so a replay after a
+                  # crash restores exactly what the first attempt did.
+                  "restore": (self._restore_plan(approval)
+                              if mode == "exact" else [])}
         self._journal(intent)
         self._complete_dispute(intent)
         approval.disputed = True
@@ -220,9 +311,15 @@ class AutoApprover:
     def _complete_dispute(self, intent) -> None:
         approval = Approval(**intent["approval"])
         reason = intent["reason"]
+        changed_premises = {}
         if intent["mode"] == "exact":
-            self.memory._retract_derivatives(approval.key)
-            self._restore(approval.before)
+            plan = intent.get("restore")
+            if plan is None:            # an intent journalled before plans
+                plan = self._restore_plan(approval)
+            before = {approval.key: approval.before[approval.key]}
+            before.update({key: approval.before[key] for key in plan})
+            changed_premises = self._restore(before)
+            self._drop_stale_derivatives(approval.key)
         self.stash.reject(approval.entry_id, f"disputed: {reason}")
         # Replaying a dispute after persistence but before commit must not
         # duplicate its episode. Only one dispute exists per approval.
@@ -235,8 +332,13 @@ class AutoApprover:
                             "restored": {key: copy.deepcopy(self.memory._fact_record(key))
                                          for key in approval.before}
                             if intent["mode"] == "exact" else {},
+                            "changed_premises": changed_premises,
                             "note": "later change was kept"
-                            if intent["mode"] == "superseded" else "approval undone"},
+                            if intent["mode"] == "superseded" else
+                            "approval undone; changed premises: "
+                            + ", ".join(sorted({p for keys in changed_premises.values()
+                                                for p in keys}))
+                            if changed_premises else "approval undone"},
                 tags=["fact", approval.key],
             )
         self._persist()
@@ -281,9 +383,16 @@ class AutoApprover:
                     self.memory.restore_fact(key, record)
                 entry = intent["entry"]
                 self.stash._entries[entry["id"]] = copy.deepcopy(entry)
+                for loser in intent.get("losers", []):
+                    self.stash._entries[loser["id"]] = copy.deepcopy(loser)
+                self._forget_transaction_episodes(transaction_id)
                 self._persist()
                 self._journal({"event": "rollback", "operation": "approval",
                                "transaction_id": transaction_id})
+
+    def _forget_transaction_episodes(self, transaction_id) -> None:
+        # Review 6: aborted approvals must leave no promotion history.
+        self.memory.forget_episodes(f"transaction:{transaction_id}")
 
     def _rows(self) -> list[dict]:
         if not self.journal_path.exists():

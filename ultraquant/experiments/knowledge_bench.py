@@ -240,6 +240,12 @@ _ABSTAIN = re.compile(
     r"no element|no novel|not a known)\b")
 
 
+_WHOLE_LETTERS = str.maketrans({
+    "ø": "o", "Ø": "O", "æ": "ae", "Æ": "AE",
+    "ß": "ss", "đ": "d", "Đ": "D", "ł": "l",
+    "Ł": "L", "þ": "th", "Þ": "Th", "œ": "oe",
+    "Œ": "OE"})
+
 _HEDGED_ANSWER = re.compile(r"\b(?:not|no|never|nor|or)\b")
 
 
@@ -247,6 +253,9 @@ def normalize(text: str) -> str:
     """Fold case, accents, punctuation, leading articles and trailing periods."""
     text = unicodedata.normalize("NFKD", str(text))
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    # Letters NFKD leaves whole: without this "Nesbø" folded to "nesb"
+    # (found checking the §11.136 fix for "The Leopard").
+    text = text.translate(_WHOLE_LETTERS)
     text = text.lower().replace("’", "'")
     text = re.sub(r"[^a-z0-9' ]+", " ", text)
     text = text.replace("'", " ")

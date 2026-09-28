@@ -23,6 +23,10 @@ strengthens a memory trace.
 
 Pure Python standard library only; all persisted state is JSON-safe; every path
 is handled with :mod:`pathlib` and encoded to be safe on Windows filesystems.
+
+Crash-safe loose writes use content-addressed payload files, fsync the payload
+and catalog before publication, and remove superseded files only after the
+catalog commit. Directory entries are also fsynced where supported on POSIX.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ import contextlib
 import heapq
 import json
 import os
+import re
 import zlib
 from array import array
 from datetime import datetime, timezone
@@ -68,6 +73,9 @@ _SAFE_FILENAME_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "0123456789._-"
 )
+
+# The tail of a content-addressed payload name: "<safe-name>@<this>".
+_DIGEST_FILE = re.compile(r"[0-9a-f]{64}\.uqs")
 
 
 class ShardIntegrityError(RuntimeError):
@@ -110,6 +118,8 @@ class ShardVault:
     ``shard_id`` to a JSON-safe entry describing where its stored bytes live
     (a loose ``.uqs`` file, or a byte range inside a ``.uql`` library), its
     integrity hash, access statistics, and associative keyword weights.
+    Loose entries record a ``file`` basename, ``<safe-name>@<sha256>.uqs``;
+    legacy entries without it still resolve to ``<safe-name>.uqs``.
 
     Args:
         root: Directory that holds the catalog, the ``loose/`` folder, and
@@ -148,6 +158,8 @@ class ShardVault:
         self._assoc: dict[str, dict[str, float]] = {}
         self._defer_save = 0
         self._dirty = False
+        self._pending_loose_removals: set[Path] = set()
+        self._pending_orphan_cleanup: set[str] = set()
         # Sketch screen over the signatures; built on first use and invalidated
         # by anything that can change what a category looks like.
         self._sketch_dirty = True
@@ -176,8 +188,7 @@ class ShardVault:
         finally:
             self._defer_save -= 1
             if self._defer_save == 0 and self._dirty:
-                self._dirty = False
-                self._write_catalog()
+                self._save_catalog()
 
     def _rebuild_lookups(self) -> None:
         """Rebuild the category and association indexes from the catalog."""
@@ -518,7 +529,7 @@ class ShardVault:
         """
         entry = self._catalog[shard_id]
         if entry["location"] == "loose":
-            return f"loose/{_safe_filename(shard_id)}.uqs"
+            return f"loose/{self._loose_path(shard_id).name}"
         library = Path(entry["library_path"])
         try:
             return library.relative_to(self.root).as_posix()
@@ -553,10 +564,12 @@ class ShardVault:
 
     def _save_catalog(self) -> None:
         """Persist the catalog, unless a :meth:`batch` is collecting changes."""
+        self._dirty = True
         if self._defer_save:
-            self._dirty = True
             return
         self._write_catalog()
+        self._dirty = False
+        self._cleanup_loose_files()
 
     def _write_catalog(self) -> None:
         """Atomically write the catalog to ``root/catalog.json``."""
@@ -566,10 +579,72 @@ class ShardVault:
         tmp = self.catalog_path.parent / (self.catalog_path.name + ".tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, self.catalog_path)
+        self._fsync_directory(self.catalog_path.parent)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        """Best-effort persistence of directory entries on POSIX."""
+        if os.name != "posix":
+            return
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+
+    def _payload_path(self, shard_id: str, digest: str) -> Path:
+        """Return the content-addressed path for the stored payload's digest."""
+        return self.loose_dir / f"{_safe_filename(shard_id)}@{digest}.uqs"
+
+    def _write_payload(self, path: Path, data: bytes) -> None:
+        """Durably write stored bytes to their final payload path."""
+        with open(path, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        self._fsync_directory(path.parent)
+
+    def _cleanup_loose_files(self) -> None:
+        """Remove superseded payloads only after a successful catalog commit."""
+        if not self._pending_loose_removals and not self._pending_orphan_cleanup:
+            return
+        live = {
+            self._loose_path(shard_id)
+            for shard_id, entry in self._catalog.items()
+            if entry["location"] == "loose"
+        }
+        # Claude's review: one regex per pending shard against every file was
+        # quadratic in a bulk batch (measured: 4,000 rewrites took 2.9x the
+        # time of 2,000). "@" never occurs in a safe name, so each file name
+        # splits exactly once and is looked up in a set.
+        pending = {_safe_filename(shard_id)
+                   for shard_id in self._pending_orphan_cleanup}
+        if pending:
+            for path in self.loose_dir.iterdir():
+                safe, at, digest = path.name.rpartition("@")
+                if (at and safe in pending and _DIGEST_FILE.fullmatch(digest)
+                        and path not in live):
+                    self._pending_loose_removals.add(path)
+        self._pending_orphan_cleanup.clear()
+        self._pending_loose_removals.difference_update(live)
+        for path in tuple(self._pending_loose_removals):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue  # Retry on the next successful catalog write.
+            self._pending_loose_removals.discard(path)
 
     def _loose_path(self, shard_id: str) -> Path:
         """Return the on-disk path of ``shard_id``'s loose ``.uqs`` file."""
+        entry = self._catalog.get(shard_id)
+        if entry is not None and entry.get("file"):
+            return self.loose_dir / entry["file"]
         return self.loose_dir / (_safe_filename(shard_id) + ".uqs")
 
     # ------------------------------------------------------------------ #
@@ -588,11 +663,14 @@ class ShardVault:
 
         The payload is canonically serialized
         (``json.dumps(sort_keys=True, separators=(",", ":"))``, utf-8),
-        zlib-compressed, and written to ``root/loose/<safe-name>.uqs``.  A
-        catalog entry (location ``"loose"``) is recorded.
+        zlib-compressed, and fsynced to
+        ``root/loose/<safe-name>@<stored-sha256>.uqs``. A catalog entry
+        (location ``"loose"``) records that basename in ``file``.
 
-        Re-adding an existing ``shard_id`` overwrites the bytes and refreshes
-        the entry but **preserves** the accumulated ``access_count``,
+        Re-adding an existing ``shard_id`` publishes a new content-addressed
+        file (or reuses identical current content), then removes the old file
+        only after the catalog commit. It refreshes the entry but **preserves**
+        the accumulated ``access_count``,
         ``associations`` and ``signature`` — learning survives re-training.  Any
         ``associations`` supplied on a re-add are merged in without lowering
         already-learned strengths.
@@ -617,10 +695,23 @@ class ShardVault:
         )
         stored = zlib.compress(data)
         digest = hashlib.sha256(stored).hexdigest()
-        self._loose_path(shard_id).write_bytes(stored)
+        existing = self._catalog.get(shard_id)
+        previous = (
+            self._loose_path(shard_id)
+            if existing is not None and existing["location"] == "loose" else None
+        )
+        path = self._payload_path(shard_id, digest)
+        same_current = path == previous and existing["sha256"] == digest
+        # A batch can return to an older version still referenced by the disk
+        # catalog. Reuse complete immutable versions; retry torn orphan files.
+        reusable = (
+            path != previous and path in self._pending_loose_removals and path.exists()
+            and hashlib.sha256(path.read_bytes()).hexdigest() == digest
+        )
+        if not (same_current or reusable):
+            self._write_payload(path, stored)
 
         now = _utc_now()
-        existing = self._catalog.get(shard_id)
         if existing is not None:
             access_count = int(existing["access_count"])
             last_access = existing["last_access"]
@@ -649,6 +740,7 @@ class ShardVault:
             "sha256": digest,
             "created": created,
             "location": "loose",
+            "file": path.name,
             "library_path": None,
             "offset": 0,
             "length": len(stored),
@@ -665,6 +757,10 @@ class ShardVault:
             self._index_entry(prior, -1)
         self._catalog[shard_id] = entry
         self._index_entry(entry, +1)
+        self._pending_loose_removals.discard(path)
+        if previous is not None and previous != path:
+            self._pending_loose_removals.add(previous)
+        self._pending_orphan_cleanup.add(shard_id)
         self._save_catalog()
         return self._copy_entry(entry)
 
@@ -899,6 +995,7 @@ class ShardVault:
         lib_path = Path(library_path)
         lib_path.parent.mkdir(parents=True, exist_ok=True)
         ids = list(self._catalog.keys()) if shard_ids is None else list(shard_ids)
+        loose_paths = {shard_id: self._loose_path(shard_id) for shard_id in ids}
 
         records: list[dict[str, Any]] = []
         for shard_id in ids:
@@ -930,6 +1027,7 @@ class ShardVault:
         for idx_entry in index:
             entry = self._catalog[idx_entry["shard_id"]]
             entry["location"] = "library"
+            entry.pop("file", None)
             entry["library_path"] = library_str
             entry["offset"] = idx_entry["offset"]
             entry["length"] = idx_entry["length"]
@@ -944,9 +1042,9 @@ class ShardVault:
                     raise ShardIntegrityError(
                         f"post-pack verification failed for {shard_id!r}"
                     )
-                loose = self._loose_path(shard_id)
-                if loose.exists():
-                    loose.unlink()
+                self._pending_loose_removals.add(loose_paths[shard_id])
+            if not self._defer_save:
+                self._cleanup_loose_files()
 
         return len(records)
 
@@ -994,6 +1092,7 @@ class ShardVault:
         directory = Path(library_dir)
         directory.mkdir(parents=True, exist_ok=True)
         ids = list(self._catalog.keys()) if shard_ids is None else list(shard_ids)
+        loose_paths = {shard_id: self._loose_path(shard_id) for shard_id in ids}
         if not ids:
             return {"parts": 0, "shards": 0, "bytes": 0,
                     "manifest": None, "part_files": []}
@@ -1062,9 +1161,9 @@ class ShardVault:
                     raise ShardIntegrityError(
                         f"post-pack verification failed for {shard_id!r}"
                     )
-                loose = self._loose_path(shard_id)
-                if loose.exists():
-                    loose.unlink()
+                self._pending_loose_removals.add(loose_paths[shard_id])
+            if not self._defer_save:
+                self._cleanup_loose_files()
 
         return {
             "parts": total,

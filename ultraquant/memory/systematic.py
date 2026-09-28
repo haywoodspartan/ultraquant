@@ -147,6 +147,15 @@ class SystematicMemory:
         by_id = {ep["id"]: ep for ep in self._episodes}
         return [by_id[eid] for eid in self._working if eid in by_id]
 
+    def forget_episodes(self, tag: str) -> int:
+        """Remove episodes with ``tag`` from history and the working FIFO."""
+        # Review 6: transaction rollback removes its history from both stores.
+        removed = {ep["id"] for ep in self._episodes if tag in ep["tags"]}
+        self._episodes = [ep for ep in self._episodes if ep["id"] not in removed]
+        self._working = deque((eid for eid in self._working if eid not in removed),
+                              maxlen=self.working_capacity)
+        return len(removed)
+
     # ------------------------------------------------------------------
     # Semantic store
     # ------------------------------------------------------------------

@@ -13,8 +13,18 @@ def _already_filed(stash, run_id, qid) -> bool:
                for entry in stash.entries())
 
 
+def _reject_probes(items) -> None:
+    probes = [question_id(item) for item in items
+              if getattr(item, "fictitious", False)]
+    if probes:
+        raise ValueError("Cannot file fictitious items: " + ", ".join(probes))
+
+
 def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
-    records, items = list(records), list(items)
+    items = list(items)
+    # Review 6: reject the entire batch before any filing can take place.
+    _reject_probes(items)
+    records = list(records)
     decisions = decide(records, items)
     by_question = defaultdict(list)
     for record in records:

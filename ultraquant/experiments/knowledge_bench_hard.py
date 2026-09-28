@@ -124,8 +124,11 @@ _AUTHORS = (
     ("The Master and Margarita", ("mikhail bulgakov", "bulgakov")),
     ("The Tin Drum", ("gunter grass", "gunther grass", "grass")),
     ("Pedro Paramo", ("juan rulfo", "rulfo")),
+    # §11.136: Jo Nesbo also wrote a novel called The Leopard, which this
+    # tier's own exclusion rule missed (found by Astra's sixth review). The
+    # title names two books, so either author is a right answer.
     ("The Leopard", ("giuseppe tomasi di lampedusa", "tomasi di lampedusa",
-                     "lampedusa")),
+                     "lampedusa", "jo nesbo", "nesbo")),
     ("The Name of the Rose", ("umberto eco", "eco")),
     ("Invisible Cities", ("italo calvino", "calvino")),
     ("The Magic Mountain", ("thomas mann", "mann")),

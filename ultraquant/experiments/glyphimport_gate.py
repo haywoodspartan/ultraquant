@@ -276,8 +276,9 @@ def run_gate(epochs: int = 30, seed: int = 0) -> ImportReport:
         for layer, shard_id in zip(originals, [i for i in written
                                                if not i.endswith(":shape")]):
             count = len(layer.w) * len(layer.w[0]) if layer.w else 0
-            safe = shard_id.replace(":", "~3a~")
-            path = loose / f"s_{safe}.uqs"
+            # §11.136: loose payloads are content-addressed now, so the
+            # vault names the file; a hand-built name would read as 0 bytes.
+            path = vault._loose_path(shard_id)
             size = path.stat().st_size if path.exists() else 0
             tag = "ternary" if layer.quantized else "exact floats"
             was = split.get(tag, (0, 0))

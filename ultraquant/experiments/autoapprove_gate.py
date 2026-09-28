@@ -294,7 +294,17 @@ def scenario_distilled() -> dict:
 
     def body(world):
         records = E.load_records(RECORDS)
-        items = list(K.KNOWN) + list(K.FICTITIOUS)
+        # Amendment B (§11.136, after this gate had passed): filing now
+        # refuses a batch holding any invented probe, so the probes are
+        # offered on their own and must be refused with nothing filed. That
+        # keeps "none invented" and makes it stricter.
+        try:
+            F.file_distilled(world.stash, records, list(K.FICTITIOUS),
+                             MEASURED, "11130")
+            probes_refused = False
+        except ValueError:
+            probes_refused = world.stash.entries() == []
+        items = list(K.KNOWN)
         ids = F.file_distilled(world.stash, records, items, MEASURED,
                                "11130")
         approvals = world.approver().approve_all()
@@ -321,7 +331,7 @@ def scenario_distilled() -> dict:
                                                      decided[qid])
         n = len(expected)
         return {"every promoted subject filed, none invented":
-                    len(ids) == n and not filed_invented,
+                    len(ids) == n and not filed_invented and probes_refused,
                 "all approved at the measured confidence":
                     len(approvals) == n and all(
                         math.isclose(a.confidence, MEASURED, abs_tol=1e-9)

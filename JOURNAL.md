@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.136](#11136-storage-that-survives-a-crash-and-the-sixth-review) | Storage that survives a crash, and the sixth review |
 | [11.135](#11135-an-undo-that-respects-what-came-after) | An undo that respects what came after |
 | [11.134](#11134-the-filter-on-harder-facts) | The filter on harder facts |
 | [11.133](#11133-distillation-and-the-runner-after-the-fourth-review) | Distillation and the runner, after the fourth review |
@@ -823,6 +824,121 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.136 Storage that survives a crash, and the sixth review
+
+**GPT-6 Astra's sixth adversarial review found nine defects, seven of
+them high.** Claude confirmed each one in the code and reproduced it
+with the exam before any fix existed:
+- **the vault wrote a bucket in place**, then published the catalog's
+  new hash. A torn write, or a crash between the two steps, made the
+  whole bucket unreadable, and an unrelated fact in it with it. The
+  user's library keeps a category per bucket, so a bucket is all its
+  chemical symbols (100 facts), or all its capitals (120);
+- undo restored a secondary record over a change made after the
+  approval ("safety: unsafe" went back to "safe");
+- Claude's legacy fallback from §11.135 took equal values for identity,
+  so a fact the user changed from 200 to 150 and back was erased;
+- a second approval pass promoted a rival the first pass had beaten
+  (Mombasa over Nairobi, in either id order);
+- a restored primary record skipped its premise check;
+- a rollback left the aborted approval's episodes behind;
+- the nobelium exception made "No" a symbol for any element;
+- filing accepted invented benchmark probes;
+- "The Leopard" is also a Jo Nesbø novel.
+
+**The fixes** (Astra, in two parallel tasks with disjoint files):
+- **Vault**:
+  - every loose payload goes to a new content-addressed file
+    (`<name>@<sha256>.uqs`), fsync'd;
+  - the catalog is written, fsync'd and replaced, and only then is the
+    superseded file removed;
+  - an orphan left by a crash is ignored, and removed by that shard's
+    next successful write;
+  - old entries still read their `<name>.uqs` file.
+- **Undo**:
+  - approvals journal every affected key's state after them, and a
+    secondary comes back only while it still holds that state;
+  - a first-format approval undoes exactly only when its record is
+    untouched: same value and confidence, no reinforcements, and never
+    re-seen;
+  - a restored primary must pass its premise check like any other
+    record;
+  - a claim that loses arbitration is rejected ("lost to entry N")
+    inside the winner's transaction, so no later pass can promote it;
+  - episodes written inside an approval carry its transaction, and a
+    rollback removes them.
+- **Filter and filing**:
+  - "No" is a symbol answer only when the subject begins with "no";
+  - `file_distilled` refuses a batch holding any invented probe.
+- **Benchmark (Claude)**:
+  - "The Leopard" accepts either author;
+  - the scorer folds letters Unicode leaves whole (ø, æ, ß, ł, þ, œ),
+    which the check of that very fix found: "Nesbø" had folded to
+    "nesb".
+
+**PASSED** four times on Claude's machine (pre-registration sha256
+7346c153...): all 9 cases, and 8 of 8 plants caught. After both
+injected crashes, the vault's next write read back and left no orphaned
+files. Every earlier gate still passes:
+- §11.135, 9 of 9;
+- §11.132, 5 of 5 plants, under Amendment B below;
+- the §11.130 replay, 90 of 90 right;
+- the §11.134 replay, 101 of 101, with nobelium still promoted;
+- §11.98's glyph-import gate.
+
+**Claude's review caught what the exam did not:**
+- **Stale conclusions.** Astra's undo spared every secondary that had
+  changed, and everything derived from it. So "safety: unsafe", derived
+  from a height of 200, survived the height going back to 100, and so
+  did a conclusion resting partly on that 200. Retracting every
+  derivative instead would drop a conclusion the user had confirmed
+  whose premise the undo never changed (Astra's own test showed it).
+  The undo now:
+  - judges the secondaries once, before anything changes;
+  - journals that plan, so a replay after a crash does exactly the
+    same;
+  - restores, then drops precisely the derivatives whose own premises
+    no longer hold.
+  Three regression tests cover this, and each fails when its mechanism
+  is removed.
+- **A quadratic orphan sweep.** It ran one regex per pending shard
+  against every file. With fsync off, 4,000 rewrites took 2.9 times as
+  long as 2,000; the sweep is linear now.
+- **Astra's tests.** Two could never have run: they passed a
+  constructor argument that does not exist, and their "real" item had
+  no answers, which makes it a probe. One tested the wrong transaction
+  in reverse id order. Astra's session had ended before its
+  verification.
+- **§11.98's glyph-import gate** built loose file names by hand, so it
+  would have reported 0 bytes. It now asks the vault.
+
+**Amendment B to §11.132's gate** (sha256 d0353a5f..., recorded after
+that gate had passed): filing now refuses probes, so its distilled
+scenario offers the invented probes on their own, and they must be
+refused. "None invented" is kept, and made stricter.
+
+**What durability costs**, measured on a copy of the live vault:
+- a read: 1.15 ms before, 2.66 ms now;
+- a bucket flush: 5.9 ms before, 8.8 ms now;
+- 2,000 new loose shards in one batch: 0.72 s before, 6.6 s now. Almost
+  all of it is fsync, about 3 ms per file on this machine.
+That is the price of never losing a bucket, and bulk imports pay it
+once. A read still rewrites the whole catalog to count one access, now
+with an fsync: that is the next inefficiency worth a unit.
+
+**The user's library, checked on a copy**:
+- all 405 facts read;
+- all 384 approvals load (179 first-format, 205 second-format), and
+  every one is still an exact undo;
+- disputing one of each removed its fact;
+- rewritten buckets move to content-addressed files, and the four stale
+  legacy files are left alone.
+
+**Known limit**: an invented element named "no..." answered "No" by two
+lineages would still pass. §11.130's "noxarium" drew only "unknown".
+
+Suite: 2,371 passed, 5 skipped, 0 failed.
 
 ### 11.135 An undo that respects what came after
 

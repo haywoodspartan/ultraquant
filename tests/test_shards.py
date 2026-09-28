@@ -412,3 +412,211 @@ class TestCategoryRouter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCrashSafeLooseShards(unittest.TestCase):
+    """A failed replacement must leave the committed shard readable."""
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        self.mock = mock
+        self.tmp = tempfile.TemporaryDirectory(prefix="uq_crash_safe_")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.vault = ShardVault(self.root)
+        self.old = {"changed": 1, "unrelated": "still readable"}
+        self.new = {"changed": 2, "unrelated": "still readable"}
+        self.vault.add_shard("a", "facts", self.old)
+        self.previous = self.vault._loose_path("a")
+
+    def test_torn_payload_preserves_committed_content(self) -> None:
+        def torn(path, data):
+            self.assertNotEqual(path, self.previous)
+            path.write_bytes(data[:max(1, len(data) // 2)])
+            raise OSError("power cut during payload write")
+
+        with self.mock.patch.object(self.vault, "_write_payload", side_effect=torn):
+            with self.assertRaises(OSError):
+                self.vault.add_shard("a", "facts", self.new)
+        reopened = ShardVault(self.root)
+        self.assertEqual(reopened.get("a"), self.old)
+        reopened.add_shard("a", "facts", self.new)
+        self.assertEqual(ShardVault(self.root).get("a"), self.new)
+        self.assertEqual(list(reopened.loose_dir.iterdir()), [reopened._loose_path("a")])
+
+    def test_catalog_failure_preserves_old_file_until_commit(self) -> None:
+        with self.mock.patch.object(self.vault, "_write_catalog", side_effect=OSError):
+            with self.assertRaises(OSError):
+                self.vault.add_shard("a", "facts", self.new)
+        self.assertTrue(self.previous.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+        self.vault.add_shard("a", "facts", self.new)
+        self.assertFalse(self.previous.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.new)
+
+    def test_successful_commit_removes_superseded_file(self) -> None:
+        self.vault.add_shard("a", "facts", self.new)
+        self.assertFalse(self.previous.exists())
+        current = self.vault._loose_path("a")
+        entry = self.vault.entry("a")
+        self.assertEqual(current.name, f"s_a@{entry['sha256']}.uqs")
+        self.assertEqual(entry["file"], current.name)
+        self.assertEqual(list(self.vault.loose_dir.iterdir()), [current])
+        self.assertEqual(ShardVault(self.root).get("a"), self.new)
+
+    def test_batch_defers_cleanup_and_keeps_current_version(self) -> None:
+        with self.vault.batch():
+            self.vault.add_shard("a", "facts", self.new)
+            intermediate = self.vault._loose_path("a")
+            self.assertTrue(self.previous.exists())
+            self.assertEqual(ShardVault(self.root).get("a"), self.old)
+            with self.mock.patch.object(self.vault, "_write_payload") as write:
+                self.vault.add_shard("a", "facts", self.old)
+            write.assert_not_called()
+            self.assertTrue(intermediate.exists())
+        self.assertTrue(self.previous.exists())
+        self.assertFalse(intermediate.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+
+    def test_failed_batch_commit_preserves_superseded_files(self) -> None:
+        with self.mock.patch.object(self.vault, "_write_catalog", side_effect=OSError):
+            with self.assertRaises(OSError):
+                with self.vault.batch():
+                    self.vault.add_shard("a", "facts", self.new)
+        self.assertTrue(self.previous.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+        with self.vault.batch():
+            pass  # A failed commit remains dirty and can be retried.
+        self.assertFalse(self.previous.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.new)
+
+    def test_orphan_cleanup_matches_only_the_exact_shard(self) -> None:
+        from ultraquant.shards.vault import _safe_filename
+
+        for shard_id in ("a", "a.b", "a@b"):
+            with self.subTest(shard_id=shard_id):
+                self.vault.add_shard(shard_id, "facts", self.old)
+                safe = _safe_filename(shard_id)
+                self.assertNotIn("@", safe)
+                orphan = self.vault.loose_dir / f"{safe}@{'0' * 64}.uqs"
+                orphan.write_bytes(b"torn orphan")
+                protected_names = [
+                    f"{safe}.b.uqs", f"{safe}b@{'1' * 64}.uqs",
+                    f"{safe}.b@{'1' * 64}.uqs", f"{safe}@{'1' * 63}.uqs",
+                    f"{safe}@{'A' * 64}.uqs", f"{safe}@{'1' * 64}.uqs.extra",
+                    f"{safe.replace('.', 'X')}X@{'1' * 64}.uqs",
+                ]
+                if "." in safe:
+                    protected_names.append(f"{safe.replace('.', 'X')}@{'1' * 64}.uqs")
+                protected = [self.vault.loose_dir / name for name in protected_names]
+                for path in protected:
+                    path.write_bytes(b"another file")
+                self.vault.add_shard(shard_id, "facts", self.new)
+                self.assertFalse(orphan.exists())
+                self.assertTrue(self.vault._loose_path(shard_id).exists())
+                for path in protected:
+                    self.assertEqual(path.read_bytes(), b"another file")
+
+    def test_failed_catalog_commit_does_not_clean_orphans(self) -> None:
+        orphan = self.vault.loose_dir / f"s_a@{'0' * 64}.uqs"
+        orphan.write_bytes(b"orphan")
+        with self.mock.patch.object(self.vault, "_write_catalog", side_effect=OSError):
+            with self.assertRaises(OSError):
+                self.vault.add_shard("a", "facts", self.new)
+        self.assertTrue(orphan.exists())
+        self.assertTrue(self.previous.exists())
+        reopened = ShardVault(self.root)
+        self.assertEqual(reopened.get("a"), self.old)
+        self.assertTrue(orphan.exists())  # Reads alone do not schedule a sweep.
+        reopened.add_shard("a", "facts", self.new)
+        self.assertFalse(orphan.exists())
+        self.assertEqual(list(reopened.loose_dir.iterdir()), [reopened._loose_path("a")])
+
+    def test_legacy_entry_is_readable_and_migrates_after_commit(self) -> None:
+        legacy = self.vault.loose_dir / "s_a.uqs"
+        self.previous.rename(legacy)
+        catalog = json.loads(self.vault.catalog_path.read_text(encoding="utf-8"))
+        del catalog["shards"][0]["file"]
+        self.vault.catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+        reopened = ShardVault(self.root)
+        self.assertEqual(reopened._loose_path("a"), legacy)
+        self.assertEqual(reopened.storage_key("a"), "loose/s_a.uqs")
+        self.assertEqual(reopened.get("a"), self.old)
+        with reopened.batch():
+            reopened.add_shard("a", "facts", self.old)
+            self.assertTrue(legacy.exists())
+            self.assertNotEqual(reopened._loose_path("a"), legacy)
+        self.assertFalse(legacy.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+
+    def test_pack_prunes_resolved_content_addressed_paths(self) -> None:
+        for sharded in (False, True):
+            for batched in (False, True):
+                with self.subTest(sharded=sharded, batched=batched):
+                    import contextlib
+
+                    vault = ShardVault(self.root / f"pack-{sharded}-{batched}")
+                    vault.add_shard("a", "facts", self.old)
+                    loose = vault._loose_path("a")
+                    batch = vault.batch() if batched else contextlib.nullcontext()
+                    with batch:
+                        if sharded:
+                            vault.pack_sharded(vault.root / "parts", prune_loose=True)
+                        else:
+                            vault.pack(vault.root / "all.uql", prune_loose=True)
+                        if batched:
+                            self.assertTrue(loose.exists())
+                        self.assertNotIn("file", vault.entry("a"))
+                    self.assertFalse(loose.exists())
+                    self.assertEqual(ShardVault(vault.root).get("a"), self.old)
+
+    def test_storage_key_follows_current_file(self) -> None:
+        from ultraquant.storage.local import LocalStorage
+
+        for payload in (self.old, self.new):
+            self.vault.add_shard("a", "facts", payload)
+            current = self.vault._loose_path("a")
+            self.assertEqual(self.vault.storage_key("a"), f"loose/{current.name}")
+            reopened = ShardVault(self.root, storage=LocalStorage(self.root))
+            self.assertEqual(reopened.get("a"), payload)
+
+    def test_identical_content_keeps_file_without_writing(self) -> None:
+        with self.mock.patch.object(self.vault, "_write_payload") as write:
+            self.vault.add_shard("a", "facts", self.old)
+        write.assert_not_called()
+        self.assertEqual(self.vault._loose_path("a"), self.previous)
+        self.assertTrue(self.previous.exists())
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+
+    def test_failed_payload_fsync_is_retried_even_if_bytes_are_complete(self) -> None:
+        from ultraquant.shards import vault as module
+
+        with self.mock.patch.object(module.os, "fsync", side_effect=OSError):
+            with self.assertRaises(OSError):
+                self.vault.add_shard("a", "facts", self.new)
+        self.assertEqual(ShardVault(self.root).get("a"), self.old)
+        with self.mock.patch.object(
+            self.vault, "_write_payload", wraps=self.vault._write_payload
+        ) as write:
+            self.vault.add_shard("a", "facts", self.new)
+        write.assert_called_once()
+        self.assertEqual(ShardVault(self.root).get("a"), self.new)
+
+    def test_payload_and_catalog_fsync_precede_publication(self) -> None:
+        from ultraquant.shards import vault as module
+
+        events = []
+        replace = module.os.replace
+
+        def publish(source, target):
+            events.append("replace")
+            self.assertTrue(self.previous.exists())
+            replace(source, target)
+
+        with self.mock.patch.object(module.os, "fsync", side_effect=lambda fd: events.append("fsync")):
+            with self.mock.patch.object(module.os, "replace", side_effect=publish):
+                with self.mock.patch.object(self.vault, "_fsync_directory", side_effect=lambda path: events.append(path)):
+                    self.vault.add_shard("a", "facts", self.new)
+        self.assertEqual(events, ["fsync", self.vault.loose_dir, "fsync", "replace", self.root])
+        self.assertFalse(self.previous.exists())

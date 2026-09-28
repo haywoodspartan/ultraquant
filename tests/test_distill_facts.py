@@ -152,3 +152,73 @@ class RecordedRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewSixDistillationTests(unittest.TestCase):
+
+    def _records(self, item, raw):
+        return [E.Record(teacher, lineage, "test.gguf", 1, E.question_id(item),
+                         item.question, seed, raw, E.normalize(E.extract(raw)))
+                for teacher, lineage in (("A", "L0"), ("B", "L1"))
+                for seed in E.SEEDS]
+
+    def test_no_is_refused_for_zorbenium_and_kept_for_nobelium(self) -> None:
+        for subject, expected in (("zorbenium", None), ("nobelium", "no")):
+            item = K.Item("symbol", subject, f"What is the symbol of {subject}?")
+            for raw in ("No", '**Answer:** "No."'):
+                with self.subTest(subject=subject, raw=raw):
+                    result = E.decide(self._records(item, raw), [item])
+                    self.assertEqual(result[E.question_id(item)], expected)
+        self.assertEqual(E.held(["No"] * 5, category="symbol"), "no")
+
+    def test_symbol_subject_rule_uses_the_normalized_prefix(self) -> None:
+        for subject in ("Nobelium", "the nobelium", "NOvium", "n\u00f3belium"):
+            self.assertTrue(E._symbol_no_allowed(subject), subject)
+        for subject in ("zorbenium", "gold", "", "x no"):
+            self.assertFalse(E._symbol_no_allowed(subject), subject)
+
+    def test_subject_rule_is_looked_up_at_call_time(self) -> None:
+        from unittest import mock
+
+        item = K.Item("symbol", "zorbenium", "What is its symbol?")
+        with mock.patch.object(E, "_symbol_no_allowed", return_value=True):
+            self.assertEqual(E.decide(self._records(item, "No"), [item])[
+                E.question_id(item)], "no")
+
+    def test_probe_batch_is_rejected_before_any_item_is_filed(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from ultraquant.distill import file as F
+        from ultraquant.interpreter.stash import ContemporaryStash
+
+        # Claude's review: `fictitious` is derived (an item with no answers
+        # is invented), not a constructor argument.
+        real = K.Item("symbol", "vanadium", "What is its symbol?", ("v",))
+        probes = [K.Item("symbol", subject, "What is its symbol?")
+                  for subject in ("varnadium", "zorbenium")]
+        items = [real, *probes]
+        records = [r for item in items for r in self._records(item, "V")]
+        with tempfile.TemporaryDirectory(prefix="uq_probe_test_") as directory:
+            path = Path(directory) / "stash.json"
+            stash = ContemporaryStash(path)
+            with self.assertRaises(ValueError) as raised:
+                F.file_distilled(stash, iter(records), iter(items), 0.964, "test")
+            for probe in probes:
+                self.assertIn(probe.subject, str(raised.exception))
+            self.assertEqual(stash.entries(), [])
+            self.assertFalse(path.exists())
+
+    def test_probe_check_is_the_only_filing_guard(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from ultraquant.distill import file as F
+        from ultraquant.interpreter.stash import ContemporaryStash
+
+        item = K.Item("symbol", "varnadium", "What is its symbol?")
+        with tempfile.TemporaryDirectory(prefix="uq_probe_test_") as directory:
+            stash = ContemporaryStash(Path(directory) / "stash.json")
+            with mock.patch.object(F, "_reject_probes", return_value=None):
+                filed = F.file_distilled(stash, self._records(item, "V"),
+                                         [item], 0.964, "test")
+            self.assertEqual(len(filed), 1)

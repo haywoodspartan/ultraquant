@@ -193,6 +193,10 @@ def load_records(path) -> list[Record]:
         return [Record(**json.loads(line)) for line in handle if line.strip()]
 
 
+def _symbol_no_allowed(subject: str) -> bool:
+    return normalize(subject).startswith("no")
+
+
 def decide(records, items) -> dict[str, str | None]:
     """Recompute from raw samples, without consulting item answers."""
     by_question = defaultdict(lambda: defaultdict(list))
@@ -206,8 +210,11 @@ def decide(records, items) -> dict[str, str | None]:
             lineage = samples[0].lineage
             if any(record.lineage != lineage for record in samples):
                 raise ValueError(f"Inconsistent lineage for teacher {teacher!r}")
-            lineages[lineage][teacher] = held([r.raw for r in samples],
-                                              category=item.category)
+            answers = [r.raw for r in samples]
+            # Review 6: No is a symbol only for a matching subject prefix.
+            if item.category == "symbol" and not _symbol_no_allowed(item.subject):
+                answers = [raw for raw in answers if normalize(extract(raw)) != "no"]
+            lineages[lineage][teacher] = held(answers, category=item.category)
         # Multiple teachers contribute one family position, including dissent.
         positions = {lineage: family_position(answers)
                      for lineage, answers in lineages.items()}

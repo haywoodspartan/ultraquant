@@ -148,3 +148,71 @@ class GateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewSixApprovalTests(_World):
+
+    def test_each_before_key_has_a_journalled_after_state(self) -> None:
+        self.memory.remember_fact("height of the pylon", "100 metres", 0.6)
+        self.memory.consolidate_fact("safety of the pylon", "safe", 0.7,
+                                     [("height of the pylon", "100 metres")])
+        self.seed([("The height of the pylon is 200 metres.", "a.example")])
+        approver = self.approver()
+        (approval,) = approver.approve_all()
+        expected = {"height of the pylon": self.memory._fact_record(approval.key),
+                    "safety of the pylon": None}
+        self.assertEqual(approval.after_states, expected)
+        self.assertEqual(approval.after, expected[approval.key])
+        commit = approver._rows()[-1]
+        self.assertEqual(commit["after_states"], expected)
+        self.assertEqual(set(commit["before"]), set(commit["after_states"]))
+        self.assertEqual(self.approver().approvals()[0].after_states, expected)
+        self.memory.remember_fact(approval.key, "150 metres", 0.9)
+        self.assertEqual(approval.after_states[approval.key]["value"], "200 metres")
+
+    def _rivals(self, winner_first):
+        rows = [("The capital of Kenya is Nairobi.", "a.example"),
+                ("The capital of Kenya is Mombasa.", "d.example")]
+        self.seed(rows if winner_first else rows[::-1])
+        winner, loser = (1, 2) if winner_first else (2, 1)
+        self.stash._entries[winner]["sources"] = ["a.example", "b.example", "c.example"]
+        return winner, loser
+
+    def test_losses_are_recorded_in_both_id_orders_and_stay_rejected(self) -> None:
+        for winner_first in (True, False):
+            with self.subTest(winner_first=winner_first):
+                winner, loser = self._rivals(winner_first)
+                approver = self.approver()
+                (approval,) = approver.approve_all()
+                self.assertEqual(approval.entry_id, winner)
+                self.assertEqual(self.stash.get(loser)["status"], "rejected")
+                self.assertEqual(self.stash.get(loser)["notes"], f"lost to entry {winner}")
+                intent = next(row for row in reversed(approver._rows())
+                              if row["event"] == "intent")
+                self.assertEqual([row["id"] for row in intent["losers"]], [loser])
+                self.assertEqual(intent["losers"][0]["status"], "disputed")
+                self.assertEqual(self.approver().approve_all(), [])
+                self.assertEqual(self.memory._fact_record("capital of kenya")["value"],
+                                 "Nairobi")
+
+    def test_tied_rivals_do_not_record_losses(self) -> None:
+        self.seed([("The capital of Kenya is Nairobi.", "a.example"),
+                   ("The capital of Kenya is Mombasa.", "d.example")])
+        self.assertEqual(self.approver().approve_all(), [])
+        self.assertEqual({e["status"] for e in self.stash.entries()}, {"disputed"})
+        self.assertFalse(self.journal.exists())
+
+    def test_all_approval_episodes_get_the_transaction_tag(self) -> None:
+        old_id = self.memory.remember_episode("observation", {"keep": True})
+        self.memory.remember_fact("height of the pylon", "100 metres", 0.6)
+        self.memory.consolidate_fact("safety of the pylon", "safe", 0.7,
+                                     [("height of the pylon", "100 metres")])
+        self.seed([("The height of the pylon is 200 metres.", "a.example")])
+        (approval,) = self.approver().approve_all()
+        episodes = self.memory.recall_episodes(limit=100)
+        created = [e for e in episodes if e["id"] > old_id]
+        self.assertEqual({e["kind"] for e in created},
+                         {"promotion", "revision", "retraction"})
+        tag = f"transaction:{approval.approval_id}"
+        self.assertTrue(all(tag in e["tags"] for e in created))
+        self.assertNotIn(tag, next(e for e in episodes if e["id"] == old_id)["tags"])
