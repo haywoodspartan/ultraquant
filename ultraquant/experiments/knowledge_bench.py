@@ -240,6 +240,9 @@ _ABSTAIN = re.compile(
     r"no element|no novel|not a known)\b")
 
 
+_HEDGED_ANSWER = re.compile(r"\b(?:not|no|never|nor|or)\b")
+
+
 def normalize(text: str) -> str:
     """Fold case, accents, punctuation, leading articles and trailing periods."""
     text = unicodedata.normalize("NFKD", str(text))
@@ -271,6 +274,10 @@ def is_correct(item: Item, answer: str) -> bool:
     if item.fictitious or is_abstention(answer):
         return False
     folded = normalize(answer)
+    # §11.133: "Ag, not Au" ends in "au" and was scored right. An answer
+    # that negates or offers alternatives names nothing.
+    if _HEDGED_ANSWER.search(folded):
+        return False
     for accepted in item.answers:
         if folded == accepted:
             return True

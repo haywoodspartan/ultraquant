@@ -28,8 +28,12 @@ _REFUSAL = re.compile(
     r"no known|no record|no information|not aware|not familiar|"
     r"cannot answer|can t answer|cannot determine|unable to|"
     r"not recognized|not a recognized|not a known|no country|"
-    r"no element|no novel|cannot provide|can t provide)\b"
+    r"no element|no novel|cannot provide|can t provide|"
+    r"n a|not applicable|none known|no answer|not available|"
+    r"no capital|no author|no symbol|no atomic number)\b"
 )
+_HEDGED_ANSWER = re.compile(r"\b(?:not|no|never|nor|or)\b")
+CONFLICT = object()
 
 
 def question_id(item) -> str:
@@ -70,6 +74,11 @@ def is_abstention(text: str) -> bool:
         _REFUSAL.search(normalize(_THINK.sub("", text))))
 
 
+def is_position(text: str) -> bool:
+    return not is_abstention(text) and not _HEDGED_ANSWER.search(
+        normalize(extract(text)))
+
+
 def held(answers, min_count: int = 3) -> str | None:
     """The modal answer, judged on whole replies.
 
@@ -79,7 +88,7 @@ def held(answers, min_count: int = 3) -> str | None:
     the first line.
     """
     counts = Counter(normalize(extract(answer)) for answer in answers
-                     if not is_abstention(answer) and normalize(extract(answer)))
+                     if is_position(answer) and normalize(extract(answer)))
     if not counts:
         return None
     answer, count = counts.most_common(1)[0]
@@ -87,13 +96,26 @@ def held(answers, min_count: int = 3) -> str | None:
 
 
 def agree(a: str, b: str) -> bool:
+    if any(_HEDGED_ANSWER.search(normalize(answer)) for answer in (a, b)):
+        return False
     if a == b:
         return True
     shorter, longer = sorted((a.split(), b.split()), key=len)
     return bool(shorter) and longer[-len(shorter):] == shorter
 
 
+def family_position(helds: dict):
+    """Keep a family's dissent distinct from its unanimous abstention."""
+    answers = [answer for answer in helds.values() if answer is not None]
+    if not answers:
+        return None
+    longest = max(answers, key=lambda answer: (len(answer.split()), len(answer)))
+    return longest if all(agree(longest, answer) for answer in answers) else CONFLICT
+
+
 def promote(held_by_lineage: dict, min_lineages: int = 2) -> str | None:
+    if any(answer is CONFLICT for answer in held_by_lineage.values()):
+        return None
     answers = [answer for answer in held_by_lineage.values() if answer is not None]
     if len(answers) < min_lineages or not answers:
         return None
@@ -114,11 +136,24 @@ class Record:
     answer: str
 
 
-def elicit(teacher, lineage, items, path) -> list[Record]:
-    """Ask through only spec/ask; append and flush every returned sample."""
+def elicit(teacher, lineage, items, path, *,
+           manifest: list[dict] | None = None) -> list[Record]:
+    """Save teacher metadata, then append and flush every returned sample."""
+    from . import teachers
+
     items = list(items)
     gguf = Path(teacher.spec.gguf)
     size = gguf.stat().st_size
+    path = Path(path)
+    if manifest is None:
+        manifest = (teachers.load_manifest(path)
+                    if path.exists() and path.with_suffix(".manifest.json").exists()
+                    else [])
+        entry = teachers._manifest_entry(teacher.spec.name, gguf,
+                                         {teacher.spec.name: lineage})
+        manifest = [row for row in manifest if row["name"] != teacher.spec.name]
+        manifest.append(entry)
+    teachers._save_manifest(path, manifest)
     replies = teacher.ask(
         [item.question for item in items], system=SYSTEM, samples=SAMPLES,
         temperature=TEMPERATURE, top_p=TOP_P, max_tokens=MAX_TOKENS, seeds=SEEDS,
@@ -127,7 +162,6 @@ def elicit(teacher, lineage, items, path) -> list[Record]:
         raise ValueError("Teacher returned an incomplete sample matrix")
     if any(not isinstance(raw, str) for row in replies for raw in row):
         raise TypeError("Teacher samples must be raw strings")
-    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     records = []
     with path.open("a", encoding="utf-8") as handle:
@@ -161,9 +195,8 @@ def decide(records, items) -> dict[str, str | None]:
             if any(record.lineage != lineage for record in samples):
                 raise ValueError(f"Inconsistent lineage for teacher {teacher!r}")
             lineages[lineage][teacher] = held([r.raw for r in samples])
-        # Abstaining teachers have no position; conflicting held positions
-        # cancel their lineage. Multiple teachers still contribute one vote.
-        positions = {lineage: promote(answers, min_lineages=1)
+        # Multiple teachers contribute one family position, including dissent.
+        positions = {lineage: family_position(answers)
                      for lineage, answers in lineages.items()}
         decisions[key] = promote(positions)
     return decisions

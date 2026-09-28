@@ -41,6 +41,11 @@ and copied executables. --remote remains the isolation from the local GPU.
 Still unverified: remote kill semantics, multi-GPU billing, and Linux
 descendants that deliberately escape their session. Interop opt-in passes
 the command guard but does not remove the WSL seal.
+
+Round five follows the fourth review (§11.133). An unreleased receipt is
+bound to the launcher that wrote it: reconciliation refuses, before any
+`end`, a receipt whose launcher is missing or foreign, exactly as round
+four already did for reservations.
 """
 
 from __future__ import annotations
@@ -201,6 +206,7 @@ class Receipt:
     attached_seconds: float = 0.0
     interrupted: bool = False
     reservation: str = ""
+    launcher: str = ""
 
 
 class Ledger:
@@ -630,6 +636,8 @@ class OnDemand:
             if not self._same_launcher(reservation):
                 raise LeaseNotReleased(reservation)
         row = self.ledger.outstanding()
+        if row is not None and not self._same_launcher(row):
+            raise LeaseNotReleased(row)
         if reservations or row is not None:
             released, output = self._release()
             if not released:
@@ -767,7 +775,7 @@ class OnDemand:
                             error=f"{type(error).__name__}: {error}" if error else "",
                             attached_seconds=attached,
                             interrupted=interrupted or result.get("interrupted", False),
-                            reservation=reservation)
+                            reservation=reservation, launcher=self._identity())
                         try:
                             self.ledger.append(receipt)
                         finally:

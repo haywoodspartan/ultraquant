@@ -79,10 +79,27 @@ The 0.959 is limited by 90 samples, not by any error. How the filter
 trades coverage for precision on obscure facts, where teachers really
 disagree, is untested. That is the next measurement, and the one that
 matters before a massive teacher is paid for.
+
+**§11.133: re-scored after the fourth review** (a post-hoc re-scoring,
+stated as such). Astra found four ways the filter or the scorer could
+be fooled, and Claude reproduced each with synthetic samples:
+- "Ag, not Au" agreed with "Au" by the suffix rule, and was scored
+  right;
+- a second teacher from a dissenting family erased that family's
+  dissent;
+- "N/A" counted as an answer;
+- the replay needed the model files.
+None of those shapes occurs anywhere in the 3,900 recorded samples.
+Under the corrected filter the verdict is unchanged: held-out 90/90
+right at coverage 1.00, invented 0/80, confidence 0.959. All seven
+plants are caught, including P4-P7, which restore each old behaviour in
+every layer it lived in. The replay now runs from the records and a
+manifest alone.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import time
@@ -155,10 +172,16 @@ def _score(decided) -> dict:
     }
 
 
-def _independence() -> tuple:
+def _independence(records_path: Path = RECORDS, replay: bool = False) -> tuple:
+    """Three groups or not, from the GGUFs - or, on replay, from the
+    manifest recorded beside the samples (§11.133: replay needs no model
+    files)."""
     from ultraquant.distill import teachers as T
     from ultraquant.interpreter.llmls import independent_groups
-    cards = [T.gguf_card(path) for _name, path in TEACHERS]
+    if replay:
+        cards = T.cards_from_manifest(T.load_manifest(records_path))
+    else:
+        cards = [T.gguf_card(path) for _name, path in TEACHERS]
     groups = independent_groups(cards)
     lineage = {}
     for index, group in enumerate(groups):
@@ -204,6 +227,134 @@ def _plant_least_common(answers, min_count=3):
     return min(counts, key=lambda k: (counts[k], k))
 
 
+# -- §11.133: the review's counterexamples, as regression cases ---------------
+
+def _synthetic(answers_by_teacher: dict, lineage_of: dict) -> list:
+    """Five identical samples per teacher for one invented question."""
+    from ultraquant.distill import elicit as E
+    return [E.Record(teacher, lineage_of[teacher], "x.gguf", 1,
+                     "capital:Testland", "What is the capital of Testland?",
+                     seed, raw, E.normalize(E.extract(raw)))
+            for teacher, raw in answers_by_teacher.items()
+            for seed in E.SEEDS]
+
+
+def review4_cases() -> dict:
+    from ultraquant.distill import elicit as E
+    item = K.Item("capital", "Testland", "What is the capital of Testland?")
+    qid = E.question_id(item)
+
+    def promoted(answers, lineages):
+        return E.decide(_synthetic(answers, lineages), [item]).get(qid)
+
+    gold = next(i for i in K.KNOWN
+                if i.subject == "gold" and i.category == "symbol")
+    return {
+        "a negated contradiction is not promoted": promoted(
+            {"A": "Au", "B": "Ag, not Au", "C": "UNKNOWN"},
+            {"A": "L0", "B": "L1", "C": "L2"}) is None,
+        "a family's dissent survives a second teacher": promoted(
+            {"A": "Lyon", "B": "Lyon", "C1": "Paris", "C2": "Lyon"},
+            {"A": "L0", "B": "L1", "C1": "L2", "C2": "L2"}) is None,
+        "N/A is not an answer": promoted(
+            {"A": "N/A", "B": "N/A", "C": "UNKNOWN"},
+            {"A": "L0", "B": "L1", "C": "L2"}) is None,
+        "refusal forms abstain": all(E.is_abstention(t) for t in (
+            "N/A", "n/a", "Not applicable", "No capital", "None known",
+            "No answer", "Not available")),
+        "real answers do not": not any(E.is_abstention(t) for t in (
+            "Unknownium", "Norway", "Oregon")),
+        "the scorer rejects negations and alternatives":
+            not K.is_correct(gold, "Ag, not Au")
+            and not K.is_correct(gold, "Au or Ag")
+            and K.is_correct(gold, "Au"),
+    }
+
+
+def replay_without_models(records_path: Path = RECORDS) -> bool:
+    """Criterion 2: with every GGUF read failing, the replay still passes."""
+    from ultraquant.distill import teachers as T
+
+    def gone(path):
+        raise FileNotFoundError(f"model file withheld: {path}")
+
+    with mock.patch.object(T, "gguf_card", gone):
+        try:
+            return run_gate(records_path, elicit=False, _nested=True).passes
+        except Exception:               # a crash is a failure
+            return False
+
+
+def _old_is_position(text):
+    """P4: before §11.133, anything not an abstention was a position."""
+    from ultraquant.distill import elicit as E
+    return not E.is_abstention(text)
+
+
+def _old_agree(a, b):
+    """P4: the suffix rule with no guard against negations."""
+    if a == b:
+        return True
+    shorter, longer = sorted((a.split(), b.split()), key=len)
+    return bool(shorter) and longer[-len(shorter):] == shorter
+
+
+def _old_family(helds: dict):
+    """P5: a family in conflict collapsed to None, like an abstention."""
+    from ultraquant.distill import elicit as E
+    return E.promote(helds, min_lineages=1)
+
+
+_OLD_REFUSAL = __import__("re").compile(
+    r"\b(?:unknown|do not know|don t know|dont know|not sure|unsure|"
+    r"not known|does not exist|doesn t exist|doesnt exist|not exist|"
+    r"no such|there is no|there are no|fictional|fictitious|imaginary|"
+    r"made up|invented|hypothetical|not a real|not real|not an actual|"
+    r"no known|no record|no information|not aware|not familiar|"
+    r"cannot answer|can t answer|cannot determine|unable to|"
+    r"not recognized|not a recognized|not a known|no country|"
+    r"no element|no novel|cannot provide|can t provide)\b")
+
+
+def _old_is_abstention(text):
+    """P6: §11.130's refusal list, which missed N/A and its kind."""
+    from ultraquant.distill import elicit as E
+    answer = E.normalize(E.extract(text))
+    return not answer or answer == "none" or bool(_OLD_REFUSAL.search(answer))
+
+
+def review4_plants() -> dict:
+    """Each plant restores the old behaviour in every layer it lived in."""
+    from ultraquant.distill import elicit as E
+    from ultraquant.distill import teachers as T
+    plants = {
+        "P4 the old suffix rule": ("a negated contradiction is not promoted",
+            [mock.patch.object(E, "is_position", _old_is_position),
+             mock.patch.object(E, "agree", _old_agree)]),
+        "P5 the old family collapse": (
+            "a family's dissent survives a second teacher",
+            [mock.patch.object(E, "family_position", _old_family)]),
+        "P6 the old abstention list": ("N/A is not an answer",
+            [mock.patch.object(E, "is_abstention", _old_is_abstention)]),
+    }
+    caught = {}
+    for name, (target, patches) in plants.items():
+        try:
+            with contextlib.ExitStack() as stack:
+                for patch in patches:
+                    stack.enter_context(patch)
+                caught[name] = review4_cases()[target] is False
+        except Exception:               # a crash proves nothing: not caught
+            caught[name] = False
+    # P7: replay that ignores the manifest and reads the GGUFs regardless
+    with mock.patch.object(T, "cards_from_manifest",
+                           lambda manifest: [T.gguf_card(p)
+                                             for _n, p in TEACHERS]):
+        caught["P7 independence read from the GGUFs"] = (
+            replay_without_models() is False)
+    return caught
+
+
 @dataclass
 class DistillReport:
     """What three local teachers know, filtered and measured.
@@ -230,14 +381,21 @@ class DistillReport:
     abstention: dict = field(default_factory=dict)
     seconds: dict = field(default_factory=dict)
     records: int = 0
+    review4: dict = field(default_factory=dict)
     reason: str = ""
 
 
-def run_gate(records_path: Path = RECORDS, elicit: bool = True) -> DistillReport:
-    """Elicit (unless ``elicit`` is False), decide, score, then plant."""
+def run_gate(records_path: Path = RECORDS, elicit: bool = True,
+             _nested: bool = False) -> DistillReport:
+    """Elicit (unless ``elicit`` is False), decide, score, then plant.
+
+    ``_nested`` is the replay-without-models check calling back in: it
+    runs criteria 1-6 only, so the check does not recurse.
+    """
     from ultraquant.distill import elicit as E
     report = DistillReport(passes=False)
-    report.independent, cards, lineage = _independence()
+    report.independent, cards, lineage = _independence(records_path,
+                                                        replay=not elicit)
     if elicit:
         report.seconds = _elicit(records_path, lineage, cards)
     records = E.load_records(records_path)
@@ -278,8 +436,18 @@ def run_gate(records_path: Path = RECORDS, elicit: bool = True) -> DistillReport
             report.planted[name] = False
             report.per_category.setdefault("plant errors", {})[name] = repr(exc)
 
+    if not _nested:
+        cases = review4_cases()
+        report.review4 = {"cases": cases,
+                          "replay without models": replay_without_models(
+                              records_path),
+                          "plants": review4_plants()}
+        report.planted.update(report.review4["plants"])
     valid = bool(report.planted) and all(report.planted.values())
     met = {c: report.score[c] for c in ("c1", "c2", "c3")}
+    if not _nested:
+        met["r4 cases"] = all(report.review4["cases"].values())
+        met["r4 replay"] = report.review4["replay without models"]
     met["c4"] = report.independent
     # Amendment A: every (teacher, question, seed) exactly once, so a
     # duplicate cannot stand in for a missing sample.

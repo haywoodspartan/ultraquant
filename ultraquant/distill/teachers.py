@@ -59,6 +59,41 @@ def gguf_card(path) -> ModelCard:
     )
 
 
+def _manifest_entry(name, gguf_path, lineage_of) -> dict:
+    path = Path(gguf_path)
+    card = gguf_card(path)
+    return {
+        "name": name, "gguf_name": path.name, "gguf_size": path.stat().st_size,
+        "card": {field: getattr(card, field) for field in
+                 ("id", "arch", "publisher", "quantization", "context")},
+        "lineage": lineage_of[name] if name in lineage_of else lineage_of[card.id],
+    }
+
+
+def _save_manifest(records_path, manifest: list[dict]) -> None:
+    path = Path(records_path).with_suffix(".manifest.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+
+
+def write_manifest(records_path, teachers: list[tuple[str, Path]],
+                   lineage_of: dict) -> None:
+    """Record header-derived cards and lineages keyed by teacher name or card id."""
+    _save_manifest(records_path, [_manifest_entry(name, path, lineage_of)
+                                  for name, path in teachers])
+
+
+def load_manifest(records_path) -> list[dict]:
+    with Path(records_path).with_suffix(".manifest.json").open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def cards_from_manifest(manifest: list[dict]) -> list[ModelCard]:
+    """Rebuild the original cards without opening model files."""
+    return [ModelCard(**row["card"]) for row in manifest]
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None

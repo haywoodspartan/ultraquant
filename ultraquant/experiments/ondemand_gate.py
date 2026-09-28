@@ -183,6 +183,14 @@ P15 need WSL, and they are caught here. Astra noted that P7 and P10
 count as caught in its sandbox only because their WSL cases fail there
 anyway. Here they are measured.
 
+**§11.133: round five, after the fourth review.** An unreleased
+receipt with no reservation was reconciled through whatever launcher
+the runner had, bypassing round four's ownership check. Receipts now
+carry their launcher, and case 2 (r) with plant P19 holds it: a legacy
+receipt and a foreign one are refused with no ``end``, and one's own
+reconciles. PASSED on Claude's machine with WSL: all 8 criteria, 19 of
+19 planted defects, 131.2 s.
+
 """
 
 from __future__ import annotations
@@ -898,6 +906,41 @@ def _settled_stays_additive():
     return _scenario(body, usage_cost=0.50)
 
 
+def _receipt_ownership():
+    """§11.133 (review 4, finding 1): an outstanding receipt is reconciled
+    only through the launcher that wrote it."""
+    from ultraquant.cloud import ondemand as od
+
+    def unreleased(stub, launcher):
+        od.Ledger(stub.ledger_path).append(od.Receipt(
+            label="left unreleased", started=time.time() - 300, seconds=1.0,
+            sku=None, rate=HIGH, cost=0.001, worst_case=0.02, exit_code=0,
+            timed_out=False, lease="old", gpu=None, released=False,
+            release_output="", output_tail="", launcher=launcher))
+
+    def refused(launcher):
+        def body(stub):
+            unreleased(stub, launcher)
+            try:
+                _runner(stub).run(_job(["echo", "x"]))
+            except od.LeaseNotReleased:
+                ends = [e for e in stub.log() if e.get("cmd") == "end"]
+                return not ends and not stub.runs()
+            return False
+        return _scenario(body)
+
+    def owned(stub):
+        runner = _runner(stub)
+        unreleased(stub, _identity(runner))
+        receipt = runner.run(_job(["echo", "x"]))
+        reconciled = [r for r in stub.rows() if r.get("kind") == "reconciled"]
+        return receipt.released and len(reconciled) == 1
+
+    return (refused("") and refused(
+        json.dumps([["/elsewhere/lupine"], "OtherDistro"]))
+        and _scenario(owned))
+
+
 REFUSAL_CASES = {
     # 1.50 x 140 / 3600 = 0.0583 > 0.05 left; at 1.10 it is 0.0428
     "a unpinned at the highest rate": _refused(
@@ -924,6 +967,7 @@ REFUSAL_CASES = {
     "o foreign launcher refused": _foreign_launcher,
     "p late recovery accrues": _late_recovery,
     "q settled crash stays additive": _settled_stays_additive,
+    "r a receipt reconciles only through its own launcher": _receipt_ownership,
 }
 
 
@@ -1434,6 +1478,10 @@ def _plants():
          "o foreign launcher refused",
          lambda: _planted(None, mock.patch.object(
              od.OnDemand, "_same_launcher", lambda self, reservation: True))),
+        ("P19 receipts reconciled through any launcher", criterion_refusal,
+         "r a receipt reconciles only through its own launcher",
+         lambda: _planted(None, mock.patch.object(
+             od.OnDemand, "_same_launcher", lambda self, row: True))),
     ]
 
 

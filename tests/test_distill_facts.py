@@ -110,6 +110,23 @@ class BenchmarkTests(unittest.TestCase):
         self.assertLess(G.wilson_lower(85, 90), G.wilson_lower(90, 90))
 
 
+class ReviewFourTests(unittest.TestCase):
+    """11.133: Astra's counterexamples, each one a regression pin."""
+
+    def test_every_counterexample_is_refused(self) -> None:
+        cases = G.review4_cases()
+        self.assertTrue(all(cases.values()), cases)
+
+    def test_the_replay_needs_no_model_files(self) -> None:
+        self.assertTrue(G.replay_without_models())
+
+    def test_a_family_in_conflict_vetoes(self) -> None:
+        self.assertIs(E.family_position({"t1": "paris", "t2": "lyon"}),
+                      E.CONFLICT)
+        self.assertIsNone(E.promote({"a": "lyon", "b": "lyon",
+                                     "c": E.CONFLICT}))
+
+
 class RecordedRunTests(unittest.TestCase):
     """The verdict, recomputed from the samples on record."""
 

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.133](#11133-distillation-and-the-runner-after-the-fourth-review) | Distillation and the runner, after the fourth review |
 | [11.132](#11132-quarantined-knowledge-approved-automatically-and-disputable-exactly) | Quarantined knowledge, approved automatically and disputable exactly |
 | [11.131](#11131-the-on-demand-runner-round-four-and-the-first-paid-runs) | The on-demand runner, round four, and the first paid runs |
 | [11.130](#11130-facts-distilled-from-local-teachers-and-what-they-are-worth) | Facts distilled from local teachers, and what they are worth |
@@ -820,6 +821,44 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.133 Distillation and the runner, after the fourth review
+
+**Astra's fourth adversarial review found five defects, each reproduced
+with constructed inputs.**
+- In the runner, an unreleased receipt with no reservation was
+  reconciled through whatever launcher the runner had.
+- In distillation:
+  - "Ag, not Au" agreed with "Au" by the suffix rule, and the scorer
+    marked it right;
+  - a second teacher from a dissenting family could erase that family's
+    dissent;
+  - "N/A" counted as an answer;
+  - the replay needed the model files.
+
+**Claude checked the recorded run against all four distillation shapes
+before any fix.** Across 3,900 samples none occurs, and the 19
+promotions that relied on the suffix rule are all legitimate ("orwell"
+and "george orwell"). So §11.130's measurement stood. The fixes are for
+every run after it:
+- an answer that negates or offers alternatives is never a position,
+  and never scores right;
+- a family in conflict vetoes promotion;
+- the refusal list covers N/A and its kind;
+- a manifest beside the records makes the replay self-contained;
+- receipts carry their launcher.
+Re-scored under the corrected filter (post-hoc, stated as such), the
+verdict is unchanged: held-out 90/90 right, invented 0/80, confidence
+0.959. All seven distillation plants are caught, P4-P7 among them, and
+each restores its old behaviour in every layer it lived in. The runner
+passed with WSL: 8 criteria and 19 of 19 planted defects.
+
+**Claude's review restored what the implementation had deleted.** The
+runner's whole module docstring (the user's requirement, the design,
+every review round, and the known limits) had been replaced by three
+lines. It is back, with this round appended.
+
+Suite: 2,326 passed, 5 skipped, 0 failed.
 
 ### 11.132 Quarantined knowledge, approved automatically and disputable exactly
 

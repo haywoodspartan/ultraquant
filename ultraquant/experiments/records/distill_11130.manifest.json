@@ -1,0 +1,41 @@
+[
+  {
+    "name": "command-r-08-2024",
+    "gguf_name": "c4ai-command-r-08-2024-Q4_K_S.gguf",
+    "gguf_size": 18849512896,
+    "card": {
+      "id": "C4Ai Command R 08 2024",
+      "arch": "command-r",
+      "publisher": "",
+      "quantization": "Q4_K_S",
+      "context": 131072
+    },
+    "lineage": "lineage-0"
+  },
+  {
+    "name": "qwen3.8-27b",
+    "gguf_name": "Qwen3.8-27B-Q4_K_M.gguf",
+    "gguf_size": 16810714336,
+    "card": {
+      "id": "Qwen_Qwen3.8 27B",
+      "arch": "qwen35",
+      "publisher": "",
+      "quantization": "Q4_K_M",
+      "context": 262144
+    },
+    "lineage": "lineage-1"
+  },
+  {
+    "name": "cydonia-22b",
+    "gguf_name": "Cydonia-v1.3-Magnum-v4-22B-Q6_K.gguf",
+    "gguf_size": 18252706816,
+    "card": {
+      "id": "Cydonia 22B v1.3",
+      "arch": "llama",
+      "publisher": "TheDrummer",
+      "quantization": "Q6_K",
+      "context": 32768
+    },
+    "lineage": "lineage-2"
+  }
+]

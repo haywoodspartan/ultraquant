@@ -193,6 +193,15 @@ class RoundFourTests(unittest.TestCase):
             {"launcher": '[["/elsewhere/lupine"], "OtherDistro"]'}))
         self.assertFalse(self.runner._same_launcher({}))   # unknown refuses
 
+    def test_a_receipt_carries_its_launcher(self) -> None:
+        """11.133: an outstanding receipt reconciles only through its own
+        launcher, and a legacy receipt with none is refused."""
+        field_names = {f.name for f in od.Receipt.__dataclass_fields__.values()}
+        self.assertIn("launcher", field_names)
+        self.assertFalse(self.runner._same_launcher({"launcher": ""}))
+        self.assertTrue(self.runner._same_launcher(
+            {"launcher": self.runner._identity()}))
+
     def test_a_crash_accrues_from_its_start(self) -> None:
         now = 10_000.0
         hold = {"worst_case": 0.02, "rate": 1.5, "started": now - 7200}
@@ -368,7 +377,7 @@ class GateTests(unittest.TestCase):
             self.skipTest("set ULTRAQUANT_SLOW_GATES=1 for the on-demand exam")
         report = G.run_gate()
         self.assertTrue(report.passes, report.reason)
-        self.assertEqual(len(report.planted), 18)
+        self.assertEqual(len(report.planted), 19)
 
     def test_the_exam_exits_nonzero_unless_it_passes(self) -> None:
         """Review F13: the exam used to exit 0 on a failing verdict."""
@@ -385,7 +394,7 @@ class GateTests(unittest.TestCase):
                        "The exam can fail", "was not ready"):
             self.assertIn(phrase, doc)
         self.assertIn("PASSED", doc)
-        self.assertIn("18 of 18 planted defects", doc)
+        self.assertIn("19 of 19 planted defects", doc)
         self.assertIn("Amendment E", doc)
         self.assertIn("Round four", doc)
 
