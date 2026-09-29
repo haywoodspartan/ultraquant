@@ -490,7 +490,7 @@ class MemoryFrontierTests(unittest.TestCase):
         ask.assert_not_called()
         self.assertEqual(result, {"asked": 1, "filed": 0, "queued": 1, "used_up": True,
                                   "proposed": [], "adopted": [], "refused": [],
-                                  "checked": 0, "agreed": 0, "contested": 0})
+                                  "checked": 0, "agreed": 0, "contested": 0, "revised": 0})
         self.assertEqual(frontier.forward_value(self.memory, "Member 2", "atomic number"), "2")
         self.assertEqual(ledger.history("source"), [{
             "question_id": "number:5", "promoted": False, "queued": {
@@ -526,7 +526,7 @@ class MemoryFrontierTests(unittest.TestCase):
         self.assertEqual(back.call_count, 2)
         self.assertEqual(result, {"asked": 2, "filed": 1, "queued": 1, "used_up": True,
                                   "proposed": [], "adopted": [], "refused": [],
-                                  "checked": 0, "agreed": 0, "contested": 0})
+                                  "checked": 0, "agreed": 0, "contested": 0, "revised": 0})
         self.assertEqual(self.teacher.calls[1][0], [question])
         self.assertEqual(len(self.teacher.calls), 2)
         self.assertEqual(frontier.forward_value(self.memory, "Member Six", "atomic number"), "6")

@@ -685,6 +685,12 @@
    "commit": "3f02048",
    "seconds": 1.1
   },
+  "session_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 3 of 3 plants caught",
+   "commit": "11.166",
+   "seconds": 322.6
+  },
   "shape_gate": {
    "verdict": "VOID",
    "line": "VOID: plants not caught: ['P80 reverse answers filed with the value shifted', 'P81 the source never declared used up']",

@@ -1,0 +1,5 @@
+{"cli": "C:\\Users\\Stephen Hawking\\.lmstudio\\bin\\lms.exe", "context_length": 4096,
+ "sequence": [
+  {"name": "c4ai-command-r-08-2024", "gguf": "J:\\Models\\bartowski\\c4ai-command-r-08-2024-GGUF\\c4ai-command-r-08-2024-Q4_K_S.gguf"},
+  {"name": "qwen/qwen3.8-27b", "gguf": "J:\\Models\\lmstudio-community\\Qwen3.8-27B-GGUF\\Qwen3.8-27B-Q4_K_M.gguf"},
+  {"name": "cydonia-v1.3-magnum-v4-22b", "gguf": "J:\\Models\\knifeayumu\\Cydonia-v1.3-Magnum-v4-22B-GGUF\\Cydonia-v1.3-Magnum-v4-22B-Q6_K.gguf"}]}

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.166](#11166-one-session-three-sources-everything-restored) | One session, three sources, everything restored |
 | [11.165](#11165-a-teacher-is-known-by-its-weights-failed-kept) | A teacher is known by its weights (failed, kept) |
 | [11.164](#11164-what-the-chat-says-about-its-sources-failed-as-frozen) | What the chat says about its sources (failed as frozen) |
 | [11.163](#11163-a-third-source-settles-what-two-disputed) | A third source settles what two disputed |
@@ -853,6 +854,85 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.166 One session, three sources, everything restored
+
+**Why:** §11.158 to §11.165 ran only as exam code, and each LM Studio model
+swap was typed by hand. The user could not run what the system had learned
+to do on their own library.
+
+**The change** (pre-registration sha256 284379b5..., Amendment A
+a48c48c1..., both before any code):
+- **The plan is data.** `distill/data/session.json` lists Command-R, Qwen
+  and Cydonia, in that order, loaded at context 4096.
+- **`distill/session.py` runs the session.**
+  - It backs up the library first.
+  - It snapshots what LM Studio holds (`lms ps --json`).
+  - It runs each source's calibration, then its study rounds until the
+    source is used up.
+  - It always restores the snapshot, with context length, parallel and TTL,
+    even when a round raises.
+  - The report gives each source's calibration, how many calibration pairs
+    it co-distilled, and its totals.
+- **The command:** `python -m ultraquant.distill.session --root uq_home
+  [--dry-run]`.
+
+**PASSED,** on the recorded sources, and against the user's real LM Studio for
+the swapper's round trip: 5 of 5 cases, and 3 of 3 plants caught.
+- **The plants:**
+  - P109: no restore on a raise;
+  - P110: the backup taken after the first round;
+  - P111: the last source dropped.
+- **The same knowledge.** The session reproduces the three-source world value
+  for value:
+  - Command-R asked 138 questions in 4 rounds, and filed 111.
+  - Qwen checked 160 claims (145 agreed, 14 contested), and filed 15.
+  - Cydonia revised 3 and contested 2.
+- **Always restored.** With Qwen made to fail, LM Studio was still restored,
+  the backup stood, and the report named Qwen.
+- **The real swapper** issued no load or unload in its snapshot and restore.
+- **Circular calibration, said.** All three models co-distilled every
+  calibration pair. Their 40-of-40 calibrations were measured on facts they
+  had helped produce, and the report says so for each.
+- **Nothing regresses.** A sweep of all 124 gates matches the §11.151 ledger except the two timing gates (recallskip_gate and vram_gate, FAIL to PASS, as they have moved in earlier sweeps) and the new session_gate (PASS).
+  - `tools/gate_impact.py` on frontier and session lists two whole-record
+    gates that import frontier: said_gate and weights_gate. Neither compares
+    `study_round`'s dict. Their whole records are chat replies checked
+    against recorded ones, and said_gate reads only `used_up`. Both pass
+    unchanged.
+
+**The live run on the user's library** (2026-09-29, 09:58 to 10:12):
+- **How it ran.** It ran on a staging copy, so the GUI could stay usable,
+  and was merged afterwards.
+- **Command-R:**
+  - 40 of 40 calibration (Wilson bound 0.912);
+  - 4 rounds; asked 138, filed 111;
+  - adopted a new property, atomic mass for elements, and asked it across
+    the table.
+- **Qwen:**
+  - 40 of 40 calibration;
+  - 1 round; checked 160 (144 agreed, 15 contested); filed 16.
+- **Cydonia:**
+  - 38 of 40 calibration (bound 0.835);
+  - 1 round; checked 32 (18 agreed, 2 contested, 3 revised); filed 1.
+- **Co-distillation.** Of the 40 pairs drawn from the user's library, the
+  three sources had co-distilled 40, 37 and 37.
+- **Restored.** LM Studio was put back as found: Command-R at context 128000,
+  parallel 4, no TTL. The embedding model was untouched.
+- **The library** gained 128 facts, and none of its existing values changed.
+  - The user's library had not changed in the meantime, so the staging copy
+    replaced it whole, after a backup.
+  - A three-way check against the session's own backup found nothing lost,
+    overwritten, drifted or touched.
+- **One defect, found live.** The swapper reads `lms` output in the Windows
+  code page (cp1252).
+  - `lms load` prints UTF-8 progress, and a reader thread raised
+    UnicodeDecodeError once per load (three times).
+  - It was harmless here, because a load's output is never read. But
+    `lms ps --json` goes through the same path.
+  - It is fixed in the next commit.
+
+Suite: 2735 tests, OK (5 skipped).
 
 ### 11.165 A teacher is known by its weights (failed, kept)
 

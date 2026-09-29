@@ -477,7 +477,7 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
              if item.get("kind")]
     return {"asked": len(items) + growth["asked"] + checks["asked"],
             "checked": checks["checked"], "agreed": checks["agreed"],
-            "contested": checks["contested"],
+            "contested": checks["contested"], "revised": checks["revised"],
             "filed": len(filed) + probe_filed, "queued": queued,
             "proposed": growth["proposed"], "adopted": growth["adopted"],
             "refused": growth["refused"],
