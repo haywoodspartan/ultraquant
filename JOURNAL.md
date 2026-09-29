@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.152](#11152-ways-of-asking-learned-from-confirmed-answers) | Ways of asking learned from confirmed answers |
 | [11.151](#11151-every-gate-measured-at-head) | Every gate, measured at HEAD |
 | [11.150](#11150-two-hops-through-the-catalogue-failed-kept) | Two hops through the catalogue (failed, kept) |
 | [11.149](#11149-curiosity-about-attributes-the-catalogue-knows-failed-kept) | Curiosity about attributes the catalogue knows (failed, kept) |
@@ -838,6 +839,53 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.152 Ways of asking learned from confirmed answers
+
+**Why:** the catalogue learned how its attributes are asked about only
+from distillation questions. Measured at 3f02048, in a catalogued world
+(the authors of Emma, Dune and Ulysses, with "wrote" attested):
+- "Emma was written by whom?" answered "I don't hold that exactly.
+  Nearest I hold: author of emma is Jane Austen (confidence 0.90).";
+- a following "yes" answered "I have nothing on that yet.";
+- after the same exchange for Dune, "Ulysses was written by whom?" still
+  got only the nearest-held reply.
+
+**The change** (pre-registration sha256 c4afc88c..., before any code; the
+exams pinning "Nearest I hold" or sending "yes"/"no" were searched first,
+and their worlds hold only chat-taught facts, so no flip was expected):
+- **A nearest-held reply arms a pending reading.** It does so only when
+  the reply names a catalogued fact whose subject the question names.
+  Like every pending state, it lasts one turn.
+- **"yes" teaches the way of asking.** An affirmation calls the
+  catalogue's own `learn_asking(attribute, subject, question)` and says
+  what was learned. No confidence moves.
+- **"no" teaches nothing.** It means "that is not what I asked", not
+  "that fact is wrong", so it changes nothing.
+- **The catalogue's two-subject attestation rule decides when a learned
+  word counts.** No word lists.
+
+**PASSED**, on Claude's machine and in Astra's run: 4 of 4 cases, and
+2 of 2 plants caught (P66, learning on any nearest-held reply; P67, a
+one-subject threshold).
+- **Learned from confirmation.** After Emma + "yes" and Dune + "yes",
+  "Ulysses was written by whom?" answers exactly: "author of ulysses is
+  James Joyce".
+- **Only from confirmation.** Without "yes", or with "no", nothing is
+  learned, and "no" moves no confidence.
+- **Two subjects, as the catalogue requires.** Emma alone leaves Ulysses
+  at the nearest-held reply.
+- **Nothing regresses, by the first ledger diff (§11.151).** The unit's
+  tree was swept: 115 gates, with those that need the user's LM Studio
+  or the model hardware skipped. Every gate matches the ledger.
+  - The seven native gates first read "not built", and were re-measured
+    after building `native/uq` in that worktree.
+  - `asking_gate` joins the ledger as PASS.
+  - §11.142's and §11.145's gates pass.
+- **The native tier does not mirror the pending-reading flow**, and its
+  parity gates pass on their own corpus.
+
+Suite: 2,543 passed, 5 skipped, 0 failed (2,548).
 
 ### 11.151 Every gate, measured at HEAD
 

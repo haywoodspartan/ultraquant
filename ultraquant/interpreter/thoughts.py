@@ -29,7 +29,7 @@ from ultraquant.interpreter.codefunc import CodeError, SafeCodeRunner
 from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.interpreter.webaccess import WebAccess, WebDisabled
-from ultraquant.memory.factshards import FactShards
+from ultraquant.memory.factshards import FactShards, normalize_subject
 from ultraquant.memory.systematic import SystematicMemory
 from ultraquant.pattern.recognition import LABELS, PATTERNS, render, row_means
 from ultraquant.shards.budget import ShardCache
@@ -138,6 +138,8 @@ class Session:
     #: pick), waiting for "yes" to confirm it as direct testimony
     #: (§11.68). Same one-turn freshness, same trap avoided.
     pending_confirmation: dict | None = None
+    #: A nearest-held catalogue reading awaiting one turn of confirmation.
+    pending_reading: dict | None = None
     #: Pattern-driven prefetcher, present when the storage has a RAM tier.
     working_set: Any | None = None
     #: The byte-bounded conversation window (§11.14): recent turns resident in
@@ -357,6 +359,8 @@ class Perceive(Thought):
         ctx.session.pending_inference = None
         confirmable = getattr(ctx.session, "pending_confirmation", None)
         ctx.session.pending_confirmation = None
+        reading = getattr(ctx.session, "pending_reading", None)
+        ctx.session.pending_reading = None
         if pending is not None and _AFFIRMATION_RE.fullmatch(lowered.strip()):
             ctx.data["intent"] = "affirmation"
             ctx.data["affirmed_inference"] = pending
@@ -384,6 +388,18 @@ class Perceive(Thought):
             ctx.note(self.name, "intent=disconfirmation, testimony "
                                 "against a stored fact",
                      intent="disconfirmation")
+            return
+        if reading is not None and _AFFIRMATION_RE.fullmatch(lowered.strip()):
+            ctx.data["intent"] = "reading_confirmed"
+            ctx.data["reading"] = reading
+            ctx.note(self.name, "intent=reading_confirmed, confirms asking",
+                     intent="reading_confirmed")
+            return
+        if reading is not None and _NEGATION_REPLY_RE.fullmatch(lowered.strip()):
+            ctx.data["intent"] = "reading_declined"
+            ctx.data["reading"] = reading
+            ctx.note(self.name, "intent=reading_declined, rejects asking",
+                     intent="reading_declined")
             return
         if rows is not None:
             intent = "glyph"
@@ -624,6 +640,8 @@ class Reason(Thought):
             "confirmation": self._confirm,
             "disconfirmation": self._disconfirm,
             "declination": self._decline,
+            "reading_confirmed": self._reading_confirmed,
+            "reading_declined": self._reading_declined,
         }.get(intent, self._chat)
         handler(ctx)
 
@@ -1166,6 +1184,9 @@ class Reason(Thought):
             ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
                     f"{_shown_value(fact)} (confidence "
                     f"{fact['confidence']:.2f})." + hint)
+            if (fact.get("subject") and fact.get("attribute")
+                    and normalize_subject(fact["subject"]) in memory.subjects_in(ctx.text)):
+                self._arm_reading(ctx, key, fact)
             ctx.note(self.name,
                      f"nearest-held {key!r}; question content "
                      "not fully covered")
@@ -1234,6 +1255,24 @@ class Reason(Thought):
             + hint
         )
         ctx.note(self.name, "no matching fact")
+
+    def _arm_reading(self, ctx, key, record) -> None:
+        """Offer a way of asking; only the next turn can confirm it."""
+        ctx.session.pending_reading = {
+            "key": key, "attribute": record["attribute"],
+            "subject": record["subject"], "question": ctx.text,
+        }
+
+    def _reading_confirmed(self, ctx: ThoughtContext) -> None:
+        reading = ctx.data["reading"]
+        ctx.session.memory.learn_asking(
+            reading["attribute"], reading["subject"], reading["question"])
+        ctx.say(f"Noted: '{reading['question']}' asks for the {reading['attribute']}.")
+        ctx.note(self.name, f"learned asking for {reading['attribute']!r}")
+
+    def _reading_declined(self, ctx: ThoughtContext) -> None:
+        ctx.say("Noted - that is not what you asked.")
+        ctx.note(self.name, "reading declined; nothing learned or changed")
 
     def _confirm(self, ctx: ThoughtContext) -> None:
         """Record "yes" after an asserted belief as direct testimony.

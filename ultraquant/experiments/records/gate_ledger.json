@@ -41,6 +41,12 @@
    "class": "superseded by design",
    "cause": "11.150 (3f02048) keys a catalogued curiosity premise as the catalogue keys the attribute, 'conductivity of steel'; case 2 pins 'steel conductivity'."
   },
+  "asking_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 2 of 2 plants caught",
+   "commit": "11.152",
+   "seconds": 392.9
+  },
   "autoapprove_gate": {
    "verdict": "PASS",
    "line": "PASS: every criterion; 5 of 5 plants caught",
@@ -725,7 +731,6 @@
   }
  },
  "skipped": {
-  "asking_gate": "11.152's exam: recorded with its unit.",
   "completion_gate": "11.144's exam: needs the three teachers on the GPU; not yet run.",
   "convert_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "correction_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
