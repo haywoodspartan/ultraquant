@@ -318,6 +318,38 @@ class SystematicMemory:
                 return False
         return True
 
+    def catalogue_answers(self, text: str) -> list[dict] | None:
+        """One indexed attribute for every named, non-nested subject."""
+        subjects = self.subjects_in(text)
+        subjects = {subject for subject in subjects
+                    if not any(other != subject
+                               and choose_subject({subject, other}) == other
+                               for other in subjects)}
+        if len(subjects) < 2:
+            return None
+        from ultraquant.interpreter.learning import _STOPWORDS
+
+        tokens = normalize_subject(text).split()
+        removed = set()
+        for subject in subjects:
+            span = subject.split()
+            for start in range(len(tokens) - len(span) + 1):
+                if tokens[start:start + len(span)] == span:
+                    removed.update(range(start, start + len(span)))
+        words = {word for index, word in enumerate(tokens)
+                 if index not in removed} - _STOPWORDS
+        asked = self._asked_attributes(words)
+        if len(asked) != 1:
+            return None
+        attribute = next(iter(asked))
+        answers = []
+        for subject in sorted(subjects):
+            held = self._second_hop(subject, attribute)
+            key, record = held if held is not None else (None, None)
+            answers.append({"subject": subject, "attribute": attribute,
+                            "key": key, "record": record})
+        return answers
+
     def catalogue_answer(self, text: str) -> dict | None:
         """Answer through catalogued subjects without registering curiosity."""
         subjects = self.subjects_in(text)

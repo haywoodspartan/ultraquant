@@ -29,7 +29,9 @@ from ultraquant.interpreter.codefunc import CodeError, SafeCodeRunner
 from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.interpreter.webaccess import WebAccess, WebDisabled
-from ultraquant.memory.factshards import FactShards, normalize_subject
+from ultraquant.memory.factshards import (
+    FactShards, choose_subject, normalize_subject, question_words,
+)
 from ultraquant.memory.systematic import SystematicMemory
 from ultraquant.pattern.recognition import LABELS, PATTERNS, render, row_means
 from ultraquant.shards.budget import ShardCache
@@ -46,6 +48,67 @@ __all__ = [
 
 _URL_RE = re.compile(r"https?://\S+")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _ambiguous_cover(memory, text: str) -> int | None:
+    """Count indexed holders when an attribute is named without a subject."""
+    if not hasattr(memory, "catalogue_answer") or memory.subjects_in(text):
+        return None
+    asked = memory._asked_attributes(question_words(text, ""))
+    if len(asked) == 1:
+        count = memory._attribute_vocabulary()[next(iter(asked))]["subjects"]
+        if count >= 2:
+            return count
+    return None
+
+
+def _shared_subject(memory, text: str) -> str | None:
+    """Resolve nested catalogue matches exactly as a single answer does."""
+    if not hasattr(memory, "catalogue_answer"):
+        return None
+    subjects = memory.subjects_in(text)
+    return (memory.shards._choose_subject(subjects) if memory.shards is not None
+            else choose_subject(subjects))
+
+
+def _protected_parts(memory, text: str) -> list[str] | None:
+    """Split conjunctions outside the longest named catalogue subjects."""
+    from ultraquant.reason.inference import _COMBINE_WORDS
+
+    lowered = text.lower().strip().rstrip("?")
+    if " and " not in lowered or any(
+            word in _TOKEN_RE.findall(lowered) for word in _COMBINE_WORDS):
+        return None
+    subjects = memory.subjects_in(text)
+    subjects = {subject for subject in subjects
+                if not any(other != subject
+                           and choose_subject({subject, other}) == other
+                           for other in subjects)}
+    matches = list(re.finditer(r"[^\W_]+", lowered))
+    # The prefix keeps normalization from dropping articles inside a name.
+    tokens = [normalize_subject("x " + match.group())[2:] for match in matches]
+    spans = []
+    for subject in subjects:
+        name = subject.split()
+        for start in range(len(tokens) - len(name) + 1):
+            if name and tokens[start:start + len(name)] == name:
+                spans.append((matches[start].start(),
+                              matches[start + len(name) - 1].end()))
+    head = re.sub(r"^(what|which|who|where|when|how)"
+                  r"\s+(is|are|was|were)\s+", "", lowered)
+    start = len(lowered) - len(head)
+    parts = []
+    for conjunction in re.finditer(" and ", lowered):
+        if conjunction.start() < start or any(
+                left < conjunction.end() and conjunction.start() < right
+                for left, right in spans):
+            continue
+        parts.append(lowered[start:conjunction.start()].strip())
+        start = conjunction.end()
+    parts.append(lowered[start:].strip())
+    parts = [part for part in parts if part]
+    return parts if len(parts) >= 2 else None
+
 
 #: A whole-input affirmation. Deliberately strict: only a bare agreement
 #: confirms a pending inference - anything longer is a new thought.
@@ -966,10 +1029,32 @@ class Reason(Thought):
                                  ctx.text, re.I)
                 and self._answer_polar_compound(ctx)):
             return
-        compound = self._compound_parts(ctx.text)
-        if compound is not None:
-            self._answer_compound(ctx, compound)
+        memory = ctx.session.memory
+        catalogue_answers = getattr(memory, "catalogue_answers", None)
+        answers = catalogue_answers(ctx.text) if catalogue_answers is not None else None
+        if answers is not None:
+            pieces = []
+            for answer in answers:
+                key, record = answer["key"], answer["record"]
+                if record is None:
+                    pieces.append(f"{answer['attribute']} of {answer['subject']} (unknown)")
+                else:
+                    pieces.append(f"{key} is {_shown_value(record)} "
+                                  f"(confidence {record['confidence']:.2f})")
+            ctx.say("; ".join(pieces) + ".")
+            ctx.note(self.name, f"catalogue: {len(answers)} subjects")
             return
+        shared_subject = _shared_subject(memory, ctx.text)
+        if shared_subject is not None:
+            compound = _protected_parts(memory, ctx.text)
+            if compound is not None:
+                self._answer_compound(ctx, compound, shared_subject)
+                return
+        else:
+            compound = self._compound_parts(ctx.text)
+            if compound is not None:
+                self._answer_compound(ctx, compound)
+                return
         if _ARITHMETIC_ON and self._arithmetic_answer(ctx):
             return
         # §11.87 runs beside §11.76's literal reader, and for the
@@ -1050,6 +1135,14 @@ class Reason(Thought):
                     ctx.say(f"{prefix}{key} is {_shown_value(record)} "
                             f"(confidence {record['confidence']:.2f}).")
                 ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
+            return
+
+        count = _ambiguous_cover(memory, ctx.text)
+        if count is not None:
+            attribute = next(iter(memory._asked_attributes(question_words(ctx.text, ""))))
+            ctx.say(f"That depends on which one - I hold the {attribute} "
+                    f"for {count} subjects.")
+            ctx.note(self.name, "catalogue: attribute without a subject")
             return
 
         # Exact key-match missed. Two fallbacks, in trust order, before giving
@@ -1402,7 +1495,7 @@ class Reason(Thought):
                             f"{len(pending.get('premises', []))} premises")
 
     @staticmethod
-    def _compound_parts(text: str) -> list[str] | None:
+    def _compound_parts(text: str, *, raw: bool = False) -> list[str] | None:
         """Split a conjunction question into part phrases, or None.
 
         Only a real conjunction decomposes: an " and " with substantive
@@ -1424,6 +1517,8 @@ class Reason(Thought):
         parts = [seg.strip() for seg in head.split(" and ") if seg.strip()]
         if len(parts) < 2:
             return None
+        if raw:
+            return parts
 
         def informative(part: str) -> list[str]:
             return [normalize_token(tok) for tok in
@@ -1450,7 +1545,8 @@ class Reason(Thought):
                      for part in parts]
         return parts
 
-    def _answer_compound(self, ctx: ThoughtContext, parts: list[str]) -> None:
+    def _answer_compound(self, ctx: ThoughtContext, parts: list[str],
+                         shared_subject: str | None = None) -> None:
         """Answer each part of a conjunction through the full single path.
 
         Sequential attention over sub-questions: each part re-enters the
@@ -1466,6 +1562,16 @@ class Reason(Thought):
         memory = ctx.session.memory
         pieces, unknown_parts = [], []
         for part in parts:
+            if shared_subject is not None and not memory.subjects_in(part):
+                asked = memory._asked_attributes(question_words(part, ""))
+                held = (memory._second_hop(shared_subject, next(iter(asked)))
+                        if len(asked) == 1 else None)
+                if held is not None:
+                    key, record = held
+                    pieces.append(f"{key} is {_shown_value(record)}")
+                else:
+                    unknown_parts.append(f"{part} (unknown)")
+                continue
             sub_question = f"what is the {part}?"
             part_tokens = {normalize_token(tok) for tok in
                            _TOKEN_RE.findall(part) if _informative(tok)}

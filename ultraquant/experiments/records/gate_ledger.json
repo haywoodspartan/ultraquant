@@ -21,6 +21,12 @@
    "commit": "3f02048",
    "seconds": 2.8
   },
+  "andnames_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 2 cases; 2 of 2 plants caught",
+   "commit": "11.156",
+   "seconds": 6.1
+  },
   "answers_gate": {
    "verdict": "PASS",
    "line": "PASS: 4 cases; 3 of 3 plants caught",
@@ -643,6 +649,13 @@
    "commit": "3f02048",
    "seconds": 1.1
   },
+  "sharedsubject_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL: ['2 two attributes of one subject']",
+   "commit": "11.153",
+   "class": "failed when written",
+   "cause": "11.153's own exam: criterion 2's instrument counted substrings, so 4 right replies were flagged as naming another subject (protactinium contains actinium; ytterbium contains erbium and terbium). 60 of 60 were right, and a whole-word recount flags 0. Recorded as measured; the change was kept."
+  },
   "structure_gate": {
    "verdict": "FAIL",
    "line": "FAIL - the gate was a conjunction and only half of it holds.",
@@ -749,6 +762,7 @@
   "study_gate": "needs the environment: its teacher panel names google/gemma-4-31b, which is no longer in the user's LM Studio catalogue, so the panel cannot form and every question stays open (0 of 6 closed, in 1.1 s, no generation). The survey still mints the unknown-term question on the current code. A bisect named 118ee48, but only because every tested commit fails the same way today. It also queries the user's LM Studio, so it is run only with the user present.",
   "tensorglyph_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "tokenizer_gate": "needs the model hardware: llama-server as the tokenizer oracle.",
+  "values_gate": "11.154's exam: recorded with its unit.",
   "vocabulary_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it."
  },
  "exit_code_disagrees": [

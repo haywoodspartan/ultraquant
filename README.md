@@ -210,7 +210,7 @@ python -m ultraquant.gui                   # desktop app: 10 tabs
 python -m ultraquant.tui                   # the same surfaces over SSH
 python -m ultraquant.interpreter.chat     # terminal chat
 python -m ultraquant.forge.build --synthetic 64 --compare
-python -m unittest discover -s tests      # 2548 tests, ~6 min
+python -m unittest discover -s tests      # 2558 tests, ~6 min
 ```
 
 In the chat, try:
@@ -254,7 +254,7 @@ ultraquant/
   cloud/       rented GPUs, on demand only - priced before leasing,
                released on every path, every second on a ledger
   experiments/ the gates: every capability's pre-registered measurement
-tests/         2548 tests across 174 modules
+tests/         2558 tests across 175 modules
 ```
 
 The documentation is in two files, split when the second outgrew the first:

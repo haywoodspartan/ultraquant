@@ -26,6 +26,8 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.156](#11156-names-that-hold-and) | Names that hold "and" |
+| [11.153](#11153-questions-that-name-no-subject-and-parts-that-share-one-failed) | Questions that name no subject, and parts that share one (failed) |
 | [11.152](#11152-ways-of-asking-learned-from-confirmed-answers) | Ways of asking learned from confirmed answers |
 | [11.151](#11151-every-gate-measured-at-head) | Every gate, measured at HEAD |
 | [11.150](#11150-two-hops-through-the-catalogue-failed-kept) | Two hops through the catalogue (failed, kept) |
@@ -839,6 +841,92 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.156 Names that hold "and"
+
+**Why:** §11.153's first sweep against the gate ledger found its
+shared-subject split cutting the " and " inside named subjects. "Who wrote
+Pride and Prejudice?" answered "none of it is held", and five gates
+flipped from PASS to FAIL. The user's library holds 8 such subjects: 7
+books, and Newfoundland and Labrador.
+
+**The change** (pre-registration sha256 2bf69e8c..., before any fix):
+- An " and " inside the span of a catalogued subject the question names
+  is part of that name.
+- `_protected_parts` splits only outside every such span. A question with
+  no " and " outside is not a compound, and takes the ordinary path.
+- The rest of §11.153 is unchanged, and lands here.
+
+**PASSED**, on Claude's machine and in Astra's run: 2 of 2 cases, and 2 of
+2 plants caught (P77, §11.153's split; P68, the first covering key
+asserted).
+- **Names hold together.** All 24 gated questions about the 8 subjects
+  name the held value.
+- **§11.153's behaviors hold**, with whole-word naming:
+  - 0 of 12 subject-less assertions (was 8);
+  - 60 of 60 two-attribute answers, with none naming another subject (3
+    before §11.153);
+  - 30 of 30 two-subject answers (was 6);
+  - Nairobi given for Kenya.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with
+  native built, matches the §11.151 ledger on every gate, with two
+  exceptions:
+  - the timing gates recallskip and vram moved, as they do between
+    identical sweeps;
+  - `andnames_gate` joins the ledger as PASS.
+
+Suite: 2,553 passed, 5 skipped, 0 failed (2,558).
+
+### 11.153 Questions that name no subject, and parts that share one (failed)
+
+**Measured on the user's library** (a copy, b6b0597), with a probe run
+while the gate ledger was being built:
+- **A question naming no subject asserted an arbitrary one.** 8 of 12
+  attribute-only questions did so. "What is the chemical symbol?"
+  answered "chemical symbol of fermium is Fm (confidence 0.96)". About 100
+  keys cover its words, and the keyword fallback asserted the first.
+- **Two attributes of one subject were fully right 3 times in 60.** "What
+  is the atomic number and chemical symbol of gold?" answered with
+  fermium's atomic number.
+  - "What are the capital and author of Kenya?" said "the capital kenya
+    (unknown)", because §11.73's ellipsis appends a trailing token, and the
+    catalogue keys attribute-first.
+- **One attribute of two subjects was fully right 6 times in 30.**
+
+**The change** (pre-registration sha256 53fcbcc3..., before any code):
+- **Covering is not identifying.** An attribute named without a subject,
+  where the attribute is held by several subjects, is answered with the
+  count: "That depends on which one - I hold the chemical symbol for 100
+  subjects."
+- **Compound parts share the one subject the question names.** They are
+  resolved through the catalogue (`_second_hop`), not by building text.
+- **One attribute of several named subjects** is answered for each
+  (`catalogue_answers`).
+
+**Its behaviors all held**, on Claude's machine and in Astra's run:
+- 0 of 12 subject-less assertions (was 8);
+- 60 of 60 two-attribute answers (was 3);
+- 30 of 30 two-subject answers (was 6);
+- Nairobi in the Kenya question;
+- 3 of 3 plants caught.
+
+**FAILED as measured, twice over:**
+- **Criterion 2's instrument.** The instrument counted substrings, and
+  flagged 4 right replies as naming another subject: "protactinium"
+  contains "actinium", and "ytterbium" contains "erbium" and "terbium". A
+  whole-word recount flags 0. The verdict stands as measured.
+- **Criterion 4, a real regression, found by the first sweep of a change
+  against the gate ledger.**
+  - The shared-subject split cut the " and " inside named subjects. "Who
+    wrote Pride and Prejudice?" answered "none of it is held. Still missing:
+    who wrote pride (unknown); prejudice (unknown).", and the author forms
+    fell from 1.0 to 0.921.
+  - The answers, requests, review9, hops and asking gates flipped from PASS
+    to FAIL.
+
+**Not kept as it stood.** The code was never committed in this form. It
+lands with §11.156's fix, and its exam (`sharedsubject_gate`) is recorded
+in the ledger as failed when written.
 
 ### 11.152 Ways of asking learned from confirmed answers
 
