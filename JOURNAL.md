@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.149](#11149-curiosity-about-attributes-the-catalogue-knows) | Curiosity about attributes the catalogue knows |
 | [11.148](#11148-reads-that-dont-write) | Reads that don't write |
 | [11.147](#11147-names-that-look-like-arithmetic-failed-kept) | Names that look like arithmetic (failed, kept) |
 | [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
@@ -835,6 +836,65 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.149 Curiosity about attributes the catalogue knows
+
+**Why:** `inference.missing_premise` forms a curiosity premise from a
+held bridge's value plus the question's uncovered words.
+- **Every hint was junk.** On the built library, all 69 curiosity hints
+  came from the ungated "X was written by whom?". "Emma was written by
+  whom?" registered "jane austen written" via "author of emma", and told
+  the user "If I knew the jane austen written, I could work this out".
+  "written" is neither a catalogued attribute nor an attested way of
+  asking for one.
+- **The last one broke a gate.** The 69th hint, added by §11.147, put
+  §11.145's gate one over its ceiling.
+
+**The change** (pre-registration sha256 2b86f608..., Amendment A
+3776f598..., both before any code):
+- **A catalogued bridge asks only for a known attribute.** A bridge
+  whose record carries a subject and an attribute is used only when
+  every uncovered word is an attribute word, or an attested asking word,
+  of some catalogued attribute (`_remainder_known`, the index's own
+  vocabulary).
+- **Unstructured bridges are unchanged.**
+
+**Claude's example was wrong once, and said so before any code**
+(Amendment A):
+- **The pre-registered example could never reach curiosity.** "What is
+  the birthplace of the author of Emma?" is answered first by the
+  catalogue, with a reading of "author of emma". That reading is itself
+  wrong, and became §11.150's subject.
+- **The example moved to the case curiosity was built for.** With
+  "material of the tower" = steel and "conductivity of copper" = high
+  catalogued, "What is the conductivity of the tower?" registers "steel
+  conductivity".
+
+**PASSED**, on Claude's machine and in Astra's run: 3 of 3 cases, and 2
+of 2 plants caught (P60, any remainder; P61, no catalogued curiosity at
+all).
+- **No junk.** The built library shows 0 curiosity hints, down from 69.
+- **Curiosity still asks what it should.** "steel conductivity" is still
+  asked, and the curiosity gate passes.
+- **Nothing regressed.** §11.145's gate passes again, with §11.142's
+  inside it. The ladder and compound gates keep their HEAD failures, and
+  the paraphrase and negation gates keep their passes. Those HEAD
+  verdicts were measured on a clean worktree at ec232d2 before any code,
+  which is §11.147's lesson applied.
+- **One old test was updated.** A §11.139 test asserted curiosity
+  through a catalogued bridge for "conductivity", in a world where no
+  attribute catalogued it. Claude added the catalogued "conductivity of
+  copper", so the test keeps its purpose: the catalogue is consulted
+  once, and the seam is honored.
+
+**Left:** "What is the birthplace of Emma?" still asks "jane austen
+birthplace". Birthplace is catalogued, but a property does not inherit
+through "author". Whether one inherits through a given relation is
+knowledge the index could learn, for example from confirmed chains. It
+is not built.
+
+Suite: 2,522 passed, 5 skipped, 0 failed (2,527, including §11.144's 18
+uncommitted target tests).
 
 ### 11.148 Reads that don't write
 

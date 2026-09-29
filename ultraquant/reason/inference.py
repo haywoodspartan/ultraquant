@@ -596,13 +596,23 @@ def _combine(question_tokens: set[str], text: str,
                      confidence=confidence, kind="combine")
 
 
-# §11.139: the only catalogue constraint on a curiosity bridge.
+# §11.139: a catalogue constraint on a curiosity bridge.
 def _bridge_allowed(via_record, question_subjects) -> bool:
     """Structured bridges must belong to a subject named by the question."""
     from ultraquant.memory.factshards import normalize_subject
 
     subject = via_record.get("subject")
     return not subject or normalize_subject(subject) in question_subjects
+
+
+def _remainder_known(remainder: set, memory) -> bool:
+    """Every uncovered token names an indexed attribute or attested asking word."""
+    from ultraquant.memory.factshards import attribute_words
+
+    known = {normalize_token(word)
+             for attribute, item in memory._attribute_vocabulary().items()
+             for word in attribute_words(attribute, item)}
+    return remainder <= known
 
 
 def missing_premise(text: str, memory) -> dict | None:
@@ -688,6 +698,11 @@ def missing_premise(text: str, memory) -> dict | None:
         # question no fact could ever answer. Decomposition owns
         # compounds; curiosity owns single gaps.
         if len(remainder) > 2:
+            continue
+        # §11.149: a catalogued bridge asks for an attribute of its value.
+        # The catalogue, including attested asking words, supplies that vocabulary.
+        if (record.get("subject") and record.get("attribute")
+                and not _remainder_known(remainder, memory)):
             continue
         value = str(record.get("value", ""))
         if _numeric(value) is not None:

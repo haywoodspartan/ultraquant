@@ -395,6 +395,9 @@ class StructureFlowTests(unittest.TestCase):
         self.assertFalse(I._bridge_allowed({"subject": "tower"}, {"spire"}))
         m = self.memory(False)
         m.remember_fact("material of the tower", "steel", subject="tower", attribute="material")
+        # §11.149: a catalogued bridge asks only for an attribute the catalogue knows.
+        m.remember_fact("conductivity of copper", "high", subject="copper",
+                        attribute="conductivity")
         with mock.patch.object(m, "subjects_in", wraps=m.subjects_in) as lookup:
             gap = I.missing_premise("What is the conductivity of the tower?", m)
             self.assertEqual(gap["premise_key"], "steel conductivity")
