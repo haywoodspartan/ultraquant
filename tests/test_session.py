@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -34,8 +35,8 @@ class FakeRun:
         self.loaded = deepcopy(list(loaded))
         self.calls = []
 
-    def __call__(self, args, *, capture_output, text):
-        assert capture_output is True and text is True
+    def __call__(self, args, *, capture_output, text, encoding, errors):
+        assert capture_output is True and text is True and encoding == "utf-8"
         self.calls.append(args)
         if args[1] == "ps":
             return subprocess.CompletedProcess(args, 0, json.dumps(self.loaded), "")
@@ -55,6 +56,18 @@ class FakeRun:
 
 
 class SwapperTests(unittest.TestCase):
+    def test_lms_output_is_read_as_utf8(self):
+        # §11.166 live: `lms load` prints UTF-8 progress (U+258F is E2 96 8F)
+        # and the Windows code page has no character for 0x8F, so a reader
+        # thread raised and the output was lost. `ps --json` shares the path.
+        script = ("import sys; sys.stdout.buffer.write("
+                  "'[{\"identifier\": \"m\u258f\", \"type\": \"llm\"}]'.encode('utf-8'))")
+
+        def run(args, **kwargs):
+            return subprocess.run([sys.executable, "-c", script], **kwargs)
+        swapper = session.LMStudioSwapper("lms", run=run)
+        self.assertEqual(swapper.snapshot(), [{"identifier": "m▏", "type": "llm"}])
+
     def test_snapshot_and_load_preserve_embeddings_and_already_loaded_source(self):
         embedding = model("embed", 2048, ttl=3600000, kind="embedding")
         run = FakeRun([embedding, model("old"), model("wanted")])

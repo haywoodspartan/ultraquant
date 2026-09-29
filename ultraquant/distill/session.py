@@ -57,7 +57,10 @@ class LMStudioSwapper:
         self.run = subprocess.run if run is None else run
 
     def _command(self, *args):
-        done = self.run([self.cli, *args], capture_output=True, text=True)
+        # lms prints UTF-8 (its progress bars too); the Windows code page cannot
+        # decode every byte of it (§11.166 live).
+        done = self.run([self.cli, *args], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace")
         done.check_returncode()
         return done
 
