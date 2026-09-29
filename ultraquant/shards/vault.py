@@ -159,6 +159,7 @@ class ShardVault:
         self._defer_save = 0
         self._after_batch = []  # review 8: notify only after the outer batch.
         self._dirty = False
+        self._stats_dirty = False  # Access hints never make a batch commit.
         self._pending_loose_removals: set[Path] = set()
         self._pending_orphan_cleanup: set[str] = set()
         # Sketch screen over the signatures; built on first use and invalidated
@@ -227,6 +228,7 @@ class ShardVault:
             self._pending_loose_removals.clear()
             # Keep orphan cleanup queued for the next successful commit.
             self._dirty = False
+            self._stats_dirty = False
         elif self._dirty:
             self._save_catalog()
 
@@ -609,7 +611,17 @@ class ShardVault:
             return
         self._write_catalog()
         self._dirty = False
+        self._stats_dirty = False
         self._cleanup_loose_files()
+
+    def flush_stats(self) -> None:
+        """Persist pending access hints only when no batch is open.
+
+        Hints also ride along with every real catalog write. Calling this
+        inside a batch does nothing; a read-only batch stays read-only.
+        """
+        if self._stats_dirty and not self._defer_save:
+            self._save_catalog()
 
     def _write_catalog(self) -> None:
         """Atomically write the catalog to ``root/catalog.json``."""
@@ -877,11 +889,11 @@ class ShardVault:
     # ------------------------------------------------------------------ #
 
     def touch(self, shard_id: str) -> None:
-        """Record an access: increment ``access_count`` and stamp ``last_access``."""
+        """Count and timestamp an access in memory, without writing the catalog."""
         entry = self._catalog[shard_id]
         entry["access_count"] = int(entry["access_count"]) + 1
         entry["last_access"] = _utc_now()
-        self._save_catalog()
+        self._stats_dirty = True
 
     def prune_associations(self) -> float:
         """Drop uninformative keywords from every shard's associations.

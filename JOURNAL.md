@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.148](#11148-reads-that-dont-write) | Reads that don't write |
 | [11.147](#11147-names-that-look-like-arithmetic-failed-kept) | Names that look like arithmetic (failed, kept) |
 | [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
 | [11.145](#11145-chat-that-mentions-ambiguity-judged-whole-absence-proven-by-the-index) | Chat that mentions, ambiguity judged whole, absence proven by the index |
@@ -834,6 +835,53 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.148 Reads that don't write
+
+**Why:** `ShardVault.get` ended with `touch`, which counted the access
+and rewrote the whole catalog (tmp + fsync + replace) unless a batch
+deferred it. Measured on a copy of the user's library, with a 197 KiB
+catalog:
+
+| reading | catalog writes |
+|---|---:|
+| enumerating the fact keys | 191 (1.22 s) |
+| recalling all 405 facts | 468, about 94 MB fsync'd (1.93 s) |
+| one catalogue answer | 29, about 5.7 MB (175 ms) |
+
+The counts are read only by displays and by `selflearn`'s packing
+threshold, so they are hints, not data.
+
+**The change** (pre-registration sha256 8a32478a..., before any code):
+- `touch` counts the access in memory and sets a statistics flag
+  separate from `_dirty`. A batch that only read no longer writes at its
+  end.
+- The counts ride along with the next real catalog write, or with an
+  explicit `flush_stats()`, which writes only when they are dirty and no
+  batch is open.
+- A failed batch still reloads the committed catalog, and may drop hints
+  gathered since the last write.
+
+**PASSED**, on Claude's machine and in Astra's run: 4 of 4 cases, and 2
+of 2 plants caught. The plants were `touch` saving again, and accesses
+never recorded.
+- **Reads write nothing.** Enumerating the keys, recalling all 405 facts
+  and answering ten catalogue questions cause 0 catalog writes.
+- **Counts still land.** They are counted at `get` whatever `touch`
+  does. `flush_stats()` persists exactly the reads made, and so does the
+  next real write without it.
+- **A crash loses only hints.** Reads followed by an abandoned vault leave
+  every payload byte-identical and every catalog field unchanged except
+  the two access fields.
+- **About 9x faster.** Those reads took 3.36 s before and 0.38 s after in
+  Astra's run, and 3.70 s before and 0.49 s after in Claude's run, beside
+  the suite.
+- The storage gates (§11.136, §11.137, §11.140) and the catalogue gate
+  pass. Astra's 8 new tests cover nested read-only batches, rollback and
+  reopening.
+
+Suite: 2,517 passed, 5 skipped, 0 failed (2,522, including §11.144's 18
+uncommitted target tests).
 
 ### 11.147 Names that look like arithmetic (failed, kept)
 
