@@ -25,6 +25,8 @@ unknown to the library. Measured on the rebuilt library:
    breaches 1, P44 (§11.141's refusal rule) breaches 2, and P45
    (readings given for chat messages) and P46 (the first sharing
    candidate decides) breach 3.
+6. **Every earlier gate stays PASS, and the suite is green.** Checked
+   outside this module.
 
 Amendment A (sha256 94ae9c3c..., recorded before any code):
 - the "I visited..." check reads the trace for a catalogue step, not
@@ -33,8 +35,13 @@ Amendment A (sha256 94ae9c3c..., recorded before any code):
   §11.139. The keyword loop returned at the first candidate sharing a
   word ("capital of ghana") and never reached "freedonia capital". Both
   tiers now look for a covering key before demoting.
-6. **Every earlier gate stays PASS, and the suite is green.** Checked
-   outside this module.
+
+**PASSED** twice on Claude's machine and in Astra's run: 4 of 4 cases
+and 4 of 4 plants. "Tell me the capital of X." is answered 100%
+(baseline 57.5%), and no unknown subject is answered with another
+subject's fact (baseline 18). Claude's review added the empty-question
+guard in both tiers: "What is it?" would otherwise have asserted any
+candidate.
 """
 
 from __future__ import annotations

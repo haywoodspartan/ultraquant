@@ -132,7 +132,12 @@ def parse_gpus(text) -> Rates:
 def parse_usage(text) -> dict | None:
     """Require both a whole-second duration and a finite dollar amount."""
     seconds = cost = None
+    unpriced = False
     for line in text.replace("\x00", "").splitlines():
+        # lupine prints "Estimated cost:  n/a (unpriced GPU type)" when it
+        # cannot price the usage (seen 2026-09-28, with 0 s of GPU time).
+        if re.fullmatch(r"\s*Estimated cost:\s*n/a\b.*", line):
+            unpriced = True
         duration = re.fullmatch(r"\s*GPU time:\s*(.*?)\s*", line)
         if duration:
             match = re.fullmatch(
@@ -148,6 +153,11 @@ def parse_usage(text) -> dict | None:
                 continue
             if math.isfinite(value) and value >= 0:
                 cost = value
+    if cost is None and unpriced and seconds == 0:
+        # An unpriced report is readable only when no GPU time was used:
+        # nothing used is nothing owed. Unpriced usage of any length stays
+        # unreadable, so admission still refuses.
+        cost = 0.0
     if seconds is None or cost is None:
         return None
     return {"gpu_seconds": seconds, "cost": cost}

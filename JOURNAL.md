@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.143](#11143-the-lupine-leases-retried-at-forty-dollars-a-month) | The lupine leases, retried at forty dollars a month |
 | [11.142](#11142-requests-and-unknown-subjects-through-the-catalogue) | Requests and unknown subjects, through the catalogue |
 | [11.141](#11141-answers-found-through-the-catalogue-failed-kept) | Answers found through the catalogue (failed, kept) |
 | [11.140](#11140-addresses-that-stay-put-flushes-that-finalize-late-undo-that-keeps-structure) | Addresses that stay put, flushes that finalize late, undo that keeps structure |
@@ -830,6 +831,51 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.143 The lupine leases, retried at forty dollars a month
+
+**The user asked** for 8 RTX PRO 6000s to be leased, and for the monthly
+GPU cap to be raised to $40. The cap now lives in the user's settings
+(`gpu_monthly_cap_usd`), and the runner reads it from there. This
+month's spend stood at $0.036.
+
+**The runner refused before leasing anything, and its fail-closed rule
+was right.** Its admission reads `lupine usage` to stay under the cap,
+and lupine had started printing "Estimated cost: n/a (unpriced GPU
+type)", which the parser could not read. The same report showed 0 s of
+GPU time, 0 sessions and $20.00 of free credit. The fix reads "n/a" as
+$0 only when GPU time is exactly 0 s, since nothing used is nothing
+owed. Unpriced usage of any length stays unreadable, and admission still
+refuses. A regression test pins both sides, and the §11.131 gate still
+passes: 8 criteria, and 19 of 19 planted defects caught.
+
+**Then every lease was refused, on lupine's side.** A single GPU was
+probed first: if one will not bind, eight will not, and `lupine run` has
+no GPU-count flag.
+
+| attempt | lupine |
+|---|---|
+| `status` | 24 GPUs available: 8 A100 and 8 RTX PRO 6000 in us-east-1, 8 RTX PRO 6000 in us-west-1 |
+| RTX PRO 6000, `--remote`, 90 s | stuck at "provisioning sandbox", cancelled by the runner's deadline |
+| RTX PRO 6000, `--remote`, 240 s | "remote error: sandbox unavailable" |
+| RTX PRO 6000, local mode, us-east-1 | "failed to bind GPU: no GPU capacity available" |
+| RTX PRO 6000, local mode, us-west-1 | the same |
+
+- **Nothing was billed.** lupine shows 0 s of GPU time and the $20
+  credit untouched. The runner charged its own conservative estimates
+  against the cap. Every lease was confirmed released ("no cached
+  lease").
+- **Eight at once would need `lupine deploy`**: a container image in a
+  private registry, and a warm pool that bills while idle unless it is
+  stopped after each job. Not attempted, because single leases do not
+  bind.
+- The contradiction between `status` listing capacity and every bind
+  failing is lupine's to explain, through the user's `lupine feedback`
+  or their support.
+
+Suite: 2,454 passed, 5 skipped, 0 failed. §11.142's count already
+included this unit's new test, which was edited while §11.142's gates
+ran and was picked up by the same suite pass.
 
 ### 11.142 Requests and unknown subjects, through the catalogue
 

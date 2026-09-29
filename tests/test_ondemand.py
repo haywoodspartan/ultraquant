@@ -76,6 +76,21 @@ class ParsingTests(unittest.TestCase):
                     {"gpu_seconds": seconds, "cost": 1.25})
         self.assertIsNone(od.parse_usage("GPU time: 1d 2h\nEstimated cost: $1\n"))
 
+    def test_an_unpriced_summary_is_readable_only_with_no_gpu_time(self) -> None:
+        # lupine's real output on 2026-09-28, with 0 s used and $20 credit.
+        unpriced = ("Billing period:  Sep 2026 (month to date)\n"
+                    "Payment method:  on file\n"
+                    "GPU time:        {t}\n"
+                    "Sessions:        0\n"
+                    "Estimated cost:  n/a (unpriced GPU type)\n"
+                    "Free credit:     $20.00 remaining\n")
+        self.assertEqual(od.parse_usage(unpriced.format(t="0s")),
+                         {"gpu_seconds": 0, "cost": 0.0})
+        for used in ("5s", "2m 5s", "1h"):
+            with self.subTest(used=used):
+                self.assertIsNone(od.parse_usage(unpriced.format(t=used)))
+        self.assertIsNone(od.parse_usage("Estimated cost:  n/a\n"))
+
     def test_the_lease_line(self) -> None:
         self.assertEqual(sup.parse_lease("noise\n" + REAL_LEASE + "\n"),
                          ("b5f8f284-32b9-4829-a39d-125821bac1af",
