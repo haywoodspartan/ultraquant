@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.171](#11171-study-sessions-come-home-through-the-gui) | Study sessions come home through the GUI |
 | [11.170](#11170-the-dictionary-tells-the-frontier-what-exists) | The dictionary tells the frontier what exists |
 | [11.169](#11169-the-session-unloads-only-what-it-loaded) | The session unloads only what it loaded |
 | [11.168](#11168-the-session-leaves-your-models-alone) | The session leaves your models alone |
@@ -858,6 +859,76 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.171 Study sessions come home through the GUI
+
+**Why:** "GUI needs to work while your working also."
+- **What already worked.** Since §11.168 and §11.169 a study session runs on
+  a staging copy with its sources on the CPU, and the GUI and the user's GPU
+  model keep working.
+- **What did not.** Its knowledge reached the library only through
+  `tools/merge_session.py`, which needed the GUI closed. An open GUI holds the
+  library in memory and saves after every turn, so a merge written beside it
+  would be overwritten by its next save.
+
+**Measured first.**
+- Every GUI turn records an episode and saves, so a merge after any turn
+  takes the replay path. §11.170's live session (163 new facts), replayed
+  in-process after a chat turn, took 18.7 s and was clean.
+- Renaming a library directory while a session held it open worked on this
+  machine. The design uses the in-place replay anyway.
+
+**The change** (pre-registration sha256 aca303ff...; Amendment A 0592a2f2...,
+before any code: the rebuild is also checked as a new session object). A
+Claude subagent implemented it, because Codex is paused. Claude wrote the
+exam and held it outside the repository.
+- **The merge moved into the package** as `ultraquant/distill/merge.py`, with
+  `checked_merge`: check on a scratch copy, then back up and merge only if
+  the check is clean. `tools/merge_session.py` is its command line.
+- **`session.write_inbox`** announces a finished session in
+  `<home>/inbox/`. `python -m ultraquant.distill.session --stage` copies the
+  library, runs the session on the copy and writes the entry when it
+  completes.
+- **The GUI takes it in.** When idle, it saves, merges through the replay
+  after a clean check, rebuilds its session from disk and files the entry
+  under `inbox/applied/`. An unclean entry, or any error, goes to
+  `inbox/held/` with its reason, and nothing is written.
+
+**PASSED on run 3** (5 of 5 cases, 3 of 3 plants), after two post-run
+amendments to the exam's plants. The implementation passed every case in all
+three runs.
+- **Run 1: VOID.** Two plants failed to bite.
+  - P125 no-op'd `_rebuild_session`, which the implementation also builds its
+    first session through, so the planted GUI never started.
+  - P126 watched for 4 s against a take-in of about 20 s.
+  - Amendment B (79809ae4...) narrowed P125 to "no rebuild once a session
+    exists", and holds the busy job up to 90 s.
+- **Run 2: VOID.** Under P125, the stale session crashed reading a vault page
+  the merge had replaced: the very hazard the rebuild prevents. The exam
+  counts a crash as proving nothing. Amendment C (b7d03409...) guards those reads,
+  and a failed read counts as a fact not held.
+- **Run 3:**
+  - **Taken in while running.** Every staged fact reached the live library.
+    The GUI's session was a new object holding the session's facts.
+  - **The GUI's own work kept.** A fact stored by a chat turn beforehand kept
+    its value.
+  - **Recorded.** The entry was filed under `inbox/applied/` with a clean
+    report. Its backup held the library as it was before: the GUI's fact,
+    and not the session's.
+  - **Held, not applied.** A ledger conflict and a hand-added staged fact
+    each went to `inbox/held/`, and the live library was unchanged.
+  - **It waited while busy.** Nothing was taken in while a GUI job ran for 90
+    s. Afterwards, the entry was taken in.
+  - **The plants:** P125 (no rebuild) breached 1; P126 (taking in beside a
+    running job) breached 5; P127 (merge without the check) breached 4.
+- **Reported by the implementer, and taken up in §11.172:**
+  - A Learn-tab learner built before a take-in keeps the old session, and its
+    next answer would save pre-merge memory.
+  - UI-thread actions such as promote and reject write without waiting for
+    `busy`.
+- **Nothing regresses.** A sweep of all 129 gates matches the ledger except the timing gate vram_gate (FAIL to PASS, as it has moved in earlier sweeps) and the new inbox_gate, which passed there too.
+
+Suite: 2869 tests, OK (5 skipped).
 
 ### 11.170 The dictionary tells the frontier what exists
 

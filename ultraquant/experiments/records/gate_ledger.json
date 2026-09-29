@@ -342,6 +342,12 @@
    "commit": "3f02048",
    "seconds": 4.6
   },
+  "inbox_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 3 of 3 plants caught",
+   "commit": "11.171",
+   "seconds": 638.0
+  },
   "inference_gate": {
    "verdict": "FAIL",
    "line": "FAIL - the decoy control failed: inference answers 0.156 of the decoys against the baseline's 0.000 - connections that are puns, not proofs",

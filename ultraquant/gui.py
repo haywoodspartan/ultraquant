@@ -27,6 +27,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 from typing import Callable
@@ -47,6 +48,10 @@ QUANTUM_TIER_LABELS: list[str] = [label for _key, label in QUANTUM_TIERS]
 
 _POLL_MS = 80
 _FONT_MONO = ("Consolas", 10)
+
+#: Seconds between looks in the library's inbox for a finished study session
+#: (§11.171). Read at each look, so it can be changed while the window is up.
+INBOX_SECONDS = 5
 
 #: Training devices offered in the Compute tab, as (menu label, trainer tier).
 TRAIN_DEVICES: list[tuple[str, str]] = [
@@ -241,6 +246,8 @@ class UltraQuantGUI:
         self.last_error: str | None = None
         #: model id -> ModelCard for the Panel tab's current catalogue.
         self._panel_cards: dict = {}
+        #: time.monotonic() of the last look in the inbox; None before the first.
+        self._inbox_looked: float | None = None
         # Loaded before any tab is built, applied after: the tab builders
         # hard-code their defaults, so overriding them has to come second.
         from ultraquant.config import Settings
@@ -1126,7 +1133,7 @@ class UltraQuantGUI:
                 self._alive = False
 
     def _pump_once(self) -> None:
-        """Drain every queued event exactly once."""
+        """Drain every queued event exactly once, then look in the inbox."""
         try:
             while True:
                 tag, payload = self.events.get_nowait()
@@ -1196,20 +1203,85 @@ class UltraQuantGUI:
                     self.last_error = None
         except queue.Empty:
             pass
+        self._check_inbox()
+
+    def _check_inbox(self) -> None:
+        """Start taking in a finished study session, when the window is idle.
+
+        A session studies a staging copy while the GUI keeps working (§11.171)
+        and announces itself in ``<home>/inbox/``. A merge written beside this
+        window would be overwritten by its next save, so the window takes the
+        session in itself, the entry whose name sorts first, one at a time.
+        """
+        now = time.monotonic()
+        if self._inbox_looked is not None and now - self._inbox_looked < INBOX_SECONDS:
+            return
+        self._inbox_looked = now
+        if self.busy or self.session is None:
+            return
+        try:
+            entries = sorted((path for path in (self.home / "inbox").glob("*.json")
+                              if path.is_file()), key=lambda path: path.name)
+        except OSError:  # an unreadable inbox is looked in again next time
+            return
+        if entries:
+            path = entries[0]
+            self._run_async("Taking in a study session", lambda: self._take_in(path))
+
+    def _take_in(self, entry_path) -> None:
+        """Merge one finished study session into the library (on the worker).
+
+        The session is saved first, so the merge keeps every turn taken here,
+        and merged by the in-place replay once the same merge checks clean on
+        a scratch copy. A merged library gets a new session from disk: the old
+        one holds the library as it was, and would write that back at its next
+        save. The entry moves to ``applied/`` or ``held/`` with its outcome.
+        No widget is touched here; the UI hears through events.
+        """
+        import json
+
+        from ultraquant.distill import merge
+
+        entry_path = Path(entry_path)
+        entry = json.loads(entry_path.read_text(encoding="utf-8"))
+        try:
+            self.session.save()
+            report = merge.checked_merge(
+                Path(entry["staging"]), self.home, Path(entry["base"]),
+                self.home.parent / "uq_backups", replay=True)
+            if report["clean"]:
+                self._rebuild_session()
+                self.events.put(("refresh", None))
+                outcome = {"clean": True, "report": report, "error": None}
+            else:
+                outcome = {"clean": False, "report": report, "error": None}
+        except Exception as exc:  # noqa: BLE001 - held with its reason, never a crash
+            outcome = {"clean": False, "report": None, "error": repr(exc)}
+        destination = self.home / "inbox" / ("applied" if outcome["clean"] else "held")
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / entry_path.name).write_text(
+            json.dumps({**entry, "outcome": outcome}, indent=2) + "\n", encoding="utf-8")
+        entry_path.unlink()
+        if outcome["clean"]:
+            line = (f"[study] took in {entry_path.name}: {report.get('session changed')} "
+                    f"changes; backup {report.get('backup')}")
+        elif outcome["error"] is not None:
+            line = f"[study] held {entry_path.name}: {outcome['error']}"
+        else:
+            failed = [f"{len(report.get(name) or [])} {name}"
+                      for name in ("lost", "overwritten", "drifted", "touched")
+                      if report.get(name)]
+            line = (f"[study] held {entry_path.name}: the check was not clean"
+                    + (f" ({', '.join(failed)})" if failed else ""))
+        self.events.put(("out", line + "\n"))
 
     # -------------------------------------------------------------- actions
 
     def _start_session(self) -> None:
         """Build the interpreter session and report available tiers."""
         from ultraquant.forge.trainer import forge_tier_report
-        from ultraquant.interpreter.chat import ChatCLI
-        from ultraquant.interpreter.thoughts import build_session
 
-        semantic = bool(self.settings.get("lmstudio.semantic_suggest", True))
-        self.session = build_session(
-            self.home, budget_bytes=1024 * 1024, seed=0, semantic=semantic,
-            auto_approve=bool(self.settings.get("stash_auto_approve", False)))
-        self.cli = ChatCLI(self.session, out=_QueueStream(self.events, "out"))
+        self._rebuild_session()
 
         try:
             from ultraquant.native.dispatch import tier_report
@@ -1245,6 +1317,22 @@ class UltraQuantGUI:
             "Python simulator (always)",
         ]
         self.events.put(("quantum", " | ".join(quantum)))
+
+    def _rebuild_session(self) -> None:
+        """Build a new session, and its CLI, from the library on disk.
+
+        Start-up builds through here, and so does taking in a study session
+        (§11.171), so the session after a merge is the one start-up would
+        build. Always a new object: the one it replaces is left untouched.
+        """
+        from ultraquant.interpreter.chat import ChatCLI
+        from ultraquant.interpreter.thoughts import build_session
+
+        semantic = bool(self.settings.get("lmstudio.semantic_suggest", True))
+        self.session = build_session(
+            self.home, budget_bytes=1024 * 1024, seed=0, semantic=semantic,
+            auto_approve=bool(self.settings.get("stash_auto_approve", False)))
+        self.cli = ChatCLI(self.session, out=_QueueStream(self.events, "out"))
 
     def _send(self) -> str:
         """Send whatever is in the input box."""

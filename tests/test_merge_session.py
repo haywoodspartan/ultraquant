@@ -2,7 +2,6 @@
 
 import contextlib
 import hashlib
-import importlib.util
 import io
 import json
 import shutil
@@ -11,10 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("merge_session", ROOT / "tools" / "merge_session.py")
-M = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(M)
+import ultraquant.distill.merge as M
 
 GUI_CLAIM = "The capital of Testland is Testville."
 

@@ -267,6 +267,24 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
     return report
 
 
+def write_inbox(home, staging, base, report) -> Path:
+    """Announce a finished staged session in ``home``'s inbox (§11.171).
+
+    The GUI, when idle, takes it in: it merges ``staging`` into ``home``
+    against ``base``, the backup the session took of its copy first.
+    """
+    inbox = Path(home) / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"{_stamp()}.json"
+    entry = {"staging": str(Path(staging).resolve()), "base": str(Path(base).resolve()),
+             "report": report, "created": datetime.now(timezone.utc).isoformat()}
+    # Written aside and renamed onto its name, so the GUI never reads half an entry.
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    return path
+
+
 class _ReadOnlyVault(ShardVault):
     """Only catalog/get reads: no directory creation or access-hint writes."""
 
@@ -301,7 +319,13 @@ def main(argv=None):
     parser.add_argument("--report", type=Path)
     parser.add_argument("--device", choices=DEVICES, default=session.load_device())
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--stage", action="store_true",
+                        help="study a copy of --root, in uq_backups beside it, then announce "
+                             "the finished session in --root's inbox for the GUI to take in")
     args = parser.parse_args(argv)
+    if args.stage and args.dry_run:
+        parser.error("--stage and --dry-run cannot be combined: a dry run writes nothing, "
+                     "and --stage copies the library to study it")
     plan = session.load_plan()
     config = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
     swapper = session.LMStudioSwapper(config["cli"])
@@ -316,13 +340,27 @@ def main(argv=None):
                                        "co_distilled": _co_distilled(stash, pairs, source.name)}
                                       for source in plan]}, indent=2))
     else:
-        backup_dir = args.backup_dir or args.root.resolve().parent / "backups"
-        report_path = args.report or backup_dir / f"session-{_stamp()}.json"
+        root = args.root
+        if args.stage:
+            # §11.171: the session studies a copy while the GUI keeps working
+            # on the library, and the GUI takes the finished session in itself.
+            staged = (args.root.resolve().parent / "uq_backups"
+                      / f"staging-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+            root = staged / "uq_home"
+            shutil.copytree(args.root, root)
+            backup_dir = args.backup_dir or staged / "backups"
+            report_path = args.report or staged / "session-report.json"
+        else:
+            backup_dir = args.backup_dir or args.root.resolve().parent / "backups"
+            report_path = args.report or backup_dir / f"session-{_stamp()}.json"
         report = session.run_session(
-            args.root, plan, swapper=swapper,
+            root, plan, swapper=swapper,
             teacher_factory=lambda source: sources.LMStudioTeacher(source.name, source.gguf),
             backup_dir=backup_dir, report_path=report_path, device=args.device)
         print(json.dumps(report, indent=2))
+        # A failed session raised above: only a complete one is announced.
+        if args.stage and report.get("status") == "complete":
+            print(session.write_inbox(args.root, root, report["backup"], report))
     return 0
 
 
