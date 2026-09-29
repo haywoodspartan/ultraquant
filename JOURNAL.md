@@ -26,6 +26,8 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.157](#11157-the-default-call-keeps-its-shape) | The default call keeps its shape |
+| [11.155](#11155-its-own-questions-one-source-at-a-time-failed) | Its own questions, one source at a time (failed) |
 | [11.156](#11156-names-that-hold-and) | Names that hold "and" |
 | [11.153](#11153-questions-that-name-no-subject-and-parts-that-share-one-failed) | Questions that name no subject, and parts that share one (failed) |
 | [11.152](#11152-ways-of-asking-learned-from-confirmed-answers) | Ways of asking learned from confirmed answers |
@@ -34,6 +36,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 | [11.149](#11149-curiosity-about-attributes-the-catalogue-knows-failed-kept) | Curiosity about attributes the catalogue knows (failed, kept) |
 | [11.148](#11148-reads-that-dont-write) | Reads that don't write |
 | [11.147](#11147-names-that-look-like-arithmetic-failed-kept) | Names that look like arithmetic (failed, kept) |
+| [11.144](#11144-distillation-targets-chosen-by-the-catalogue) | Distillation targets chosen by the catalogue |
 | [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
 | [11.145](#11145-chat-that-mentions-ambiguity-judged-whole-absence-proven-by-the-index) | Chat that mentions, ambiguity judged whole, absence proven by the index |
 | [11.143](#11143-the-lupine-leases-retried-at-forty-dollars-a-month) | The lupine leases, retried at forty dollars a month |
@@ -842,6 +845,100 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
+### 11.157 The default call keeps its shape
+
+**Why:** §11.155 made `decide` call `promote(positions,
+min_lineages=...)` by keyword on every path. The frozen §11.134 exam
+patches `promote` with `lambda held, min_lineages_=2: ...`, which rejects
+that keyword, so distill_hard_gate crashed.
+
+**The change** (pre-registration sha256 a1104c17..., before the fix):
+`decide` calls `promote(positions)` exactly as committed on the default
+path, and passes `min_lineages` only when it differs.
+
+**PASSED:**
+- **distill_hard_gate passes again,** with its ledger line: held-out
+  101/101 right, confidence 0.964.
+- **§11.155's exam still passes** on replay.
+- **The sweep matches the ledger.** A sweep of §11.155's change with this
+  fix, on a clean worktree with native built, matches the ledger on every
+  gate, with two exceptions:
+  - the timing gates recallskip and vram moved;
+  - `ownquestions_gate` joins the ledger as PASS.
+- **The plant is the first sweep's own crash** (P78, the keyword on every
+  path).
+
+Suite: 2,566 passed, 5 skipped, 0 failed (2,571).
+
+### 11.155 Its own questions, one source at a time (failed)
+
+**The user, 2026-09-29:** "We need it to ask its own questions", and "use
+Command-R as the sole source then we do another source and then another
+after 1 model is used up."
+
+**Measured before any code:**
+- Command-R is loaded in the user's LM Studio. A sample takes 0.3 to
+  0.7 s, and LM Studio does not honour per-request seeds, so replay rests
+  on the recorded samples.
+- Asked 24 held facts with the distillation prompt, it was 24 of 24
+  self-consistent and right.
+- The distillation filter promoted only on two or more lineages, so one
+  source promoted nothing.
+
+**The change** (pre-registration sha256 ba7d3c2c..., Amendment A fda2816b...,
+both before any code):
+- **The questions are the system's own.** The frontier is what the
+  catalogue proposes: §11.144's co-occurrence gaps, worded in the
+  library's stored question forms. No question text is in code.
+- **One source at a time.**
+  - `distill/sources.py` holds an LM Studio teacher that answers through
+    the existing `ask` contract, and records every raw sample.
+  - A source ledger records what each source was asked, and what it
+    yielded.
+  - A source is **used up** when every frontier question has been asked of
+    it, or when its yield over its last 20 asks falls below 0.2.
+- **Single-source acceptance, said as such.**
+  - `decide(..., min_lineages=1)` requires the source's own modal answer:
+    at least 3 of 5 samples, with abstentions refused.
+  - Filed claims name their single lineage, so a later source can
+    corroborate or dispute them.
+- **Calibrated confidence.** Before the frontier, the source answers 40
+  questions whose answers the library already holds. The Wilson lower
+  bound of its precision there is the confidence of everything it files.
+- **Amendment A, before any code.** P75 had been "the least common answer
+  held", which cannot bite where all five samples agree. It became
+  "answers filed for the wrong target".
+
+**Its exam passed**, live against Command-R and again on replay from the
+recorded samples: 6 of 6 cases, and 3 of 3 plants caught (P74, a typed question;
+P75, answers filed for the wrong target; P76, a source never used up).
+- **Calibration:** 40 of 40 held facts right, which bounds its confidence
+  at 0.912.
+- **The frontier:** all 51 of the catalogue's own questions (38 atomic
+  numbers, 13 chemical symbols) were answered in 38 s.
+  - 49 were right, for precision 0.961 and coverage 1.00.
+  - It filed at 0.912 as single-source claims, and the catalogue answers
+    them.
+- **Two answers were wrong,** each agreed by all five samples: bohrium's
+  atomic number came back 276 (it is 107), and curium's 61 (it is 96). A
+  single source cannot catch its own consistent errors. That is why the
+  claims say they have one source.
+- **Command-R is now used up for this frontier.** A second pass asks it
+  nothing. A source that answers only UNKNOWN is declared used up within
+  20 asks.
+- **§11.144** chose these questions. Its three-teacher exam never ran; this
+  unit replaced its run, at the user's instruction.
+
+**FAILED criterion 8, as measured.**
+- **The regression.** The sweep of the change against the §11.151 ledger
+  found distill_hard_gate crashing. The frozen §11.134 exam patches
+  `promote` with a lambda built for the committed positional call, and
+  `decide` now passed `min_lineages` by keyword on every path. The brief
+  had required existing callers to stay byte for byte, and Claude's review
+  missed the call's shape.
+- **The code shipped with §11.157's fix**, and was never committed without
+  it.
+
 ### 11.156 Names that hold "and"
 
 **Why:** §11.153's first sweep against the gate ledger found its
@@ -1341,6 +1438,22 @@ record where the work is:
 
 Suite: 2,509 passed, 5 skipped, 0 failed (2,514, including §11.144's 18
 uncommitted target tests).
+
+### 11.144 Distillation targets chosen by the catalogue
+
+The catalogue's own gaps became distillation questions:
+- **The targets.** `completion_targets` picks them from attribute
+  co-occurrence: 51 on the user's library (38 atomic numbers and 13
+  chemical symbols).
+- **The wording.** `question_form` words each one in the library's stored
+  distillation titles.
+- **What was committed.** The code went in ahead of any run (254859e),
+  because §11.146's exam imported it.
+- **Why its exam never ran.** Its three-teacher exam (pre-registration
+  d388ec97...) needed the 4090, which another process held. Then the
+  user made Command-R the sole source, and §11.155 asked the same 51
+  questions of it. The unrun exam is kept, and the gate ledger lists it
+  as skipped.
 
 ### 11.146 Claims filed in the library's own forms
 

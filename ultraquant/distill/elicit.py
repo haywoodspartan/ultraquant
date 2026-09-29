@@ -197,7 +197,7 @@ def _symbol_no_allowed(subject: str) -> bool:
     return normalize(subject).startswith("no")
 
 
-def decide(records, items) -> dict[str, str | None]:
+def decide(records, items, min_lineages: int = 2) -> dict[str, str | None]:
     """Recompute from raw samples, without consulting item answers."""
     by_question = defaultdict(lambda: defaultdict(list))
     for record in records:
@@ -218,5 +218,7 @@ def decide(records, items) -> dict[str, str | None]:
         # Multiple teachers contribute one family position, including dissent.
         positions = {lineage: family_position(answers)
                      for lineage, answers in lineages.items()}
-        decisions[key] = promote(positions)
+        # §11.157: the default path keeps the committed call shape; exams patch promote.
+        decisions[key] = (promote(positions) if min_lineages == 2
+                          else promote(positions, min_lineages=min_lineages))
     return decisions

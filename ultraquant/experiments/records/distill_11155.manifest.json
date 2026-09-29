@@ -1,0 +1,15 @@
+[
+  {
+    "name": "c4ai-command-r-08-2024",
+    "gguf_name": "c4ai-command-r-08-2024-Q4_K_S.gguf",
+    "gguf_size": 18849512896,
+    "card": {
+      "id": "C4Ai Command R 08 2024",
+      "arch": "command-r",
+      "publisher": "",
+      "quantization": "Q4_K_S",
+      "context": 131072
+    },
+    "lineage": "lineage-command-r"
+  }
+]

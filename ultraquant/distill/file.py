@@ -101,12 +101,14 @@ def _reject_probes(items) -> None:
         raise ValueError("Cannot file fictitious items: " + ", ".join(probes))
 
 
-def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
+def file_distilled(stash, records, items, confidence, run_id,
+                   min_lineages: int = 2) -> list[int]:
     items = list(items)
     # Review 6: reject the entire batch before any filing can take place.
     _reject_probes(items)
     records = list(records)
-    decisions = decide(records, items)
+    # §11.155: one source at a time files with min_lineages=1, said in provenance.
+    decisions = decide(records, items, min_lineages=min_lineages)
     by_question = defaultdict(list)
     for record in records:
         by_question[record.question_id].append(record)

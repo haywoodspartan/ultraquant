@@ -469,6 +469,12 @@
    "commit": "3f02048",
    "seconds": 139.1
   },
+  "ownquestions_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 6 cases; 3 of 3 plants caught; 49/51 right of 51 (precision 0.961, coverage 1.00; calibration 40/40, bound 0.912)",
+   "commit": "11.157",
+   "seconds": 10.0
+  },
   "parts_gate": {
    "verdict": "FAIL",
    "line": "FAIL - the best parts arm (hybrid/64) does not beat positional/64 on held-out variants (-0.000 at sd 0.106)",
@@ -744,7 +750,7 @@
   }
  },
  "skipped": {
-  "completion_gate": "11.144's exam: needs the three teachers on the GPU; not yet run.",
+  "completion_gate": "11.144's three-teacher exam, never run: the user made Command-R the sole source, and 11.155 asked the same targets of it.",
   "convert_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "correction_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "distill_facts_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
@@ -759,6 +765,7 @@
   "paraphrase_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "permutation_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "refusal_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
+  "shape_gate": "11.158's exam: recorded with its unit.",
   "study_gate": "needs the environment: its teacher panel names google/gemma-4-31b, which is no longer in the user's LM Studio catalogue, so the panel cannot form and every question stays open (0 of 6 closed, in 1.1 s, no generation). The survey still mints the unknown-term question on the current code. A bisect named 118ee48, but only because every tested commit fails the same way today. It also queries the user's LM Studio, so it is run only with the user present.",
   "tensorglyph_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "tokenizer_gate": "needs the model hardware: llama-server as the tokenizer oracle.",
