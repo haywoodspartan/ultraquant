@@ -258,10 +258,15 @@ def verification_queue(memory, ledger=None) -> list[tuple[str, str]]:
     queued = [(key, str(value)) for gap in sequence_gaps(memory)
               for key, value in gap["outliers"]]
     if ledger is not None:
+        from . import corroborate
+
+        settled = corroborate.settled(ledger)
         for rows in ledger._read().values():
             for row in rows:
                 claim = row.get("queued")
                 if claim is not None:
+                    if "contest" in claim and claim["key"] in settled:
+                        continue
                     queued.append((claim["key"], str(claim["value"])))
     return list(dict.fromkeys(queued))
 
@@ -416,7 +421,8 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
     from . import corroborate
 
     checks = corroborate.corroborate(
-        memory, stash, teacher, ledger, source, records_path=records_path, run_id=run_id)
+        memory, stash, teacher, ledger, source, records_path=records_path, run_id=run_id,
+        confidence=confidence)
     items = frontier.pending(memory, stash, teacher, ledger, source)
     growth = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
     probe_ledger = _ProbeLedger()

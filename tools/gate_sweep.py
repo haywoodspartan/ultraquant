@@ -28,7 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 REPLAY = {"distill_facts_gate", "distill_hard_gate", "completion_gate", "ownquestions_gate",
-          "shape_gate", "roundtrip_gate", "kind_gate", "growth_gate", "second_gate"}
+          "shape_gate", "roundtrip_gate", "kind_gate", "growth_gate", "second_gate",
+          "third_gate"}
 TIMEOUT = 3600
 # Hypothesis tests report their own outcome words instead: REJECTED / NOT
 # REJECTED (distribution), SUPPORTED / NOT SUPPORTED (load), and planning's

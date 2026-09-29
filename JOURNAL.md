@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.163](#11163-a-third-source-settles-what-two-disputed) | A third source settles what two disputed |
 | [11.162](#11162-a-second-source) | A second source |
 | [11.161](#11161-properties-it-does-not-hold-yet-void-kept) | Properties it does not hold yet (void, kept) |
 | [11.160](#11160-the-kind-asked-one-member-at-a-time) | The kind, asked one member at a time |
@@ -850,6 +851,74 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.163 A third source settles what two disputed
+
+**Why:** after §11.162, 14 held claims were contested: Command-R said one
+thing, Qwen another. The user's plan: "...then we do another source and then
+another after 1 model is used up." The third source is
+cydonia-v1.3-magnum-v4-22b. It is Mistral Small 22B, an RP finetune, of a
+third lineage. It was loaded in the user's LM Studio in Command-R's place,
+and Command-R was restored as found.
+
+**Measured before any code:**
+- **Calibration:** 40 of 40.
+- **Atomic masses:** it decided 76, and 72 are right.
+- **The contests:**
+  - It sided with Command-R on terbium, dubnium, cadmium, germanium,
+    selenium and sulfur.
+  - It sided with Qwen on osmium, copernicium and flerovium.
+  - It sided with neither on molybdenum (95.94).
+  - It was undecided on holmium, bohrium, moscovium and seaborgium.
+- **Superseded values.** Two of three models learned the superseded atomic
+  weights of germanium and selenium.
+
+**The change** (pre-registration sha256 6fae1b74..., before any code):
+- **Agreeing with the held value settles the contest there.**
+- **Agreeing with the queued contrary answer revises the held value.** That
+  answer now has two lineages against one. The revision is a claim naming
+  both teachers, approved through the auto-approver.
+- **Agreeing with neither contests the claim again.**
+- **Settled contests leave the verification queue.** Unsettled ones stay.
+- **One source never revises a held value alone.**
+
+**PASSED,** live against Cydonia (with Command-R's study and Qwen's round
+replayed from their recordings) and again on replay: 4 of 4 cases, and 3 of
+3 plants caught.
+- **The plants:**
+  - P97: revise on one source's word;
+  - P98: settled contests stay queued;
+  - P99: the contrary answer's second lineage ignored.
+- **The round.** Cydonia checked 30 claims in one round: 17 agreed, 3
+  revised, 2 contested and 8 undecided. It was then used up.
+- **Two against one.** Three held values changed, each by a claim naming Qwen
+  and Cydonia, whose answers agree:
+  - osmium's atomic mass, 225.87 to 190.23;
+  - copernicium's, 283 to 285;
+  - flerovium's, 114 to 289.
+
+  Nothing else changed.
+- **Settlement beats holding.** Of the 9 settled contests the reference
+  scores, 6 are right after settlement, against 3 while held. Terbium keeps
+  Command-R's 65, and dubnium keeps 268.
+- **Where the majority is wrong.**
+  - Germanium (72.64) and selenium (78.96) settled on superseded standard
+    values that two of three models learned.
+  - Sulfur settled on 32.065, inside IUPAC's interval but off its
+    conventional value.
+  - A majority of sources can agree on what was true when they were trained.
+- **The queue.** Settled contests left it. These stay for a fourth source:
+  - molybdenum, with three values (95.96, 95.95 and 95.94);
+  - a new einsteinium contest: Qwen's 252, the reference's mass number,
+    against Cydonia's 254;
+  - the undecided superheavy elements.
+- **Found in review.** The revision claim first took its key from the
+  attribute's modal key form. It now uses the held fact's own key. A
+  revision thus replaces the held fact even where an attribute's keys were
+  filed in two forms.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 118 of 121 gates. `third_gate` joins the ledger as PASS, and the timing gates recallskip and vram passed this time.
+
+Suite: 2,690 passed, 5 skipped, 0 failed (2,695).
 
 ### 11.162 A second source
 

@@ -712,6 +712,12 @@
    "commit": "3f02048",
    "seconds": 4.2
   },
+  "third_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 3 of 3 plants caught",
+   "commit": "11.163",
+   "seconds": 185.7
+  },
   "transfer_gate": {
    "verdict": "FAIL",
    "line": "FAIL  masked reconstruction (unsupervised)  (delta +0.001, CI includes zero)",

@@ -1,4 +1,4 @@
-"""Second-source checks with fake teachers and temporary stores only."""
+"""Source checks and settlement with fake teachers and temporary stores only."""
 
 import io
 import json
@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_frontier import FakeTeacher
-from ultraquant.distill import corroborate, elicit, frontier, sources, targets
+from ultraquant.distill import corroborate, elicit, file, frontier, sources, targets
+from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.distill.teachers import TeacherSpec
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.memory.factshards import FactShards
@@ -86,8 +87,8 @@ class CorroborateTests(unittest.TestCase):
                                            side_effect=AssertionError("Live teacher forbidden")))
 
     def claim(self, subject="Carbon", value="12", attribute="atomic mass",
-              teachers=("first",), learned=True):
-        fields = dict(key=f"{attribute} of {subject.lower()}", value=value,
+              teachers=("first",), learned=True, key_form="{attribute} of {subject}"):
+        fields = dict(key=key_form.format(attribute=attribute, subject=subject.lower()), value=value,
                       subject=subject, attribute=attribute)
         provenance = {"run_id": "first", "question_id": f"mass:{subject}"}
         if teachers is not None:
@@ -103,7 +104,7 @@ class CorroborateTests(unittest.TestCase):
     def run_checks(self, source="second"):
         return corroborate.corroborate(
             self.memory, self.stash, self.teacher, self.ledger, source,
-            records_path=self.home / "checks.jsonl", run_id="run")
+            records_path=self.home / "checks.jsonl", run_id="run", confidence=0.93)
 
     def answer(self, entry_id, raw):
         check = self.stash.get(entry_id)["fields"]
@@ -145,7 +146,7 @@ class CorroborateTests(unittest.TestCase):
         with mock.patch.object(corroborate, "values_agree", wraps=corroborate.values_agree) as agree, \
                 mock.patch.object(corroborate, "contest", wraps=corroborate.contest) as contest, \
                 mock.patch.object(sources, "single_source_decide", wraps=sources.single_source_decide) as decide:
-            self.assertEqual(self.run_checks(), dict(checked=3, agreed=1, contested=1,
+            self.assertEqual(self.run_checks(), dict(checked=3, agreed=1, revised=0, contested=1,
                                                      undecided=1, asked=3))
         self.assertGreaterEqual(agree.call_count, 2)
         contest.assert_called_once()
@@ -170,7 +171,8 @@ class CorroborateTests(unittest.TestCase):
                                                subject="Osmium", attribute="atomic mass", contest="190.23"))
         self.assertIn(("atomic mass of osmium", "225.87"),
                       frontier.verification_queue(self.memory, self.ledger))
-        self.assertEqual(self.run_checks(), dict(checked=0, agreed=0, contested=0, undecided=0, asked=0))
+        self.assertEqual(self.run_checks(), dict(checked=0, agreed=0, revised=0, contested=0,
+                                                 undecided=0, asked=0))
         self.assertEqual(len(self.teacher.calls), 1)
         self.assertEqual(self.run_checks("third")["checked"], 2)
 
@@ -238,6 +240,196 @@ class CorroborateTests(unittest.TestCase):
         self.assertEqual(result["checked"], 0)
         self.assertEqual(self.ledger.history("second"), [{
             "question_id": elicit.question_id(target), "promoted": False}])
+
+    def disputed_claim(self, *, key_form="{attribute} of {subject}"):
+        entry_id = self.claim("Osmium", "225.87", key_form=key_form)
+        self.answer(entry_id, "190.23")
+        self.assertEqual(self.run_checks()["contested"], 1)
+        return entry_id, self.stash.get(entry_id)["fields"]["key"]
+
+    def test_contests_and_second_lineage_preserve_source_and_order(self):
+        entry_id, key = self.disputed_claim()
+        first = self.ledger.history("second")[0]["queued"]
+        later = {**first, "contest": "190.230"}
+        self.ledger.record("third", "later", False, queued=later)
+        self.ledger.record("third", "other", False,
+                           queued={**first, "key": "other key"})
+        self.ledger.record("third", "roundtrip", False,
+                           queued={k: v for k, v in first.items() if k != "contest"})
+        expected = [{**first, "source": "second"}, {**later, "source": "third"}]
+        reloaded = sources.SourceLedger(self.ledger.path)
+        self.assertEqual(corroborate.contests(reloaded, key), expected)
+        self.assertEqual(corroborate.contests(reloaded, "missing"), [])
+        self.assertNotIn("source", self.ledger.history("second")[0]["queued"])
+        with mock.patch.object(corroborate, "values_agree",
+                               wraps=corroborate.values_agree) as agree:
+            self.assertIs(corroborate.second_lineage("190.2300", expected), expected[0])
+        agree.assert_called_once_with("190.2300", "190.23")
+        self.assertIsNone(corroborate.second_lineage("195", expected))
+        self.assertIsNone(corroborate.second_lineage("190.23", []))
+        with mock.patch.object(corroborate, "values_agree", side_effect=[False, True]):
+            self.assertIs(corroborate.second_lineage("answer", expected), expected[1])
+        self.ledger.record("fourth", "settles", True,
+                           check={"key": key, "verdict": "revised"})
+        self.assertEqual(corroborate.contests(reloaded, key), [])
+        with mock.patch.object(corroborate, "settled", return_value=set()):
+            self.assertEqual(corroborate.contests(reloaded, key), expected)
+
+    def test_third_agrees_with_held_and_settles(self):
+        entry_id, key = self.disputed_claim()
+        before = self.memory.recall_fact(key)
+        self.answer(entry_id, "225.870")
+        self.assertEqual(self.run_checks("third")["agreed"], 1)
+        self.assertEqual(self.memory.recall_fact(key), before)
+        provenance = ContemporaryStash(self.stash.path).get(entry_id)["provenance"]
+        self.assertEqual(provenance["teachers"], ["first", "third"])
+        self.assertEqual(provenance["lineages"], ["first", "third"])
+        self.assertEqual(corroborate.settled(self.ledger), {key})
+        self.assertEqual(corroborate.contests(self.ledger, key), [])
+        self.assertNotIn((key, "225.87"), frontier.verification_queue(self.memory, self.ledger))
+        row = self.ledger.history("third")[0]
+        self.assertTrue(row["promoted"])
+        self.assertNotIn("queued", row)
+
+    def revision_round(self, *, seed=False):
+        entry_id, key = self.disputed_claim(
+            key_form="{attribute} of {subject}" if seed else "{subject}'s {attribute}")
+        if not seed:
+            # Teach a visibly distinct claim form using the promoted entry.
+            self.stash._entries[entry_id]["claim"] = "Osmium has atomic mass 225.87."
+            self.stash.save()
+        else:
+            self.enterContext(mock.patch.object(file, "claim_form", return_value=None))
+            self.enterContext(mock.patch.object(file, "key_form", return_value=None))
+        target = self.answer(entry_id, "190.230")
+        self.teacher.spec = TeacherSpec("third", self.teacher.spec.gguf)
+        approver = AutoApprover(self.stash, self.memory, self.home / "approvals.jsonl")
+        approve_all = approver.approve_all
+
+        def approve_revision():
+            self.assertEqual(self.memory.recall_fact(key)["value"], "225.87")
+            revision, = self.stash.entries(status="staged")
+            self.assertEqual(revision["fields"], dict(
+                key=key, value="190.230", subject="Osmium", attribute="atomic mass"))
+            self.assertEqual(revision["claim"], "The atomic mass of Osmium is 190.230."
+                             if seed else "Osmium has atomic mass 190.230.")
+            self.assertEqual(revision["title"], target.question)
+            self.assertEqual(revision["measured_confidence"], 0.97)
+            self.assertEqual(revision["provenance"], {
+                "run_id": "third-round", "question_id": elicit.question_id(target),
+                "teachers": ["second", "third"], "lineages": ["second", "third"],
+                "settles": key})
+            approved = approve_all()
+            self.assertEqual(len(approved), 1)
+            self.assertEqual(approved[0].outcome, "revised")
+            return approved
+
+        with mock.patch.object(approver, "approve_all", side_effect=approve_revision) as approve, \
+                mock.patch.object(corroborate, "second_lineage",
+                                  wraps=corroborate.second_lineage) as lineage:
+            frontier.study_round(
+                self.memory, self.stash, self.teacher, self.ledger, "third",
+                confidence=0.97, run_id="third-round", records_path=self.home / "third.jsonl",
+                approver=approver)
+        approve.assert_called_once()
+        lineage.assert_called_once()
+        self.assertEqual(self.memory.recall_fact(key)["value"], "190.230")
+        self.assertEqual(self.stash.entries()[-1]["status"], "promoted")
+        self.assertEqual(corroborate.settled(self.ledger), {key})
+        self.assertNotIn(key, dict(frontier.verification_queue(self.memory, self.ledger)))
+        row = self.ledger.history("third")[0]
+        self.assertEqual(row["check"]["verdict"], "revised")
+        self.assertTrue(row["promoted"])
+        self.assertNotIn("queued", row)
+
+    def test_third_revises_through_round_approval_using_learned_forms(self):
+        self.revision_round()
+
+    def test_third_revision_falls_back_to_seed_forms(self):
+        self.revision_round(seed=True)
+
+    def test_revision_preserves_held_key_when_modal_key_form_differs(self):
+        entry_id, key = self.disputed_claim(key_form="the {attribute} of {subject}")
+        self.claim("Carbon", "12", teachers=("first", "second"))
+        self.claim("Iron", "55.845", teachers=("first", "second"))
+        modal_key = file.key_form(self.stash, "atomic mass").format(subject="osmium")
+        self.assertEqual(modal_key, "atomic mass of osmium")
+        self.assertNotEqual(key, modal_key)
+        self.answer(entry_id, "190.23")
+        self.teacher.spec = TeacherSpec("third", self.teacher.spec.gguf)
+        with mock.patch.object(frontier, "propose", return_value={
+                "proposed": [], "adopted": [], "refused": [], "asked": 0}):
+            frontier.study_round(
+                self.memory, self.stash, self.teacher, self.ledger, "third",
+                confidence=0.97, run_id="mixed-forms", records_path=self.home / "mixed.jsonl")
+        self.assertEqual(self.memory.recall_fact(key)["value"], "190.23")
+        matching_keys = [held_key for held_key in self.memory.fact_keys()
+                         if (record := self.memory.recall_fact(held_key))
+                         and record.get("subject", "").lower() == "osmium"
+                         and record.get("attribute") == "atomic mass"]
+        self.assertEqual(matching_keys, [key])
+        self.assertIsNone(self.memory.recall_fact(modal_key))
+        revision = self.stash.entries()[-1]
+        self.assertEqual(revision["status"], "promoted")
+        self.assertEqual(revision["fields"]["key"], key)
+        self.assertEqual(revision["provenance"]["teachers"], ["second", "third"])
+
+    def test_third_agrees_with_neither_and_contests_again(self):
+        entry_id, key = self.disputed_claim()
+        self.answer(entry_id, "195.01")
+        self.assertEqual(self.run_checks("third")["contested"], 1)
+        self.assertEqual([c["contest"] for c in corroborate.contests(self.ledger, key)],
+                         ["190.23", "195.01"])
+        self.assertEqual(corroborate.settled(self.ledger), set())
+        self.assertIn((key, "225.87"), frontier.verification_queue(self.memory, self.ledger))
+        self.assertEqual(self.memory.recall_fact(key)["value"], "225.87")
+        self.assertEqual(len(self.stash.entries()), 1)
+
+    def test_third_undecided_keeps_contest(self):
+        entry_id, key = self.disputed_claim()
+        before = corroborate.contests(self.ledger, key)
+        self.answer(entry_id, "UNKNOWN")
+        self.assertEqual(self.run_checks("third")["undecided"], 1)
+        self.assertEqual(corroborate.contests(self.ledger, key), before)
+        self.assertEqual(corroborate.settled(self.ledger), set())
+        self.assertIn((key, "225.87"), frontier.verification_queue(self.memory, self.ledger))
+        self.assertEqual(self.memory.recall_fact(key)["value"], "225.87")
+
+    def test_second_contesting_alone_never_revises_even_after_approval(self):
+        entry_id, key = self.disputed_claim()
+        before = self.memory.recall_fact(key)
+        # A changed question category must not let one source count itself twice.
+        with mock.patch.object(corroborate, "_forward_target", return_value=targets.Target(
+                "new-mass", "Osmium", "A differently worded question", "atomic mass")):
+            self.answer(entry_id, "190.23")
+            self.assertEqual(self.run_checks()["contested"], 1)
+        approver = AutoApprover(self.stash, self.memory, self.home / "alone.jsonl")
+        self.assertEqual(approver.approve_all(), [])
+        self.assertEqual(self.memory.recall_fact(key), before)
+        self.assertEqual(len(self.stash.entries()), 1)
+        self.assertEqual(corroborate.settled(self.ledger), set())
+
+    def test_settled_ignores_agreement_before_contest_and_keeps_other_queue_items(self):
+        key = "atomic mass of osmium"
+        self.ledger.record("early", "before", True, check={"key": key, "verdict": "agreed"})
+        entry_id, key = self.disputed_claim()
+        self.assertEqual(corroborate.settled(self.ledger), set())
+        self.assertEqual(len(corroborate.contests(self.ledger, key)), 1)
+        self.ledger.record("second", "undecided", False,
+                           check={"key": key, "verdict": "undecided"})
+        self.assertEqual(corroborate.settled(self.ledger), set())
+        self.ledger.record("second", "after", True, check={"key": key, "verdict": "agreed"})
+        self.assertEqual(corroborate.settled(self.ledger), {key})
+        self.assertEqual(frontier.verification_queue(self.memory, self.ledger), [])
+        with mock.patch.object(corroborate, "settled", return_value=set()):
+            self.assertEqual(frontier.verification_queue(self.memory, self.ledger), [(key, "225.87")])
+        self.ledger.record("second", "roundtrip", False, queued={"key": key, "value": "999"})
+        self.ledger.record("second", "unsettled", False,
+                           queued={"key": "other", "value": "1", "contest": "2"})
+        with mock.patch.object(frontier, "sequence_gaps", return_value=[{
+                "outliers": [(key, "500"), ("outlier", "600")]}]):
+            self.assertEqual(frontier.verification_queue(self.memory, self.ledger), [
+                (key, "500"), ("outlier", "600"), (key, "999"), ("other", "1")])
 
 
 class ShardedCorroborateTests(CorroborateTests):

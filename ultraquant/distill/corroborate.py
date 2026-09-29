@@ -1,10 +1,10 @@
-"""Check another source's held claims without overruling them."""
+"""Check held claims and stage revisions supported by two source lineages."""
 
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 import re
 
-from . import elicit, frontier, sources, targets
+from . import elicit, file, frontier, sources, targets
 from ultraquant.memory.factshards import normalize_subject
 
 
@@ -65,7 +65,43 @@ def contest(memory, check) -> dict | None:
         "contest": check["answer"]}
 
 
-def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id) -> dict:
+def settled(ledger) -> set[str]:
+    """Find contests followed by agreement or revision in stored ledger order."""
+    contested, resolved = set(), set()
+    for rows in ledger._read().values():
+        for row in rows:
+            check = row.get("check") or {}
+            if (check.get("key") in contested
+                    and check.get("verdict") in ("agreed", "revised")):
+                resolved.add(check["key"])
+            queued = row.get("queued") or {}
+            if "contest" in queued:
+                contested.add(queued["key"])
+    return resolved
+
+
+def contests(ledger, key) -> list[dict]:
+    """Collect every unsettled contrary answer with its source, in ledger order."""
+    from . import corroborate
+
+    if key in corroborate.settled(ledger):
+        return []
+    return [{**queued, "source": source}
+            for source, rows in ledger._read().items() for row in rows
+            if (queued := row.get("queued")) is not None
+            and "contest" in queued and queued["key"] == key]
+
+
+def second_lineage(answer, contests) -> dict | None:
+    """Return the first contrary answer that agrees with the new answer."""
+    from . import corroborate
+
+    return next((item for item in contests
+                 if corroborate.values_agree(answer, item["contest"])), None)
+
+
+def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id,
+                confidence) -> dict:
     """Ask every unrecorded check together and persist its verdict."""
     # Resolve the module here because this function shares its name.
     from . import corroborate
@@ -75,7 +111,7 @@ def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id)
              for check in claims_to_check(memory, stash, source)]
     pairs = [(check, target) for check, target in pairs
              if elicit.question_id(target) not in asked]
-    result = dict(checked=0, agreed=0, contested=0, undecided=0, asked=0)
+    result = dict(checked=0, agreed=0, revised=0, contested=0, undecided=0, asked=0)
     if not pairs:
         return result
     items = [target for _, target in pairs]
@@ -97,8 +133,27 @@ def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id)
         if verdict == "agreed":
             stash.add_teacher(check["entry_id"], source)
         elif verdict == "contested":
-            queued = corroborate.contest(memory, check)
-        ledger.record(source, qid, verdict == "agreed", queued=queued, check={
+            # Re-asking a source under a changed category is not a new lineage.
+            prior = [item for item in corroborate.contests(ledger, check["key"])
+                     if item["source"] != source]
+            found = corroborate.second_lineage(answer, prior)
+            if found is not None:
+                claim_form = (file.claim_form(stash, check["attribute"])
+                              or file._seed()["claim"])
+                slots = dict(subject=check["subject"], attribute=check["attribute"],
+                             value=answer)
+                stash.add_claim(
+                    f"https://distill.invalid/{run_id}/{qid}", target.question,
+                    claim_form.format(**slots), measured_confidence=confidence,
+                    provenance={"run_id": run_id, "question_id": qid,
+                                "teachers": [found["source"], source],
+                                "lineages": [found["source"], source],
+                                "settles": check["key"]},
+                    fields={"key": check["key"], **slots})
+                verdict = "revised"
+            else:
+                queued = corroborate.contest(memory, check)
+        ledger.record(source, qid, verdict in ("agreed", "revised"), queued=queued, check={
             **{name: check[name] for name in
                ("key", "value", "subject", "attribute", "answer")},
             "verdict": verdict})
