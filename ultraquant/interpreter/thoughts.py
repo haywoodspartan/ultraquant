@@ -1021,9 +1021,16 @@ class Reason(Thought):
                 ctx.note(self.name, "catalogue: unknown subject")
             else:
                 key, record = answer["key"], answer["record"]
-                prefix = f"Reading that as '{key}': " if answer["form"] == "reading" else ""
-                ctx.say(f"{prefix}{key} is {_shown_value(record)} "
-                        f"(confidence {record['confidence']:.2f}).")
+                if answer["form"] == "chain":
+                    via = answer["via"]
+                    confidence = min(record["confidence"], via["record"]["confidence"])
+                    ctx.say(f"{key} is {_shown_value(record)} "
+                            f"(confidence {confidence:.2f}), through {via['key']} is "
+                            f"{_shown_value(via['record'])}.")
+                else:
+                    prefix = f"Reading that as '{key}': " if answer["form"] == "reading" else ""
+                    ctx.say(f"{prefix}{key} is {_shown_value(record)} "
+                            f"(confidence {record['confidence']:.2f}).")
                 ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
             return
 

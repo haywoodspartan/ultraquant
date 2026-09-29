@@ -157,9 +157,8 @@ class CatalogueAnswerTests(_Scratch):
                 answer = memory.catalogue_answer(
                     "Which shiny chemical symbol does Zinc have?")
                 self.assertEqual((answer["form"], answer["key"]), ("reading", symbol))
-                self.assertEqual(
-                    memory.catalogue_answer("atomic number symbol of Zinc?")["key"],
-                    number)
+                # §11.150: no reading across a second catalogued attribute.
+                self.assertIsNone(memory.catalogue_answer("atomic number symbol of Zinc?"))
                 self.assertIsNone(memory.catalogue_answer("number symbol of Zinc?"))
                 self.assertIsNone(memory.catalogue_answer("Who wrote Zinc?"))
                 hold(memory, "Zinc", "chemical symbol", "Zn", key="duplicate symbol")

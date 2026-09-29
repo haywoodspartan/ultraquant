@@ -726,6 +726,13 @@ def missing_premise(text: str, memory) -> dict | None:
                     seen_folds.add(folded)
             premise_key = " ".join([value.strip().lower()]
                                    + ordered_remainder)
+            # §11.150: a catalogued bridge asks in the catalogue's key form.
+            if record.get("subject") and record.get("attribute"):
+                attributes = memory._asked_attributes(remainder)
+                if len(attributes) == 1:
+                    form = memory.key_form(next(iter(attributes)))
+                    if form is not None:
+                        premise_key = form.format(subject=value).lower()
             best = (candidate, {
                 "premise_key": premise_key,
                 "via_key": key,

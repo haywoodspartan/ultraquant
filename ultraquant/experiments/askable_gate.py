@@ -34,6 +34,13 @@ plants caught. The built library shows 0 curiosity hints (was 69). "steel
 conductivity" is still asked, and the curiosity gate passes. §11.145's
 gate passes again. The ladder and compound gates keep their HEAD
 failures, and the paraphrase and negation gates their passes.
+
+**Criterion 5 FAILED. Found after the commit and corrected during
+§11.150.** The §11.139 catalogue gate flipped from PASS to FAIL on its
+criterion 4, which pins "steel conductivity" asked through a catalogued
+bridge for an uncatalogued attribute. That is exactly what this design
+removes. Only the gates named here were run before the commit. Kept, as
+a strict improvement.
 """
 
 from __future__ import annotations

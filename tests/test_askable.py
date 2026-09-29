@@ -38,9 +38,10 @@ class AskableTests(unittest.TestCase):
             "conductivity of copper", "high", .9,
             subject="copper", attribute="conductivity")
         reply, _ = run_pipeline("What is the conductivity of the tower?", session)
+        # §11.150: a catalogued premise is keyed as the catalogue keys it.
         self.assertEqual([c["premise_key"] for c in session.curiosities],
-                         ["steel conductivity"])
-        self.assertIn("If I knew the steel conductivity", reply)
+                         ["conductivity of steel"])
+        self.assertIn("If I knew the conductivity of steel", reply)
 
     def test_chat_bridge_does_not_consult_attribute_vocabulary(self):
         session = build_session(self.scratch(), seed=0)

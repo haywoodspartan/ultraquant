@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import re
 import os
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -262,6 +262,45 @@ class SystematicMemory:
         return {attribute for attribute, item in self._attribute_vocabulary().items()
                 if words <= attribute_words(attribute, item)}
 
+    def _names_other_attribute(self, words: set, explained: set) -> bool:
+        """Whether the unexplained words name another indexed attribute."""
+        rest = words - explained
+        return any(rest & attribute_words(attribute, item)
+                   for attribute, item in self._attribute_vocabulary().items())
+
+    def _second_hop(self, value, attribute: str) -> tuple[str, dict] | None:
+        """Look up the value as a catalogue subject, then its attribute."""
+        subject = normalize_subject(str(value))
+        if self.shards is not None:
+            self.shards._ensure_indexes()
+            keys = self.shards._index_data("subjects", subject).get(
+                subject, {}).get("keys", ())
+        else:
+            keys = sorted(key for key, record in self._facts.items()
+                          if record.get("subject")
+                          and normalize_subject(record["subject"]) == subject)
+        for key in keys:
+            record = self.recall_fact(key)
+            if (record is not None and record.get("subject")
+                    and normalize_subject(record["subject"]) == subject
+                    and normalize_subject(record.get("attribute") or "") == attribute):
+                return key, record
+        return None
+
+    def key_form(self, attribute: str) -> str | None:
+        """The most common held key form, with lexical ties resolved first."""
+        attribute = normalize_subject(attribute)
+        forms = Counter()
+        for key in self.fact_keys():
+            record = self.recall_fact(key)
+            if (record is None or not record.get("subject")
+                    or normalize_subject(record.get("attribute") or "") != attribute):
+                continue
+            subject = record["subject"].lower()
+            if key.count(subject) == 1:
+                forms[key.replace(subject, "{subject}", 1)] += 1
+        return min(forms, key=lambda form: (-forms[form], form)) if forms else None
+
     # §11.142: only an indexed unstructured key can explain an unheld subject.
     def _unheld_subject(self, words: set, known: set) -> bool:
         """Whether remaining words name no held unstructured fact."""
@@ -280,7 +319,7 @@ class SystematicMemory:
         return True
 
     def catalogue_answer(self, text: str) -> dict | None:
-        """Answer within one catalogued subject without registering curiosity."""
+        """Answer through catalogued subjects without registering curiosity."""
         subjects = self.subjects_in(text)
         chosen = (self.shards._choose_subject(subjects) if self.shards is not None
                   else choose_subject(subjects))
@@ -303,10 +342,22 @@ class SystematicMemory:
                 attribute = normalize_subject(record["attribute"])
                 explained = attribute_words(attribute, vocabulary.get(attribute, {}))
                 score = len(words & explained)
+                # §11.150: the first value can itself name a held subject.
+                if score:
+                    rest = words - explained
+                    following = self._asked_attributes(rest)
+                    if len(following) == 1:
+                        second = self._second_hop(record["value"], next(iter(following)))
+                        if second is not None:
+                            key2, record2 = second
+                            return {"form": "chain", "key": key2, "record": record2,
+                                    "via": {"key": key, "record": record}}
                 if score > best:
                     best, winners = score, []
                 if score == best and score >= 1:
                     exact = words <= explained and asked == {attribute}
+                    if not exact and self._names_other_attribute(words, explained):
+                        continue
                     winners.append({"form": "exact" if exact else "reading",
                                     "key": key, "record": record})
             return winners[0] if len(winners) == 1 else None

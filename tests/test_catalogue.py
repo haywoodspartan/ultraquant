@@ -400,7 +400,8 @@ class StructureFlowTests(unittest.TestCase):
                         attribute="conductivity")
         with mock.patch.object(m, "subjects_in", wraps=m.subjects_in) as lookup:
             gap = I.missing_premise("What is the conductivity of the tower?", m)
-            self.assertEqual(gap["premise_key"], "steel conductivity")
+            # §11.150: keyed as the catalogue keys conductivity.
+            self.assertEqual(gap["premise_key"], "conductivity of steel")
             lookup.assert_called_once()
         with mock.patch.object(I, "_bridge_allowed", return_value=False) as bridge:
             self.assertIsNone(I.missing_premise("What is the conductivity of the tower?", m))

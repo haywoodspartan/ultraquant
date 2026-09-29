@@ -26,7 +26,8 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
-| [11.149](#11149-curiosity-about-attributes-the-catalogue-knows) | Curiosity about attributes the catalogue knows |
+| [11.150](#11150-two-hops-through-the-catalogue-failed-kept) | Two hops through the catalogue (failed, kept) |
+| [11.149](#11149-curiosity-about-attributes-the-catalogue-knows-failed-kept) | Curiosity about attributes the catalogue knows (failed, kept) |
 | [11.148](#11148-reads-that-dont-write) | Reads that don't write |
 | [11.147](#11147-names-that-look-like-arithmetic-failed-kept) | Names that look like arithmetic (failed, kept) |
 | [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
@@ -837,7 +838,77 @@ used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
 
-### 11.149 Curiosity about attributes the catalogue knows
+### 11.150 Two hops through the catalogue (failed, kept)
+
+**Why:** measured at ec232d2, in a catalogued world:
+- **The world.** "author of emma" = Jane Austen and "author of dune" =
+  Frank Herbert, plus "birthplace of jane austen" = Steventon and
+  "birthplace of frank herbert" = Tacoma.
+- **A wrong reading.** "What is the birthplace of the author of Emma?"
+  answered "Reading that as 'author of emma': author of emma is Jane
+  Austen". The question names a second catalogued attribute, and that
+  reading ignores it.
+- **The fact was held but never found.** With the reading suppressed,
+  inference asked about "jane austen birthplace", the value plus the
+  remainder. It never looked up the held "birthplace of jane austen".
+  The first hop's value is itself a catalogued subject, so the second
+  hop is a lookup by subject and attribute.
+
+**The change** (pre-registration sha256 29e49993..., before any code):
+- **No reading across a second attribute.** A reading is dropped when
+  the question's unexplained words include a word of another catalogued
+  attribute (`_names_other_attribute`).
+- **Two hops through the index.** When the rest of the question points
+  to exactly one attribute, and the first fact's value is a catalogued
+  subject holding it (`_second_hop`), the answer is a chain: "birthplace
+  of jane austen is Steventon (confidence 0.90), through author of emma
+  is Jane Austen." Its confidence is the lower of the two.
+- **Curiosity in the catalogue's own key form.** A catalogued bridge's
+  premise is keyed the way the catalogue keys that attribute
+  (`key_form`, learned from held records): "birthplace of jane austen",
+  not "jane austen birthplace".
+
+**FAILED criterion 5.** The unit's own exam passed, on Claude's
+machine and in Astra's run: 3 of 3 cases, and 2 of 2 plants caught (P62,
+readings across a second attribute; P63, the second hop by the
+value-plus-remainder key).
+- **Two hops answered.** "What is the birthplace of the author of Emma?"
+  answers "birthplace of jane austen is Steventon (confidence 0.90),
+  through author of emma is Jane Austen." The Dune question answers
+  Tacoma.
+- **No wrong reading.** Without Jane Austen's birthplace held, the
+  question gets no reading. Its curiosity is "birthplace of jane
+  austen".
+- **One hop unchanged.** §11.142's and §11.145's gates pass, and "What is
+  the birthplace of Jane Austen?" still answers Steventon directly. The
+  native parity gates show zero differences: 1,430 chat turns, 4,800
+  memory steps and 368 inference questions.
+- **Why criterion 5 failed.** §11.149's askable gate flipped from PASS to
+  FAIL. Its case 2 pins the premise "steel conductivity". This unit's
+  frozen design deliberately keys that premise the way the catalogue
+  keys conductivity, "conductivity of steel". As in §11.149, the
+  pre-registration's design and its criterion 5 contradicted each other,
+  because Claude had not searched the earlier exams for the behavior
+  being changed.
+- **The other verdicts held**, against a clean worktree at 996ac56.
+  Every other gate run kept its verdict there:
+  - the catalogue, reads, names, compound and ladder gates still fail;
+  - the rest pass, including §11.141's answers gate, which now passes on
+    the code although its recorded verdict stands.
+- **Three existing tests encoded behavior the design replaces**, and were
+  updated. "atomic number symbol of Zinc?" now gets no reading across two
+  attributes, and two premise strings changed.
+
+**Kept, as a strict improvement.** Questions two facts deep are answered
+through the index, and the wrong readings are gone.
+- **Review note:** `key_form` scans every fact on each call. That is fine
+  at 405 facts, but the form belongs in the index, recorded at write
+  time.
+
+Suite: 2,530 passed, 5 skipped, 0 failed (2,535, including §11.144's 18
+uncommitted target tests).
+
+### 11.149 Curiosity about attributes the catalogue knows (failed, kept)
 
 **Why:** `inference.missing_premise` forms a curiosity premise from a
 held bridge's value plus the question's uncovered words.
@@ -870,17 +941,40 @@ held bridge's value plus the question's uncovered words.
   catalogued, "What is the conductivity of the tower?" registers "steel
   conductivity".
 
-**PASSED**, on Claude's machine and in Astra's run: 3 of 3 cases, and 2
-of 2 plants caught (P60, any remainder; P61, no catalogued curiosity at
-all).
+**The exam passed**, on Claude's machine and in Astra's run: 3 of 3
+cases, and 2 of 2 plants caught (P60, any remainder; P61, no catalogued
+curiosity at all).
 - **No junk.** The built library shows 0 curiosity hints, down from 69.
 - **Curiosity still asks what it should.** "steel conductivity" is still
   asked, and the curiosity gate passes.
-- **Nothing regressed.** §11.145's gate passes again, with §11.142's
-  inside it. The ladder and compound gates keep their HEAD failures, and
-  the paraphrase and negation gates keep their passes. Those HEAD
-  verdicts were measured on a clean worktree at ec232d2 before any code,
-  which is §11.147's lesson applied.
+- **The gates the exam named kept their HEAD verdicts.** §11.145's gate
+  passes again, with §11.142's inside it. The ladder and compound gates
+  keep their HEAD failures, and the paraphrase and negation gates keep
+  their passes. Those HEAD verdicts were measured on a clean worktree at
+  ec232d2 before any code.
+
+**FAILED criterion 5. This was found after the commit and corrected
+here during §11.150.**
+- **The §11.139 catalogue gate flipped**, from PASS at 7c092ab to FAIL at
+  this unit's commit (996ac56), on its criterion 4. Both were confirmed
+  on clean worktrees. §11.148's reads gate went with it, because its
+  regression check reruns the catalogue gate.
+- **That criterion pins exactly the curiosity this design removes.** In a
+  world holding only "material of the tower", curiosity must ask for
+  "steel conductivity": an ask through a catalogued bridge for an
+  attribute no record catalogues.
+- **The pre-registration contradicted itself.** Its design and its
+  criterion 5 could not both hold, and Claude's verification ran only
+  the gates the exam named, not every curiosity gate. §11.150's wider
+  gate run found it. The lesson is now standing practice:
+  - before freezing a design, search the earlier exams for the behavior
+    it changes;
+  - classify gate verdicts by their text, since some gates print FAIL
+    and exit 0.
+- **Kept, as a strict improvement.** The removed asks were the 69 junk
+  hints and their kind.
+
+**Details:**
 - **One old test was updated.** A §11.139 test asserted curiosity
   through a catalogued bridge for "conductivity", in a world where no
   attribute catalogued it. Claude added the catalogued "conductivity of
