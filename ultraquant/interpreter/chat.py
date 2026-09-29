@@ -25,7 +25,9 @@ from typing import Iterator
 
 from ultraquant.interpreter.selflearn import SelfLearner
 from ultraquant.interpreter.stash import StashError
-from ultraquant.interpreter.thoughts import Session, build_session, run_pipeline
+from ultraquant.interpreter.thoughts import (
+    Session, build_session, define_text, run_pipeline,
+)
 from ultraquant.pattern.recognition import LABELS
 
 #: One row of a pasted glyph: exactly five cells of set/unset.
@@ -37,6 +39,7 @@ UltraQuant Chat/Interpreter - commands:
   :trace                 the thought trace of the last input
   :mem                   memory statistics
   :facts [substr]        stored facts (optionally filtered)
+  :define WORD           a word's senses, from the library's dictionary
   :shards                the shard catalog (id, category, where, bytes, uses)
   :resident              what is currently paged into RAM, and the budget
   :budget <kb>           change the resident-set budget
@@ -142,6 +145,11 @@ understands - among others - these forms:
                for, and doubt never deletes; "no" after a derived
                answer declines it and names every premise so the
                wrong one can be restated
+  words        "what does scandium mean?" / "define capital" / "what
+               is the meaning of atomic mass?" - every sense from the
+               library's dictionary, with its credit line; never
+               stored as a fact, and a word it lacks is asked as
+               before
 A near-key statement ("the old tower material is ...") also names the
 held base it sits beside: "I separately hold: tower material is
 iron" - information, never a merge."""
@@ -286,6 +294,26 @@ class ChatCLI:
         for key, fact in rows:
             self.emit(f"  {key} = {fact['value']}  (conf {fact['confidence']:.2f}, "
                       f"x{fact.get('reinforcements', 0)})")
+
+    def _cmd_define(self, args: list[str], more) -> None:
+        """Look a word up in the library's dictionary (§11.167).
+
+        The same text a "define WORD" turn replies with, from the same
+        formatting function.
+        """
+        if not args:
+            self.emit("Usage: :define WORD")
+            return
+        lexicon = getattr(self.session, "lexicon", None)
+        if lexicon is None:
+            self.emit("No dictionary in this library; build one with: "
+                      "python -m ultraquant.lexicon.build --home "
+                      f"{self.session.root}")
+            return
+        word = " ".join(args)
+        text = define_text(lexicon, word)
+        self.emit(text if text is not None
+                  else f"{word!r} is not in the dictionary.")
 
     def _cmd_shards(self, args: list[str], more) -> None:
         """Show the shard catalog."""

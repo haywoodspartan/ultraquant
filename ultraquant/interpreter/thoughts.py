@@ -29,6 +29,8 @@ from ultraquant.interpreter.codefunc import CodeError, SafeCodeRunner
 from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.interpreter.webaccess import WebAccess, WebDisabled
+from ultraquant.lexicon import Lexicon
+from ultraquant.lexicon.lexicon import source_record
 from ultraquant.memory.factshards import (
     FactShards, choose_subject, normalize_subject, question_words,
 )
@@ -43,6 +45,7 @@ __all__ = [
     "ThoughtContext",
     "PIPELINE",
     "build_session",
+    "define_text",
     "run_pipeline",
 ]
 
@@ -123,6 +126,22 @@ _GLYPH_ROW = re.compile(r"^[#.]{5}$")
 #: correction itself, which the statement path owns).
 _NEGATION_REPLY_RE = re.compile(
     r"(no|nope|wrong|incorrect|that is wrong|that's wrong)[.!]?")
+
+#: §11.167: the three ways a word's meaning is asked for, matched against the
+#: whole utterance. X is looked up exactly as typed: no word is stripped from
+#: it, so "what does this word mean" asks about "this word", which is not one.
+_DEFINE_RE = re.compile(
+    r"what\s+does\s+(?P<does>.+)\s+mean"
+    r"|what\s+is\s+the\s+meaning\s+of\s+(?P<meaning>.+)"
+    r"|define\s+(?P<define>.+)",
+    re.IGNORECASE)
+
+#: The quote pairs one asked-for word may be wrapped in.
+_QUOTE_PAIRS = {'"': '"', "'": "'", "\u201c": "\u201d", "\u2018": "\u2019"}
+
+#: How a dictionary answer names each part of speech.
+_POS_NAMES = {"n": "noun", "v": "verb", "a": "adjective", "s": "adjective",
+              "r": "adverb"}
 
 #: A text opening with one of these is a question even without a question mark.
 #: Kept to unambiguous leads: "is the shop open" is interrogative, but a bare
@@ -210,6 +229,10 @@ class Session:
     #: short-term workable memory; the vault is the permanent store.
     context: Any | None = None
     auto_approve: bool | None = None
+    #: The dictionary (§11.167): a :class:`~ultraquant.lexicon.Lexicon` when
+    #: the library has one, else None. It answers what words mean and never
+    #: writes a fact.
+    lexicon: Any | None = None
     approver: AutoApprover = field(init=False)
 
     def __post_init__(self) -> None:
@@ -311,6 +334,9 @@ def build_session(
         context=ContextWindow(root / "context"),
         auto_approve=auto_approve,
     )
+    # §11.167: the dictionary, when this library has one. Opening it reads its
+    # catalog only; a page is read when a word is asked about.
+    session.lexicon = Lexicon.open(root)
     if semantic:
         from ultraquant.reason.semantic import SemanticSuggester
 
@@ -392,6 +418,45 @@ def _glyph_rows(text: str) -> list[str] | None:
     if len(rows) == 5 and all(_GLYPH_ROW.match(r) for r in rows):
         return rows
     return None
+
+
+def _dictionary_word(session, text: str) -> str | None:
+    """The word a define-question asks about, if the dictionary holds it.
+
+    None both when ``text`` is not a define-question and when the lexicon has
+    no such word, so the utterance goes on exactly as it did before §11.167.
+    """
+    lexicon = getattr(session, "lexicon", None)
+    if lexicon is None:
+        return None
+    asked = text.strip()
+    if asked.endswith("?"):
+        asked = asked[:-1]
+    match = _DEFINE_RE.fullmatch(asked)
+    if match is None:
+        return None
+    word = next(group for group in match.groups() if group is not None).strip()
+    if len(word) >= 2 and _QUOTE_PAIRS.get(word[0]) == word[-1]:
+        word = word[1:-1].strip()
+    return word if lexicon.senses(word) else None
+
+
+def define_text(lexicon, word: str) -> str | None:
+    """Every sense of ``word`` from the lexicon, numbered, then the credit.
+
+    The one formatting of a dictionary answer, shared by the pipeline,
+    ':define' and the TUI so all three say the same thing. None when the
+    lexicon does not hold the word.
+    """
+    senses = lexicon.define(word)
+    if not senses:
+        return None
+    lines = [f"{word}:"]
+    for number, sense in enumerate(senses, start=1):
+        pos = _POS_NAMES.get(sense["pos"], sense["pos"])
+        lines.append(f"{number}. ({pos}) {'; '.join(sense['definition'])}")
+    lines.append(source_record()["attribution_line"])
+    return "\n".join(lines)
 
 
 class Thought:
@@ -481,6 +546,12 @@ class Perceive(Thought):
         elif _URL_RE.search(text):
             intent = "url"
             ctx.data["url"] = _URL_RE.search(text).group(0)
+        elif (word := _dictionary_word(ctx.session, text)) is not None:
+            # §11.167: "what does X mean", "what is the meaning of X" and
+            # "define X", only when the dictionary holds X. Anything else,
+            # including an X it lacks, takes the branches below as before.
+            intent = "define"
+            ctx.data["define"] = word
         elif lowered.startswith("remember") or (
                 (" is " in lowered
                  or (_CONJUNCTIVE_STATEMENTS and " are " in lowered
@@ -705,10 +776,20 @@ class Reason(Thought):
             "declination": self._decline,
             "reading_confirmed": self._reading_confirmed,
             "reading_declined": self._reading_declined,
+            "define": self._define,
         }.get(intent, self._chat)
         handler(ctx)
 
     # -- handlers ---------------------------------------------------------
+
+    def _define(self, ctx: ThoughtContext) -> None:
+        """§11.167: a word's senses from the dictionary are the whole reply."""
+        word = ctx.data["define"]
+        text = define_text(ctx.session.lexicon, word)
+        ctx.say(text if text is not None
+                else f"{word!r} is not in the dictionary.")
+        ctx.note(self.name, f"defined {word!r} from the dictionary"
+                 if text is not None else f"{word!r} not in the dictionary")
 
     def _code(self, ctx: ThoughtContext) -> None:
         source = ctx.data.get("code", "")
@@ -3474,7 +3555,12 @@ class Learn(Thought):
                     part.strip() for part in ctx.response_parts
                     if part.strip())
 
-        if session.auto_approve:
+        if intent == "define":
+            # §11.167: a dictionary answer is the whole reply, and the turn
+            # stores no fact. Staged claims wait for the next turn's approval
+            # pass rather than trail after a definition.
+            pass
+        elif session.auto_approve:
             rejected = {e["id"] for e in session.stash.entries(status="rejected")}
             approvals = session.approver.approve_all()
             if approvals:

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.167](#11167-a-dictionary) | A dictionary |
 | [11.166](#11166-one-session-three-sources-everything-restored) | One session, three sources, everything restored |
 | [11.165](#11165-a-teacher-is-known-by-its-weights-failed-kept) | A teacher is known by its weights (failed, kept) |
 | [11.164](#11164-what-the-chat-says-about-its-sources-failed-as-frozen) | What the chat says about its sources (failed as frozen) |
@@ -854,6 +855,114 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.167 A dictionary
+
+**Why:** the user asked "Give it a Dictionary". The library held facts about
+subjects, but not the words themselves:
+- what "scandium" means, or that it is a metallic element;
+- that "atomic weight" is "atomic mass";
+- that "Sc" and "atomic number 21" name scandium.
+
+Asked "What does scandium mean?", the chat answered "I hold no numeric
+scandium facts."
+
+**The source.**
+- The user chose Open English WordNet, 2025+ edition, from three offered
+  sources.
+- The file is `english-wordnet-2025-plus-json.zip`: 11,298,794 bytes, sha256
+  8832b8fa..., downloaded with the user's approval from the project's
+  2025-edition release.
+- License: CC BY 4.0 over the WordNet License. Attribution is owed to the
+  Open English Wordnet team and to Princeton WordNet.
+- It is tracked at `data/wordnet/`. `ultraquant/lexicon/data/source.json`
+  pins its name, hash and credit.
+
+**The change** (pre-registration sha256 ad34f6dd..., frozen before any code).
+A Claude subagent implemented it, because Codex is paused at the user's
+request. Claude wrote the exam, and held it outside the repository while the
+implementer worked.
+- **`ultraquant/lexicon/build.py`** imports the release into
+  `<home>/lexicon/`, a vault of its own, never the fact vault.
+  - 512 hash-addressed word pages map a form to its senses in release order.
+  - 512 synset pages keep each release record unchanged, plus its
+    lexicographer file.
+  - The inverse links (hyponyms and instances) are written at build time.
+  - An about page carries the source and its credit.
+  - Everything is packed into one 14.3 MB library file. A zip whose sha256
+    is not the pinned one is refused before anything is written.
+- **`ultraquant/lexicon/lexicon.py`** reads it a page at a time.
+  - Opening reads no page. Defining a word reads its word page and its
+    senses' synset pages.
+  - A copied library re-attaches its own file.
+- **Words get their own normalization.** It folds case, accents and
+  punctuation, and drops nothing. On the release, `normalize_subject` fails
+  twice:
+  - it turns "A" into "";
+  - it is not idempotent ("A. A. Milne" becomes "a milne", then "milne").
+  Folding alone gives 151,779 forms, every one stable under a second pass.
+- **The chat.**
+  - "What does X mean?", "What is the meaning of X?", "Define X" and
+    `:define X` (CLI, GUI and TUI) answer every sense, numbered, ending with
+    the credit line.
+  - This happens only when X is a dictionary form, exactly as typed. "this
+    word" is not "word".
+  - Every other utterance, "What is X?" included, is answered as before.
+  - A define turn stores no fact. With auto-approval on, staged claims wait
+    for the next turn's approval pass rather than trail after a definition.
+
+**Measured against the user's library** (563 structured facts):
+- **Subjects.** 424 subjects are dictionary forms:
+  - elements: 112 of 118. The dictionary lacks the six named in 2010 or
+    later: copernicium, livermorium, moscovium, nihonium, oganesson and
+    tennessine.
+  - capitals: 69 of 120. The library names states "the US state of X".
+  - novels: 19 of 89, all false friends (Emma is a fictional character).
+- **Structural witnesses.** The dictionary independently witnesses 111 of the
+  118 atomic numbers and 112 of the 118 chemical symbols, with no
+  disagreement. Scandium's synset lists "atomic number 21" and "Sc".
+  - It is the first witness in the library that is not a language model.
+  - It is not used yet.
+
+**PASSED on run 2** (5 of 5 cases, 4 of 4 plants), after post-run
+Amendment A (sha256 9d1219a6...).
+- **Run 1, as frozen, FAILED criterion 1.**
+  - Every synset was right, and exactly the 51 homograph forms were wrong.
+  - The release keys homographs "n-1"/"n-2" (bass the fish, bass the
+    voice), and the exam took that key as the part of speech.
+  - The implementer had taken the part before the dash, and reported it
+    before the run. For all 215 such senses, that part agrees with the
+    synset's own partOfSpeech.
+  - Criteria 2 to 5 passed, and every plant was caught.
+  - The false premise was "parts of speech are n, v, a, s and r", which was
+    never counted from the data. The lesson is kept: count a vocabulary
+    before a premise lists it.
+- **Run 2:**
+  - **Faithful** on all 151,779 forms and 120,564 synsets.
+  - **Paged.** Opening read no page. Each of 1,000 random lookups read
+    exactly its word page and its senses' synset pages.
+  - **The chat.**
+    - 200 random words were answered exactly, each asked three ways.
+    - "what does this word mean", "what is the meaning of this word" and 40
+      fact questions replied exactly as without a lexicon.
+  - **No fact written.**
+    - The build left every file outside `lexicon/` byte-identical.
+    - 200 word questions left every fact, the stash and the approvals
+      unchanged.
+  - **Only the approved file.** A copy of the zip with one byte changed was
+    refused, and nothing was written.
+- **The plants:**
+  - P115 (instance_hypernym dropped) breached 1;
+  - P116 (every page read on open) breached 2;
+  - P117 (the chat given no lexicon) breached 3;
+  - P118 (the build files a definition as a fact) breached 4.
+- **The implementer's other deviations,** each reviewed and kept:
+  - A define turn skips the auto-approval pass, which would otherwise append
+    "Approved entry ..." to a definition and store facts.
+  - Typographic quote pairs are stripped too.
+- **Nothing regresses.** A sweep of all 125 gates matches the ledger except the timing gate vram_gate (FAIL to PASS, as it has moved in earlier sweeps) and the new dictionary_gate. The sweep ran the exam as frozen, and it failed exactly as run 1 did. Its ledger verdict is run 2's. The six gates that compare whole chat replies all match.
+
+Suite: 2796 tests, OK (5 skipped).
 
 ### 11.166 One session, three sources, everything restored
 

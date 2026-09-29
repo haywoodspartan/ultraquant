@@ -235,6 +235,12 @@
    "commit": "3f02048",
    "seconds": 3.1
   },
+  "dictionary_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 4 of 4 plants caught",
+   "commit": "11.167",
+   "seconds": 681.0
+  },
   "disconfirm_gate": {
    "verdict": "PASS",
    "line": "PASS - contests land at 1.000 against the mush arm's 0.278 (+0.722, 3.33x seed sd), nothing deleted, strays inert, and confirmations untouched",

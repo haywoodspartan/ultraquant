@@ -1,0 +1,9 @@
+{"file": "english-wordnet-2025-plus-json.zip",
+ "path": "data/wordnet/english-wordnet-2025-plus-json.zip",
+ "bytes": 11298794,
+ "sha256": "8832b8fa26a14c0ba8c99bb1ef8db6f9e122a6d9193b65ca9e0ef572580fee7e",
+ "edition": "2025+", "release": "2025-edition", "published": "2025-12-31",
+ "url": "https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-plus-json.zip",
+ "license": "CC BY 4.0, over the WordNet License",
+ "attribution": "Open English WordNet, by the Open English Wordnet team, derived from Princeton WordNet (Princeton University).",
+ "attribution_line": "Source: Open English WordNet 2025+ (CC BY 4.0), derived from Princeton WordNet (WordNet License)."}

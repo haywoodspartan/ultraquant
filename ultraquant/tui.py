@@ -279,6 +279,21 @@ class UltraQuantTUI:
             lines.append("corrected" if after and after[0][0] == category
                          else "still not winning - correct it again")
             return "\n".join(lines)
+        if name == "define":
+            # §11.167: the chat CLI's ':define', word for word.
+            from ultraquant.interpreter.thoughts import define_text
+
+            word = " ".join(rest.split())
+            if not word:
+                return "usage: :define WORD"
+            session = self.ensure_session()
+            if session.lexicon is None:
+                return ("No dictionary in this library; build one with: "
+                        "python -m ultraquant.lexicon.build --home "
+                        f"{session.root}")
+            text = define_text(session.lexicon, word)
+            return (text if text is not None
+                    else f"{word!r} is not in the dictionary.")
         if name == "settings":
             if rest == "save":
                 self._save_settings()
@@ -324,6 +339,7 @@ class UltraQuantTUI:
             "  :home <dir> point at a different session root (saved)",
             "  :settings   where preferences live, and what is in them",
             "  :correct <cat> <text>  that text should have routed to <cat>",
+            "  :define WORD  a word's senses, from the library's dictionary",
             "  :help  :quit",
         ]
         return "\n".join(lines)
