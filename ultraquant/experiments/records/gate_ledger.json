@@ -491,6 +491,12 @@
    "commit": "3f02048",
    "seconds": 139.1
   },
+  "own_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 3 cases; 2 of 2 plants caught",
+   "commit": "11.169",
+   "seconds": 306.5
+  },
   "ownquestions_gate": {
    "verdict": "PASS",
    "line": "PASS: 6 cases; 3 of 3 plants caught; 49/51 right of 51 (precision 0.961, coverage 1.00; calibration 40/40, bound 0.912)",

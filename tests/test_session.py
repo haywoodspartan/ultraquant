@@ -60,6 +60,26 @@ class FakeRun:
         return subprocess.CompletedProcess(args, 0, "", "")
 
 
+USER_MODEL = model("user-model", 8192, 2)
+
+
+class UserRun(FakeRun):
+    """A FakeRun that also acts as the user, loading a model mid-session."""
+
+    def __init__(self, loaded=()):
+        super().__init__(loaded)
+        self.acted = False
+
+    def __call__(self, args, **kwargs):
+        done = super().__call__(args, **kwargs)
+        # At the session's first CPU-only load the user loads a model too (the
+        # GUI's LLM panel, say): no command of the session's (§11.169).
+        if not self.acted and args[1] == "load" and "--gpu" in args:
+            self.acted = True
+            self.loaded.append(deepcopy(USER_MODEL))
+        return done
+
+
 PS = ("ps", "--json")
 
 
@@ -156,6 +176,27 @@ class SwapperTests(unittest.TestCase):
         self.assertEqual(run.calls, [["fake", "unload", "source"]])
         self.assertEqual(run.loaded, [model("mine", 128000, 4)])
 
+    def test_release_unloads_only_the_names_given_still_loaded_in_their_order(self):
+        user = [model("mine", 128000, 4), model("embed", 2048, ttl=3600000, kind="embedding")]
+        run = FakeRun(user + [model("b"), USER_MODEL, model("a")])
+        session.release(session.LMStudioSwapper("fake", run), ["a", "gone", "b"])
+        # One ps, then the given order, not the snapshot's; nothing is loaded.
+        self.assertEqual(run.calls, [["fake", "ps", "--json"],
+                                     ["fake", "unload", "a"], ["fake", "unload", "b"]])
+        self.assertEqual(run.loaded, user + [USER_MODEL])
+
+    def test_release_tries_every_name_then_reraises_the_first_error(self):
+        first, later = RuntimeError("a failed"), RuntimeError("c failed")
+        swapper = mock.Mock()
+        swapper.snapshot.return_value = [model(name) for name in ("mine", "a", "b", "c")]
+        swapper.unload.side_effect = [first, None, later]
+        with self.assertRaises(RuntimeError) as raised:
+            session.release(swapper, ["a", "b", "c"])
+        self.assertIs(raised.exception, first)
+        # No restore and no load: only the one snapshot and the unloads.
+        self.assertEqual(swapper.mock_calls, [mock.call.snapshot(), mock.call.unload("a"),
+                                              mock.call.unload("b"), mock.call.unload("c")])
+
 
 class FakeTeacher:
     def __init__(self, source, events):
@@ -216,12 +257,13 @@ class SessionTests(unittest.TestCase):
                                    backup_dir=self.backups, report_path=self.report_path,
                                    **kwargs)
 
-    def lms(self, loaded, fail=()):
+    def lms(self, loaded, fail=(), runner=FakeRun):
         """Swap through a real swapper over FakeRun, logging its commands as events.
 
         A command in ``fail`` fails once, as lms would, and changes nothing.
+        ``runner`` may be a FakeRun that also acts as the user (UserRun).
         """
-        run, fail = FakeRun(loaded), set(fail)
+        run, fail = runner(loaded), set(fail)
 
         def logged(args, **kwargs):
             command = tuple(args[1:])
@@ -403,7 +445,7 @@ class SessionTests(unittest.TestCase):
         expected = [PS, PS] + self.studied("first")
         for name in ("second/model", "third"):
             expected += [PS, cpu_load(name)] + self.studied(name) + [("unload", name)]
-        # The restore finds the models as they were and issues nothing but ps.
+        # The release finds the models as they were and issues nothing but ps.
         self.assertEqual(self.events, expected + [PS])
         self.assertEqual(run.loaded, user)
         self.assertEqual(report["status"], "complete")
@@ -474,11 +516,107 @@ class SessionTests(unittest.TestCase):
                 else:
                     self.assertIsInstance(raised.exception, subprocess.CalledProcessError)
                     self.assertEqual(report["error"], repr(raised.exception))
-                # The next source is never placed, and the restore unloads the leftover.
+                # The next source is never placed, and the release unloads the leftover.
                 self.assertEqual(self.events, [PS, PS] + self.studied("first")
                                  + [PS, cpu_load("second/model")] + self.studied("second/model")
                                  + [("unload", "second/model"), PS, ("unload", "second/model")])
                 self.assertEqual(run.loaded, user)
+
+    def test_cpu_leaves_a_model_the_user_loads_mid_session_even_when_a_teacher_raises(self):
+        real_ask = FakeTeacher.ask
+        for raises in (None, "second/model", "third"):
+            with self.subTest(raises=raises):
+                self.events.clear()
+                fault = RuntimeError("teacher failed")
+                user = [model("first", 128000, 4), model("embed", 2048, ttl=3600000, kind="embedding")]
+                run = self.lms(user, runner=UserRun)
+
+                def ask(teacher, questions, **kwargs):
+                    if teacher.spec.name == raises:
+                        raise fault
+                    return real_ask(teacher, questions, **kwargs)
+
+                with mock.patch.object(FakeTeacher, "ask", ask), \
+                        mock.patch.object(frontier, "study_round", side_effect=self.study_round):
+                    if raises is None:
+                        self.run_session(pairs=self.pairs, device="cpu")
+                    else:
+                        with self.assertRaises(RuntimeError) as raised:
+                            self.run_session(pairs=self.pairs, device="cpu")
+                        self.assertIs(raised.exception, fault)
+                expected = [PS, PS] + self.studied("first")
+                for name in ("second/model", "third"):
+                    studied = [] if name == raises else self.studied(name)
+                    expected += [PS, cpu_load(name)] + studied + [("unload", name)]
+                    if name == raises:
+                        break
+                # The release finds none of the session's models and issues only
+                # ps: no command names the user's model, which keeps its settings.
+                self.assertEqual(self.events, expected + [PS])
+                self.assertFalse([event for event in self.events if "user-model" in event])
+                self.assertEqual(run.loaded, user + [USER_MODEL])
+                report = json.loads(self.report_path.read_text())
+                self.assertEqual((report["status"], report["failed"]),
+                                 ("complete", None) if raises is None else ("failed", raises))
+
+    def test_cpu_release_unloads_a_source_whose_unload_failed_and_it_is_reported(self):
+        for name in ("second/model", "third"):
+            with self.subTest(name=name):
+                self.events.clear()
+                user = [model("first", 128000, 4)]
+                run = self.lms(user, fail=[("unload", name)], runner=UserRun)
+                with mock.patch.object(frontier, "study_round", side_effect=self.study_round):
+                    with self.assertRaises(subprocess.CalledProcessError) as raised:
+                        self.run_session(pairs=self.pairs, device="cpu")
+                expected = [PS, PS] + self.studied("first")
+                for source in ("second/model", "third"):
+                    expected += [PS, cpu_load(source)] + self.studied(source) + [("unload", source)]
+                    if source == name:
+                        break
+                # The failed source is still loaded, so the release unloads it once;
+                # one unloaded already is not named again, nor is the user's model.
+                self.assertEqual(self.events, expected + [PS, ("unload", name)])
+                self.assertEqual(run.loaded, user + [USER_MODEL])
+                report = json.loads(self.report_path.read_text())
+                self.assertEqual((report["status"], report["failed"], report["error"]),
+                                 ("failed", name, repr(raised.exception)))
+
+    def test_gpu_restores_the_snapshot_and_cpu_releases_through_the_module(self):
+        self.swapper.load_alongside.side_effect = lambda name, context: (
+            "shared" if name == "first" else "cpu")
+        with mock.patch.object(session, "release", wraps=session.release) as release, \
+                mock.patch.object(frontier, "study_round", side_effect=self.study_round):
+            self.run_session(pairs=self.pairs, device="gpu")
+            release.assert_not_called()
+            self.swapper.restore.assert_called_once_with(self.loaded)
+            self.run_session(pairs=self.pairs, device="cpu")
+        # Only the names placed "cpu", in order, each kept after its own unload.
+        release.assert_called_once_with(self.swapper, ["second/model", "third"])
+        self.swapper.restore.assert_called_once()
+
+    def test_cpu_release_failure_is_a_cleanup_error_and_the_first_error_wins(self):
+        self.swapper.load_alongside.return_value = "cpu"
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                fault, late = RuntimeError("round failed"), RuntimeError("release failed")
+
+                def study_round(memory, stash, teacher, ledger, source, **kwargs):
+                    if raises:
+                        raise fault
+                    return {"used_up": True}
+
+                with mock.patch.object(session, "release", side_effect=late), \
+                        mock.patch.object(frontier, "study_round", side_effect=study_round):
+                    with self.assertRaises(RuntimeError) as raised:
+                        self.run_session(pairs=self.pairs, device="cpu")
+                report = json.loads(self.report_path.read_text())
+                if raises:
+                    self.assertIs(raised.exception, fault)
+                    self.assertEqual(report["error"], f"{fault!r}; cleanup: {late!r}")
+                    self.assertEqual(len(fault.__notes__), 1)
+                else:
+                    self.assertIs(raised.exception, late)
+                    self.assertEqual(report["error"], repr(late))
 
     def test_report_device_and_seconds_span_placement_to_cleanup(self):
         pause = 0.05

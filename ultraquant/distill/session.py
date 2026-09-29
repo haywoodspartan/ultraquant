@@ -117,6 +117,23 @@ class LMStudioSwapper:
             self._command(*args, "-y")
 
 
+def release(swapper, loaded):
+    """Unload each name in ``loaded`` that is still loaded, and no other model."""
+    # Unlike restore, a model loaded meanwhile (the GUI's LLM panel, or by
+    # hand in LM Studio) stays (§11.169). Every name is tried before the first
+    # error is raised.
+    held = {model["identifier"] for model in swapper.snapshot()}
+    errors = []
+    for name in loaded:
+        if name in held:
+            try:
+                swapper.unload(name)
+            except BaseException as exc:
+                errors.append(exc)
+    if errors:
+        raise errors[0]
+
+
 def _open_library(root):
     memory = SystematicMemory(path=root / "memory.json")
     if (root / "vault").exists():
@@ -150,6 +167,7 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
     report = {"status": "complete", "failed": None, "error": None,
               "backup": str(backup_path), "sources": []}
     snapshot = memory = error = active = None
+    loaded = []  # each source placed "cpu", in order, even once unloaded
     stamp = _stamp()
 
     def failed(exc):
@@ -179,6 +197,8 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
                         where = "gpu"
                     else:
                         where = swapper.load_alongside(source.name, source.context_length)
+                        if where == "cpu":
+                            loaded.append(source.name)
                     teacher = teacher_factory(source)
                     records = elicit.elicit(teacher, source.name, [t for t, _ in pairs],
                                             Path(scratch) / f"{index}-calibration.jsonl")
@@ -223,8 +243,14 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
             failed(exc)
     finally:
         try:
+            # The GPU swap unloaded the user's models, so the restore brings
+            # them back. Beside them, the session unloads only what it placed
+            # "cpu", so a model the user loads meanwhile stays (§11.169).
             if snapshot is not None:
-                swapper.restore(snapshot)
+                if device == "gpu":
+                    swapper.restore(snapshot)
+                else:
+                    session.release(swapper, loaded)
         except BaseException as exc:
             failed(exc)
         try:

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.169](#11169-the-session-unloads-only-what-it-loaded) | The session unloads only what it loaded |
 | [11.168](#11168-the-session-leaves-your-models-alone) | The session leaves your models alone |
 | [11.167](#11167-a-dictionary) | A dictionary |
 | [11.166](#11166-one-session-three-sources-everything-restored) | One session, three sources, everything restored |
@@ -856,6 +857,60 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.169 The session unloads only what it loaded
+
+**Why:** §11.168's implementer reported a gap before its exam ran.
+- A CPU session still ended with `restore(snapshot)`, which unloads every
+  model the starting snapshot did not hold.
+- A model the user loads during a session (the GUI's LLM panel, or anything
+  loaded by hand) is such a model, so the session would unload it at the
+  end.
+- That broke §11.168's own promise, "nothing of the user's is ever
+  unloaded". Its criteria never simulated a user acting mid-session, so they
+  could not see it.
+
+**The change** (pre-registration sha256 e6fceb5f..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository meanwhile.
+- **What it tracks.** In CPU mode `run_session` lists what it loaded, the
+  sources placed "cpu".
+- **How it ends.** The session no longer ends with `restore` but with
+  `session.release(swapper, loaded)`. That reads `lms ps` once and unloads
+  each listed name still loaded, in order. It never loads, and never unloads
+  a name it did not load.
+- **Errors.** An unload that failed as its source ended is retried there
+  once. `release` tries every name before re-raising its first error.
+- **GPU mode** keeps `restore(snapshot)`. There the session unloaded the
+  user's models and must bring them back.
+
+**PASSED** on the first run: 3 of 3 cases, 2 of 2 plants.
+- **The world.** A fake `lms` also played the user. When the session's first
+  CPU load was issued, it added "user-model" (llm, 8192, parallel 2) with no
+  command from the session.
+- **What the user loaded survived.** It was still loaded at the end with its
+  settings, and no session command named it. This held in the normal run and
+  with Qwen's teacher failing.
+- **The session's own models left.** At the end the fake held exactly the
+  snapshot plus "user-model". This held normally, after the teacher fault,
+  and when Qwen's first unload failed: `release` retried it, two unloads in
+  all.
+- **§11.168 still held.** The three-source world's values came out unchanged.
+  No command named a snapshot model, every load carried `--gpu off`, and the
+  devices were shared, cpu, cpu.
+- **The plants.**
+  - P119 (the last cleanup restores the snapshot) breached 1. That is
+    exactly §11.168's behavior.
+  - P120 (the last cleanup does nothing) breached 2.
+- **Known limits, reported by the implementer:**
+  - A model the user reloads under a finished source's own name would be
+    unloaded by `release`.
+  - A load that fails but leaves the model loaded is never listed. The old
+    `restore` would have removed it.
+
+**Nothing regresses.** A sweep of all 127 gates matches the ledger except the timing gate vram_gate (FAIL to PASS, as it has moved in earlier sweeps) and the new own_gate (PASS). session_gate and alongside_gate still pass.
+
+Suite: 2814 tests, OK (5 skipped).
 
 ### 11.168 The session leaves your models alone
 
