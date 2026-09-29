@@ -63,6 +63,22 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(provenance.provenance(self.stash, self.ledger, key, "196.97"),
                          {"teachers": ["first", "second"], "contests": []})
 
+    def test_alias_claims_count_as_one_source_and_keep_first_name(self):
+        key = self.claim(teachers=("command-r-08-2024",))
+        self.claim(teachers=("c4ai-command-r-08-2024",))
+        found = provenance.provenance(self.stash, self.ledger, key, "196.97")
+        self.assertEqual(found, {"teachers": ["command-r-08-2024"], "contests": []})
+        self.assertEqual(self.ask("What is the atomic mass of gold?"),
+                         "atomic mass of gold is 196.97 (confidence 1.00; one source).")
+
+    def test_stored_identity_and_legacy_name_count_as_one_source(self):
+        key = self.claim(teachers=("unlisted",))
+        self.stash._entries[self.stash.entries()[-1]["id"]]["provenance"]["teacher_ids"] = [
+            sources.identity("command-r-08-2024")]
+        self.claim(teachers=("c4ai-command-r-08-2024",))
+        self.assertEqual(provenance.provenance(self.stash, self.ledger, key, "196.97"),
+                         {"teachers": ["unlisted"], "contests": []})
+
     def test_contests_preserve_order_deduplicate_and_exclude_settled(self):
         key = self.claim(subject="Molybdenum", value="95.96")
         self.contest(key, "95.95")

@@ -3,23 +3,29 @@
 import json
 from pathlib import Path
 
-from . import corroborate
+from . import corroborate, sources
 
 
 def provenance(stash, ledger, key, value) -> dict:
     """Collect matching promoted teachers and distinct contests in ledger order."""
-    teachers = set()
+    teachers = {}
     for entry in stash.entries(status="promoted"):
         fields = entry.get("fields") or {}
         if (fields.get("key") == key
                 and corroborate.values_agree(fields.get("value"), value)):
-            teachers.update((entry.get("provenance") or {}).get("teachers") or [])
+            recorded = entry.get("provenance") or {}
+            names = recorded.get("teachers") or []
+            teacher_ids = recorded.get("teacher_ids")
+            if teacher_ids is None:
+                teacher_ids = [sources.identity(name) for name in names]
+            for name, teacher_id in zip(names, teacher_ids):
+                teachers.setdefault(teacher_id, name)
     contests = []
     if ledger is not None:
         for item in corroborate.contests(ledger, key):
             if item["contest"] not in contests:
                 contests.append(item["contest"])
-    return {"teachers": sorted(teachers), "contests": contests}
+    return {"teachers": sorted(teachers.values()), "contests": contests}
 
 
 def note(found) -> str:

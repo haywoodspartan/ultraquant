@@ -31,8 +31,12 @@ def claims_to_check(memory, stash, source) -> list[dict]:
 
     checks = {}
     for entry in stash.entries(status="promoted"):
-        teachers = (entry.get("provenance") or {}).get("teachers", [])
-        if len(teachers) != 1 or teachers[0] == source:
+        provenance = entry.get("provenance") or {}
+        teacher_ids = provenance.get("teacher_ids")
+        if teacher_ids is None:
+            teacher_ids = [sources.identity(name) for name in provenance.get("teachers", [])]
+        identities = set(teacher_ids)
+        if len(identities) != 1 or sources.identity(source) in identities:
             continue
         fields = entry.get("fields") or {}
         if any(fields.get(name) is None or str(fields[name]) == ""
@@ -131,11 +135,16 @@ def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id,
         check = {**check, "answer": answer}
         queued = None
         if verdict == "agreed":
-            stash.add_teacher(check["entry_id"], source)
+            provenance = stash.get(check["entry_id"]).get("provenance") or {}
+            teacher_ids = provenance.get("teacher_ids")
+            if teacher_ids is None:
+                teacher_ids = [sources.identity(name) for name in provenance.get("teachers", [])]
+            stash.add_teacher(check["entry_id"], source, sources.identity(source),
+                              prior_teacher_ids=teacher_ids)
         elif verdict == "contested":
             # Re-asking a source under a changed category is not a new lineage.
             prior = [item for item in corroborate.contests(ledger, check["key"])
-                     if item["source"] != source]
+                     if sources.identity(item["source"]) != sources.identity(source)]
             found = corroborate.second_lineage(answer, prior)
             if found is not None:
                 claim_form = (file.claim_form(stash, check["attribute"])
@@ -147,6 +156,8 @@ def corroborate(memory, stash, teacher, ledger, source, *, records_path, run_id,
                     claim_form.format(**slots), measured_confidence=confidence,
                     provenance={"run_id": run_id, "question_id": qid,
                                 "teachers": [found["source"], source],
+                                "teacher_ids": [sources.identity(found["source"]),
+                                                sources.identity(source)],
                                 "lineages": [found["source"], source],
                                 "settles": check["key"]},
                     fields={"key": check["key"], **slots})

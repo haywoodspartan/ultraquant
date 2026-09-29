@@ -74,6 +74,10 @@ class MemoryFrontierTests(unittest.TestCase):
         self.memory = self.open_memory()
         self.stash = ContemporaryStash(self.home / "stash.json")
         self.teacher = FakeTeacher(self.home)
+        gguf = self.teacher.spec.gguf
+        index = {**sources._teacher_index(),
+                 self.teacher.spec.name: f"{gguf.name}:{gguf.stat().st_size}"}
+        self.enterContext(mock.patch.object(sources, "_teacher_index", return_value=index))
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(sources.LMStudioTeacher, "ask",
                           side_effect=AssertionError("Live teacher forbidden")).start()

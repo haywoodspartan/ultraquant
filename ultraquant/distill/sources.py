@@ -14,6 +14,19 @@ from .targets import Target
 from .teachers import TeacherSpec
 
 
+def _teacher_index() -> dict:
+    """Read teacher identities established by the recorded model files."""
+    return json.loads((Path(__file__).with_name("data") / "teachers.json")
+                      .read_text(encoding="utf-8"))
+
+
+def identity(name) -> str:
+    """Resolve a teacher to its weights, retaining unknown names as identities."""
+    from . import sources
+
+    return sources._teacher_index().get(name, name)
+
+
 class LMStudioTeacher:
     """An already-loaded teacher; replay uses recorded replies, not seed promises."""
 

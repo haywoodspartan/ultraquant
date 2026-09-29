@@ -242,11 +242,14 @@ def file_reverse(stash, records, targets, confidence, run_id) -> list[int]:
             continue
         slots = dict(subject=subject, attribute=target.attribute, value=target.value)
         key = key_form.format(**slots).lower()
+        teachers = sorted({r.teacher for r in samples})
+        teacher_ids = {r.teacher: f"{r.gguf_name}:{r.gguf_size}" for r in samples}
         filed.append(stash.add_claim(
             f"https://distill.invalid/{run_id}/{qid}", target.question,
             claim_form.format(**slots), measured_confidence=confidence,
             provenance={"run_id": run_id, "question_id": qid,
-                        "teachers": sorted({r.teacher for r in samples}),
+                        "teachers": teachers,
+                        "teacher_ids": [teacher_ids[name] for name in teachers],
                         "lineages": sorted({r.lineage for r in samples}),
                         "samples_agreeing": len(samples)},
             fields={"key": key, **slots}))

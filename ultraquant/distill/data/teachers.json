@@ -1,0 +1,8 @@
+{
+  "c4ai-command-r-08-2024": "c4ai-command-r-08-2024-Q4_K_S.gguf:18849512896",
+  "command-r-08-2024": "c4ai-command-r-08-2024-Q4_K_S.gguf:18849512896",
+  "cydonia-22b": "Cydonia-v1.3-Magnum-v4-22B-Q6_K.gguf:18252706816",
+  "cydonia-v1.3-magnum-v4-22b": "Cydonia-v1.3-Magnum-v4-22B-Q6_K.gguf:18252706816",
+  "qwen/qwen3.8-27b": "Qwen3.8-27B-Q4_K_M.gguf:16810714336",
+  "qwen3.8-27b": "Qwen3.8-27B-Q4_K_M.gguf:16810714336"
+}

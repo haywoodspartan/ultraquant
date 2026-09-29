@@ -135,6 +135,49 @@ class CorroborateTests(unittest.TestCase):
                                   "value": "12", "subject": "Carbon", "attribute": "atomic mass"}])
         self.assertNotEqual(old, latest)
 
+    def test_aliases_cannot_check_their_own_weights(self):
+        for teachers in (("qwen3.8-27b",), ("qwen3.8-27b", "qwen/qwen3.8-27b")):
+            entry_id = self.claim(teachers=teachers)
+            self.assertEqual(corroborate.claims_to_check(
+                self.memory, self.stash, "qwen/qwen3.8-27b"), [])
+            checks = corroborate.claims_to_check(
+                self.memory, self.stash, "cydonia-v1.3-magnum-v4-22b")
+            self.assertEqual([c["entry_id"] for c in checks], [entry_id])
+
+    def test_stored_identities_take_precedence_over_names(self):
+        entry_id = self.claim(teachers=("unlisted",))
+        self.stash._entries[entry_id]["provenance"]["teacher_ids"] = [
+            sources.identity("qwen3.8-27b")]
+        self.assertEqual(corroborate.claims_to_check(
+            self.memory, self.stash, "qwen/qwen3.8-27b"), [])
+
+    def test_added_teacher_backfills_legacy_identities_and_preserves_stored_ids(self):
+        entry_id = self.claim(teachers=("qwen3.8-27b",))
+        self.answer(entry_id, "12.011")
+        source = "cydonia-v1.3-magnum-v4-22b"
+        self.assertEqual(self.run_checks(source)["agreed"], 1)
+        stored = ContemporaryStash(self.stash.path).get(entry_id)["provenance"]
+        self.assertEqual(stored["teachers"], ["qwen3.8-27b", source])
+        self.assertEqual(stored["teacher_ids"], [sources.identity(n) for n in stored["teachers"]])
+        other = self.claim("Other", teachers=("unlisted",))
+        self.stash._entries[other]["provenance"]["teacher_ids"] = ["recorded.gguf:7"]
+        self.answer(other, "12.011")
+        self.assertEqual(self.run_checks()["agreed"], 1)
+        self.assertEqual(self.stash.get(other)["provenance"]["teacher_ids"],
+                         ["recorded.gguf:7", "second"])
+
+    def test_alias_contest_cannot_settle_but_other_weights_can(self):
+        entry_id = self.claim(teachers=("command-r-08-2024",))
+        self.answer(entry_id, "19")
+        self.assertEqual(self.run_checks("qwen3.8-27b")["contested"], 1)
+        self.assertEqual(self.run_checks("qwen/qwen3.8-27b")["contested"], 1)
+        self.assertEqual(len(self.stash.entries()), 1)
+        source = "cydonia-v1.3-magnum-v4-22b"
+        self.assertEqual(self.run_checks(source)["revised"], 1)
+        stored = self.stash.entries()[-1]["provenance"]
+        self.assertEqual(stored["teachers"], ["qwen3.8-27b", source])
+        self.assertEqual(stored["teacher_ids"], [sources.identity(n) for n in stored["teachers"]])
+
     def test_batch_verdicts_persistence_queue_and_once_per_source(self):
         agreed = self.claim()
         contested = self.claim("Osmium", "225.87")
@@ -157,9 +200,11 @@ class CorroborateTests(unittest.TestCase):
         reloaded = ContemporaryStash(self.stash.path)
         provenance = reloaded.get(agreed)["provenance"]
         self.assertEqual(provenance["teachers"], ["first", "second"])
+        self.assertEqual(provenance["teacher_ids"], ["first", "second"])
         self.assertEqual(provenance["lineages"], ["first", "second"])
         self.assertEqual(provenance["run_id"], "first")
-        reloaded.add_teacher(agreed, "second")
+        reloaded.add_teacher(agreed, "second", sources.identity("second"),
+                             prior_teacher_ids=provenance["teacher_ids"])
         self.assertEqual(reloaded.get(agreed)["provenance"], provenance)
         self.assertEqual(before, {key: self.memory.recall_fact(key) for key in self.memory.fact_keys()})
         rows = sources.SourceLedger(self.ledger.path).history("second")
@@ -318,6 +363,7 @@ class CorroborateTests(unittest.TestCase):
             self.assertEqual(revision["provenance"], {
                 "run_id": "third-round", "question_id": elicit.question_id(target),
                 "teachers": ["second", "third"], "lineages": ["second", "third"],
+                "teacher_ids": ["second", "third"],
                 "settles": key})
             approved = approve_all()
             self.assertEqual(len(approved), 1)

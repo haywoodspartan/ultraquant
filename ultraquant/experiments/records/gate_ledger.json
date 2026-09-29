@@ -283,10 +283,12 @@
    "cause": "Its docstring records FAILED criterion 2: entropy was the worst of the three measures."
   },
   "forms_gate": {
-   "verdict": "PASS",
-   "line": "PASS: 4 cases; 3 of 3 plants caught",
-   "commit": "254859e",
-   "seconds": 47.4
+   "verdict": "FAIL",
+   "line": "FAIL: ['1 same filing as before']",
+   "commit": "11.165",
+   "seconds": 11.1,
+   "class": "superseded by design",
+   "cause": "11.165 records teacher_ids (model file and size) in every distilled claim's provenance; criterion 1 compares each filed stash entry, field by field, with the pre-11.146 filer's, which recorded none. Without teacher_ids all 384 entries match in both worlds (verified)."
   },
   "glyph_gate": {
    "verdict": "FAIL",
@@ -777,6 +779,12 @@
    "seconds": 0.3,
    "class": "open",
    "cause": "Recorded PASS. Swept while another process held 22.5 GB of the 4090's 24 GB, and a timing criterion failed (saving +0.066 ms at 0.24x the repetition sd). Re-run with the GPU free before anything is concluded."
+  },
+  "weights_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 3 of 3 plants caught",
+   "commit": "11.165",
+   "seconds": 92.9
   },
   "why_gate": {
    "verdict": "PASS",

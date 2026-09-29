@@ -763,9 +763,13 @@ class ContemporaryStash:
         self.save()
         return key
 
-    def add_teacher(self, entry_id: int, source: str) -> None:
-        """Persist a corroborating teacher and its lineage on an existing entry."""
+    def add_teacher(self, entry_id: int, source: str, teacher_id: str, *,
+                    prior_teacher_ids: list[str]) -> None:
+        """Persist a teacher with identities resolved by the caller and its lineage."""
         provenance = self._entries[int(entry_id)].setdefault("provenance", {})
+        identities = provenance.setdefault("teacher_ids", list(prior_teacher_ids))
+        if source not in provenance.get("teachers", []):
+            identities.append(teacher_id)
         for field in ("teachers", "lineages"):
             names = provenance.setdefault(field, [])
             if source not in names:

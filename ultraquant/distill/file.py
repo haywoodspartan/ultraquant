@@ -141,10 +141,13 @@ def file_distilled(stash, records, items, confidence, run_id,
             if key.startswith(article):
                 key = key[len(article):]
                 break
+        teachers = sorted({r.teacher for r in samples})
+        teacher_ids = {r.teacher: f"{r.gguf_name}:{r.gguf_size}" for r in samples}
         filed.append(stash.add_claim(
             f"https://distill.invalid/{run_id}/{qid}", item.question, claim,
             measured_confidence=confidence,
-            provenance={"teachers": sorted({r.teacher for r in samples}),
+            provenance={"teachers": teachers,
+                        "teacher_ids": [teacher_ids[name] for name in teachers],
                         "lineages": sorted({r.lineage for r in samples}),
                         "samples_agreeing": len(samples), "run_id": run_id,
                         "question_id": qid},

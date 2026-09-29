@@ -1,6 +1,6 @@
 # UltraQuant — Architecture
 
-**Version 5.49 · 2706 tests green · pure-Python core with optional C++/CUDA acceleration**
+**Version 5.50 · 2720 tests green · pure-Python core with optional C++/CUDA acceleration**
 
 UltraQuant is a hybrid quantum/classical pattern model built to differ
 from a dense transformer in specific, measured ways — not to be a
@@ -248,7 +248,7 @@ ultraquant/
   gui.py  demo.py  bench.py
 native/        uq_core.cpp · uq_cuda.cu · uq_forge.cpp ·        compiled sources
                uq_forge.cu · build.ps1
-tests/         180 modules, 2706 tests
+tests/         181 modules, 2720 tests
 ```
 
 ---

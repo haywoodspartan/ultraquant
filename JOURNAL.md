@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.165](#11165-a-teacher-is-known-by-its-weights-failed-kept) | A teacher is known by its weights (failed, kept) |
 | [11.164](#11164-what-the-chat-says-about-its-sources-failed-as-frozen) | What the chat says about its sources (failed as frozen) |
 | [11.163](#11163-a-third-source-settles-what-two-disputed) | A third source settles what two disputed |
 | [11.162](#11162-a-second-source) | A second source |
@@ -852,6 +853,66 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.165 A teacher is known by its weights (failed, kept)
+
+**Why:** the committed records show that §11.130 and §11.134's three
+teachers ("command-r-08-2024", "qwen3.8-27b" and "cydonia-22b") are the very
+model files this session asked as "c4ai-command-r-08-2024",
+"qwen/qwen3.8-27b" and "cydonia-v1.3-magnum-v4-22b". The files were checked
+byte for byte on disk.
+- Provenance kept only names. So a claim filed under an old name could be
+  "corroborated" by the same weights under a new one, and the chat could
+  count one model twice.
+- It also means the user's 384 "3 sources agree" facts came from the same
+  three models the session later asked one at a time.
+
+**The change** (pre-registration sha256 d9918e5d..., before any code):
+- **A teacher's identity is its model file:** its name and byte size.
+  - `distill/data/teachers.json` maps six names to three identities.
+  - The mapping is derived from the records (a test rebuilds it), and from
+    the teacher specs of the two sources used since §11.162.
+- **Identities are recorded.** New claims record `teacher_ids` beside
+  `teachers`. Old claims resolve through the index.
+- **Comparisons use identities.**
+  - Corroboration checks a claim only when its single identity differs
+    from the source's.
+  - The settlement's same-source exclusion and the chat's source count use
+    identities too.
+
+**Its exam PASSED,** on replay, with no source asked: 5 of 5 cases, and 3 of 3 plants
+caught.
+- **The plants:**
+  - P106: names compared;
+  - P107: distinct names counted;
+  - P108: the index built from names alone.
+- **No self-corroboration.** A claim filed by "qwen3.8-27b" is not checked by
+  "qwen/qwen3.8-27b". Cydonia does check it.
+- **Sources counted by weights.** A fact named by "command-r-08-2024" and
+  "c4ai-command-r-08-2024" says "one source".
+- **Nothing else changes.** §11.164's twelve measured replies are
+  byte-identical, and all 130 claims the three-source world files carry
+  identities matching their names.
+- **Found in review:**
+  - The checking source's identity is read from the index by name. A
+    different file loaded under the same LM Studio name would need the index
+    updated.
+  - Two frontier test fixtures used the real Command-R name for fake weights.
+    They now declare their fake file's identity.
+- **FAILED criterion 7, as measured.**
+  - The sweep found forms_gate flipping PASS -> FAIL, a flip the
+    pre-registration did not list.
+  - Its criterion 1 replays the pre-§11.146 filer and compares every stash
+    entry it files, field by field, with what `file_distilled` files now.
+    The new `teacher_ids` is exactly such a field.
+  - Removing it, all 384 entries match in both of its worlds, so the flip is
+    the intended change and nothing else.
+  - forms_gate is recorded as superseded by design.
+  - The lesson, again: grep the exams for what a design changes before
+    freezing, including whole-entry comparisons.
+- Otherwise a sweep of the change, on a clean worktree with native built, matches the ledger on 120 of 123 gates: `weights_gate` joins the ledger as PASS, and the timing gate vram passed this time.
+
+Suite: 2,715 passed, 5 skipped, 0 failed (2,720).
 
 ### 11.164 What the chat says about its sources (failed as frozen)
 
