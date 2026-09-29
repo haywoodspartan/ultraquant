@@ -211,6 +211,14 @@ class SystematicMemory:
                     for record in self._facts.values() if record.get("subject")}
         return subjects & subject_ngrams(text)
 
+    def subject_names(self, normalized: str) -> set[str]:
+        """Recorded spellings of one normalized catalogue subject."""
+        if self.shards is not None:
+            return self.shards.subject_names(normalized)
+        return {record["subject"] for record in self._facts.values()
+                if record.get("subject")
+                and normalize_subject(record["subject"]) == normalized}
+
     # §11.141: use only explicit record slots and indexed asking evidence.
     def _attribute_vocabulary(self) -> dict:
         """The attribute page, or its in-memory counterpart."""

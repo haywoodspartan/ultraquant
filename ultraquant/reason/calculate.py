@@ -331,7 +331,22 @@ _PREFIXES = (
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _SIGNED_RE = re.compile(r"-?\d+(?:\.\d+)?")
-_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[()+\-*/%^]|[a-z']+")
+_OPERATOR_CHARS = "()+-*/%^"
+_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?|[" + re.escape(_OPERATOR_CHARS)
+                       + r"]|[a-z']+")
+
+
+def _held_names(text: str, memory=None) -> list[str]:
+    """Recorded catalogue names whose operator characters belong to a name."""
+    if (not callable(getattr(memory, "subjects_in", None))
+            or not callable(getattr(memory, "subject_names", None))):
+        return []
+    names = {name for subject in memory.subjects_in(text)
+             for name in memory.subject_names(subject)
+             if any(char in _OPERATOR_CHARS for char in name)
+             and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text,
+                           re.IGNORECASE)}
+    return sorted(names, key=lambda name: (-len(name), name))
 
 #: Root words, mapped to their degree. Prefix functions in the
 #: grammar, so "sqrt 16" and "sqrt(16)" are the same reading.
@@ -667,7 +682,7 @@ def _resolve(words: list[str], memory, premises: list,
     return Quantity(number, _unit(shown))
 
 
-def _tokenize(text: str, memory=None):
+def _tokenize(text: str, memory=None, opaque=None):
     """The parser's token list, plus premises and confidence.
 
     Returns ``(tokens, premises, confidence)`` or None. Word runs are
@@ -705,6 +720,8 @@ def _tokenize(text: str, memory=None):
             echoes.append(_show(quantity))
             resolved += 1
         else:
+            if opaque:
+                item = ("words", [opaque.get(word, word) for word in item[1]])
             before = len(premises)
             try:
                 tokens.append(_resolve(item[1], memory, premises,
@@ -1043,6 +1060,25 @@ def evaluate(text: str, memory=None) -> MathResult | None:
     premises it rests on. Without it, an expression is numbers and
     operators or it is not this module's question.
     """
+    # Read the catalogue before any syntax, including spoken-power rewrites.
+    # Temporary words keep each name opaque; restore it only for lookup/echo.
+    names = _held_names(text, memory)
+    opaque = {}
+    if names:
+        # A name is matched whole, never inside a longer token.
+        pattern = re.compile(r"(?<!\w)(?:" + "|".join(
+            re.escape(name) for name in sorted(names, key=len, reverse=True))
+            + r")(?!\w)", re.IGNORECASE)
+        marker = "heldname"
+
+        def protect(match):
+            nonlocal marker
+            while marker in text.lower() or marker in opaque:
+                marker += "x"
+            opaque[marker] = match.group().lower()
+            return " " + marker + " "
+
+        text = pattern.sub(protect, text)
     stripped = strip_question(text)
     if not stripped:
         return None
@@ -1069,7 +1105,7 @@ def evaluate(text: str, memory=None) -> MathResult | None:
         # 'is'" - a refusal about the wrong word entirely.
         return None
     try:
-        read = _tokenize(stripped, memory)
+        read = _tokenize(stripped, memory, opaque)
     except _NotArithmetic:
         return None
     except Undefined as refusal:

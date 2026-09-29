@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.147](#11147-names-that-look-like-arithmetic-failed-kept) | Names that look like arithmetic (failed, kept) |
 | [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
 | [11.145](#11145-chat-that-mentions-ambiguity-judged-whole-absence-proven-by-the-index) | Chat that mentions, ambiguity judged whole, absence proven by the index |
 | [11.143](#11143-the-lupine-leases-retried-at-forty-dollars-a-month) | The lupine leases, retried at forty dollars a month |
@@ -833,6 +834,61 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.147 Names that look like arithmetic (failed, kept)
+
+**Why:** the quantity path (`calculate.evaluate`, §11.78) runs before
+recall and the catalogue, and reads operators wherever they appear.
+Four held subjects contain an operator character, all hyphens:
+Catch-22, Moby-Dick, Nineteen Eighty-Four and Slaughterhouse-Five. Only
+Catch-22 misrouted, because "22" is a number. "Who wrote Catch-22?" and
+three other author forms answered "I can't compute that: I hold nothing
+for 'who wrote catch'." This was the one miss in each author form of
+§11.142's measure (0.989 = 88 of 89).
+
+**The change** (pre-registration sha256 04054974..., before any code):
+- **The calculator reads the catalogue before its operators.**
+  `_held_names` takes the recorded names of held subjects that the text
+  names (`subjects_in`, plus a new `subject_names` accessor) and keeps
+  those containing an operator character.
+- **`evaluate` treats each such name as one opaque word.** When no
+  operator remains outside such names, the question is not arithmetic
+  and falls through to the catalogue.
+- **Review:** Claude made the name match whole, never inside a longer
+  token.
+
+**FAILED criterion 3**, on Claude's machine and in Astra's run. Cases 1
+and 2 held, and both plants were caught (P56, no catalogue reading; P57,
+a hardcoded hyphen rule).
+- **Held names are names.** Catch-22 is answered in all four forms, and
+  the three gated author forms of §11.142's measure are at 1.0.
+- **Arithmetic unaffected:**
+  - "What is 22 - 7?" answers 15, and "What is 10-2?" answers 8;
+  - "the tower height times 3" answers 900 meters over a held belief;
+  - "What is catch-22 plus 3?" refuses by the whole name.
+- **The quantity gate fails on HEAD without this change.** A later unit
+  made quantity arithmetic perfect on every seed (1.000 against 0.000),
+  and the gate demands a nonzero seed sd, so its own success now fails
+  it. The pre-registration listed it without measuring its baseline.
+  That was Claude's error, found after the run, and it cannot change the
+  verdict.
+- **§11.145's gate ends one hint over its ceiling, 69 against 68.** The
+  cause is "Catch-22 was written by whom?", the form §11.141 left
+  ungated:
+  - on HEAD it was misread as arithmetic ("I can't compute that: I hold
+    nothing for 'catch'");
+  - it now gets the reply every other subject gets in that form, "I
+    don't hold that exactly. Nearest I hold: author of catch-22 is
+    Joseph Heller", with that form's curiosity hint.
+
+**Kept, as a strict improvement.** The extra hint replaces a wrong
+refusal with a reply that names the right author. The two failing gates
+record where the work is:
+- the ungated form's 69 junk hints;
+- a quantity gate whose variance rule cannot survive a perfect score.
+
+Suite: 2,509 passed, 5 skipped, 0 failed (2,514, including §11.144's 18
+uncommitted target tests).
 
 ### 11.146 Claims filed in the library's own forms
 

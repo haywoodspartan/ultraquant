@@ -314,6 +314,12 @@ class FactShards:
         return {phrase for phrase in subject_ngrams(text)
                 if phrase in self._index_data("subjects", phrase)}
 
+    def subject_names(self, normalized: str) -> set[str]:
+        """The recorded name in one addressed subject dictionary entry."""
+        self._ensure_indexes()
+        item = self._index_data("subjects", normalized).get(normalized)
+        return {item["name"]} if item is not None else set()
+
     # §11.141: the public seams use the same span and learning rules as RAM.
     def _choose_subject(self, subjects: set[str]) -> str | None:
         """Resolve nested matches, declining unrelated surviving subjects."""
