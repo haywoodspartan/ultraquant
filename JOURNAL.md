@@ -932,6 +932,40 @@ wrote the exam and held it outside the repository meanwhile.
   the held exams, and opening none.
 - **Nothing regresses.** A sweep of all 128 gates matches the ledger except the timing gate vram_gate (FAIL to PASS, as it has moved in earlier sweeps) and the new seeds_gate (PASS). Every frontier gate matches: none of their worlds has a lexicon.
 
+**The live run on the user's library** (2026-09-29, 16:39 to 17:17, 37
+minutes). It ran on a staging copy in CPU mode, with the GUI free, and was
+merged afterwards.
+- **Command-R** was shared, on the user's GPU model, at context 128000. It
+  calibrated 36 of 36 and asked 170 questions in 130 s.
+  - It filed 151 capital claims, more than the 120 seeded. Each newly held
+    country strengthened the kinds the dictionary vouches for, so the
+    frontier kept finding questions round after round, from no list.
+  - It declined the places that have no capital of their own: Acadia, the
+    Balkans, the Lake District, the Louisiana Purchase and others.
+- **Qwen** ran CPU-only for 24 minutes: 34 of 39 calibration pairs right. It
+  agreed with 135 claims and contested 9.
+- **Cydonia** ran CPU-only for 11 minutes: 34 of 39. It agreed with 15,
+  contested 1 and revised 5, with Qwen as the second lineage.
+  - Kazakhstan: Nur-Sultan to Astana. A real error fixed: the name went
+    back in 2022.
+  - Swaziland: Lobamba to Mbabane.
+  - Bolivia: La Paz to Sucre, the constitutional capital. Both are
+    defensible.
+  - "St. John's" to "Saint John's", and "Kiev" to "Kyiv": spelling
+    variants, false contests.
+- **Still contested:** Sri Lanka (Colombo or Sri Jayawardenepura Kotte),
+  Palestine, and the Sahrawi republic. Some are spelling only: Sana'a/Sanaa,
+  and Nuku'alofa with or without its ʻokina.
+  - The dictionary lists such variants as members of one synset. Using that
+    in value agreement is the next unit.
+- **LM Studio** ended as it began, with Command-R untouched. The embedding
+  model's own one-hour TTL expired meanwhile; the session did not unload it.
+- **The merge.** The user's library had not changed, so the staging library
+  replaced it after a backup. The three-way check was clean. The library went
+  from 563 facts to 726, and no held value changed.
+- **The chat now says** "capital of kazakhstan is Astana (confidence 0.73; 2
+  sources agree)".
+
 Suite: 2849 tests, OK (5 skipped).
 
 ### 11.169 The session unloads only what it loaded
