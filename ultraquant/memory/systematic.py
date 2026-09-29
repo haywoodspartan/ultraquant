@@ -242,6 +242,13 @@ class SystematicMemory:
         self._attributes = vocabulary
         return vocabulary
 
+    def learn_kind(self, attribute: str, kind: str) -> None:
+        """Store a source's kind label in the attribute vocabulary."""
+        vocabulary = self._attribute_vocabulary()
+        item = vocabulary.setdefault(normalize_subject(attribute), {
+            "name": attribute, "subjects": 0})
+        item["kind"] = kind
+
     def learn_asking(self, attribute: str, subject: str, question: str) -> None:
         """Learn how an attribute was asked about, once per subject and word."""
         if self.shards is not None:
@@ -286,6 +293,12 @@ class SystematicMemory:
                     and normalize_subject(record.get("attribute") or "") == attribute):
                 return key, record
         return None
+
+    def held_value(self, subject: str, attribute: str) -> str | None:
+        """Read a subject's attribute through the catalogue in either store."""
+        held = self._second_hop(subject, normalize_subject(attribute))
+        value = held[1].get("value") if held is not None else None
+        return str(value) if value is not None else None
 
     def key_form(self, attribute: str) -> str | None:
         """The most common held key form, with lexical ties resolved first."""
@@ -715,6 +728,7 @@ class SystematicMemory:
             # here would put the store back in RAM whole, which is the
             # thing sharding them was for.
             "facts": {} if self.shards is not None else self._facts,
+            "attributes": {} if self.shards is not None else self._attributes,
             "signatures": self._signatures,
             "working": list(self._working),
             "next_id": self._next_id,
@@ -745,6 +759,7 @@ class SystematicMemory:
             payload = json.load(fh)
         self._episodes = list(payload.get("episodes", []))
         self._facts = dict(payload.get("facts", {}))
+        self._attributes = dict(payload.get("attributes", {}))
         # §11.139: one rebuild at load; writes maintain it thereafter.
         self._derived = {}
         for key, record in self._facts.items():

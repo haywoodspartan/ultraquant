@@ -26,6 +26,8 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.159](#11159-answers-that-come-back) | Answers that come back |
+| [11.158](#11158-questions-from-the-shape-of-what-it-knows-failed) | Questions from the shape of what it knows (failed) |
 | [11.157](#11157-the-default-call-keeps-its-shape) | The default call keeps its shape |
 | [11.155](#11155-its-own-questions-one-source-at-a-time-failed) | Its own questions, one source at a time (failed) |
 | [11.156](#11156-names-that-hold-and) | Names that hold "and" |
@@ -844,6 +846,127 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.159 Answers that come back
+
+**Why:** in §11.158, one source's reverse answer revised a held fact:
+"potassium" for atomic number 39 turned potassium's 19 into 39. The next
+round revised it back, but only by accident. `used_up` was also declared
+after every round.
+
+**The change** (pre-registration sha256 4641589c..., before any code):
+- **The round trip.** A reverse answer is believed only when it comes
+  back: the subject's forward value must equal the asked value.
+  - When the subject holds the attribute, the forward value comes from the
+    index, and nothing is asked.
+  - Otherwise the same source is asked in the library's own forward form,
+    and its modal answer over 5 samples is the forward value.
+  - All of a round's reverse answers are judged before any is filed.
+- **What does not come back is not filed.**
+  - The source ledger records it, marked not promoted, with its key, its
+    value and its forward value. `verification_queue` returns it beside the
+    index's outliers.
+  - The gap stays open, and a source that has not been asked it is offered
+    it.
+- **Used up is judged on the next frontier,** regenerated from the index
+  after filing.
+- `held_value` reads a subject's attribute through the catalogue, in both
+  stores.
+
+**PASSED,** live against Command-R and again on replay: 5 of 5 cases, and 4
+of 4 plants caught.
+- The plants:
+  - P82: every decided answer comes back.
+  - P83: an unheld subject comes back without being asked.
+  - P84: a source is used up once it has answered a round.
+  - P85: a gap asked of one source is closed for all.
+- **Command-R said "potassium" for 39 again,** 4 of 5 in a fresh run.
+  - The index holds potassium's atomic number, 19, so nothing was asked and
+    nothing was filed. The claim is queued for the next source.
+  - Every fact held before the study still holds after it.
+- **Four answers came back:** scandium, vanadium, rubidium and zirconium.
+  - Asked forward, each gave 21, 23, 37 and 40 in 5 of 5 samples.
+  - All four are right. So are their four symbols, asked in round 2.
+- **A wrong unheld answer does not come back.** In a planted world, 39 is
+  answered "Zirconium". Zirconium's forward answer is 40, so it is filed
+  for 40 only, and the 39 claim is queued.
+- **The loop closes on its own signal.** The source is not used up after
+  round 1, while the symbols are still to ask. It is used up after round 2,
+  and a third round asks nothing.
+- **Yttrium waits for the next source.** A source never asked is offered
+  "Which elements has atomic number 39?".
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 113 of 117 gates. The other four were expected: the timing gates recallskip and vram both passed this time, `roundtrip_gate` joins the ledger as PASS, and `shape_gate` joins it as VOID.
+- **§11.158's exam is superseded by design.** Its recorded rounds lack the
+  round trip's forward questions, so its replay stops before it can score.
+
+Suite: 2,597 passed, 5 skipped, 0 failed (2,602).
+
+### 11.158 Questions from the shape of what it knows (failed)
+
+**Why:** after §11.155's answers are filed with the user's two
+corrections, the user's library holds 113 atomic numbers spanning 1..118.
+Exactly 21, 23, 37, 39 and 40 are missing, and every element holds both of
+its attributes. The co-occurrence gaps (§11.144) are then exhausted, so the
+next questions have to come from the shape of the values. Without the
+corrections, one wrong value (bohrium = 276) stretches the range to 1..276
+and buries the 5 real gaps under 157 false ones.
+
+**The change** (pre-registration sha256 bd620088..., Amendment A
+1ad66fc4..., both before any code):
+- **Dense windows.**
+  - This applies to an attribute whose held values are at least 80%
+    integers.
+  - The window is the interval holding the most values at a density of at
+    least 0.8. A missing integer inside it is a question.
+  - A value outside it is an outlier, queued for the next source.
+- **Reverse questions come from seed data** (`seed_questions.json`): "Which
+  {kind} has {attribute} {value}?".
+  - The kind is learned once from the source and kept in the attribute
+    index. Command-R's answer was "Elements", 5 of 5.
+  - `learn_kind` stores it in both stores.
+- **Reverse filing.** The source's modal answer is filed as the subject, in
+  the attribute's learned forms, as a single-source claim at 0.912.
+- **The loop.** Each round regenerates the frontier from the index, and asks
+  only what the source has not been asked.
+- **The exam's world.** The user's GUI holds the live library open, so the
+  exam files §11.155's answers and the corrections into its own copy. That
+  is the world its criteria name. That setup was written after Astra's
+  implementation and before any run. So was one fix: count only the
+  questions a round actually asks.
+
+**FAILED criterion 2,** live against Command-R: the kind question, then 10
+questions in three rounds.
+- **The gaps were found.**
+  - The window is 1..118, with exactly 21, 23, 37, 39 and 40 missing.
+  - With bohrium = 276, the window stays 1..118, and 276 is queued.
+- **But 39 was answered "potassium", in 4 of 5 samples.**
+  - The claim contradicted potassium's held atomic number, 19. The
+    auto-approver promoted it as a revision, and potassium became 39.
+  - Round 2 found a gap at 19 and asked it. It heard "potassium" 5 of 5, and
+    revised potassium back to 19.
+  - So the questions asked were 19, 21, 23, 37, 39 and 40, not the five.
+  - Yttrium is still missing, and Command-R was declared used up with it
+    open.
+- **What held:**
+  - Criteria 1, 3, 4 and 5 held.
+  - 4 of 5 reverse answers were right: scandium, vanadium, rubidium and
+    zirconium.
+  - Their 4 symbols were all right.
+  - Round 3 asked nothing.
+  - 3 of 3 plants were caught (P79, P80, P81).
+- **Found in review of the run, beyond the criteria:**
+  - The exam's precision count saw only answers filed under new keys. It
+    reported 4 of 4 and never saw the potassium claim. The criterion holds as
+    written (4 of 5 right).
+  - `used_up` was True after rounds 1 and 2 as well, because it was judged on
+    the frontier just asked. A loop that stopped at the first "used up" would
+    never have asked the new members' symbols.
+- **The lesson.** A reverse answer names a subject. If the index already
+  holds that subject's value, the answer is a claim against the index, and
+  one source's word should not revise it. The pre-registration called the
+  answer "the new subject", but the brief dropped the word "new".
+
+The code was never committed without §11.159's fix.
 
 ### 11.157 The default call keeps its shape
 

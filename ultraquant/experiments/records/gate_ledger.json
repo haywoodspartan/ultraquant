@@ -643,6 +643,12 @@
    "commit": "3f02048",
    "seconds": 1.1
   },
+  "roundtrip_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 4 of 4 plants caught",
+   "commit": "11.159",
+   "seconds": 88.3
+  },
   "same_fact_gate": {
    "verdict": "PASS",
    "line": "PASS: 3 cases; 2 of 2 plants caught; the user's library untouched",
@@ -654,6 +660,14 @@
    "line": "PASS - the synonym wall moves 0.000 -> 0.833 on the live path (+0.833, 2.04x seed sd) with zero decoy falls in either arm and the lexical families untouched",
    "commit": "3f02048",
    "seconds": 1.1
+  },
+  "shape_gate": {
+   "verdict": "VOID",
+   "line": "VOID: plants not caught: ['P80 reverse answers filed with the value shifted', 'P81 the source never declared used up']",
+   "commit": "11.159",
+   "seconds": 58.2,
+   "class": "superseded by design",
+   "cause": "11.158 FAILED when written: live against Command-R, 'potassium' for atomic number 39 revised a held fact (19 -> 39) and opened a false gap at 19 (criterion 2; JOURNAL 11.158). 11.159's round trip, committed with it, asks forward questions its recorded rounds never held, so its replay stops before it can score."
   },
   "sharedsubject_gate": {
    "verdict": "FAIL",
@@ -765,7 +779,6 @@
   "paraphrase_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "permutation_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "refusal_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
-  "shape_gate": "11.158's exam: recorded with its unit.",
   "study_gate": "needs the environment: its teacher panel names google/gemma-4-31b, which is no longer in the user's LM Studio catalogue, so the panel cannot form and every question stays open (0 of 6 closed, in 1.1 s, no generation). The survey still mints the unknown-term question on the current code. A bisect named 118ee48, but only because every tested commit fails the same way today. It also queries the user's LM Studio, so it is run only with the user present.",
   "tensorglyph_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "tokenizer_gate": "needs the model hardware: llama-server as the tokenizer oracle.",

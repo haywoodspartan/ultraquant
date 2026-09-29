@@ -70,10 +70,12 @@ class SourceLedger:
         with self.path.open(encoding="utf-8") as handle:
             return json.load(handle)
 
-    def record(self, source, question_id, promoted: bool):
+    def record(self, source, question_id, promoted: bool, queued=None):
         data = self._read()
-        data.setdefault(source, []).append(
-            {"question_id": question_id, "promoted": promoted})
+        row = {"question_id": question_id, "promoted": promoted}
+        if queued is not None:
+            row["queued"] = queued
+        data.setdefault(source, []).append(row)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:

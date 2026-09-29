@@ -1,0 +1,44 @@
+{
+  "c4ai-command-r-08-2024": [
+    {
+      "question_id": "number:21",
+      "promoted": true
+    },
+    {
+      "question_id": "number:23",
+      "promoted": true
+    },
+    {
+      "question_id": "number:37",
+      "promoted": true
+    },
+    {
+      "question_id": "number:39",
+      "promoted": true
+    },
+    {
+      "question_id": "number:40",
+      "promoted": true
+    },
+    {
+      "question_id": "symbol:Rubidium",
+      "promoted": true
+    },
+    {
+      "question_id": "symbol:Scandium",
+      "promoted": true
+    },
+    {
+      "question_id": "symbol:Vanadium",
+      "promoted": true
+    },
+    {
+      "question_id": "symbol:Zirconium",
+      "promoted": true
+    },
+    {
+      "question_id": "number:19",
+      "promoted": true
+    }
+  ]
+}
