@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.161](#11161-properties-it-does-not-hold-yet-void-kept) | Properties it does not hold yet (void, kept) |
 | [11.160](#11160-the-kind-asked-one-member-at-a-time) | The kind, asked one member at a time |
 | [11.154](#11154-facts-found-by-their-value) | Facts found by their value |
 | [11.159](#11159-answers-that-come-back) | Answers that come back |
@@ -848,6 +849,65 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.161 Properties it does not hold yet (void, kept)
+
+**Why:** after §11.160, on a copy of the user's library, Command-R was used
+up. To go on asking its own questions, the system proposes properties it does
+not hold, and keeps only those the source can answer.
+
+**The change** (pre-registration sha256 b7839884..., before any code;
+Amendment A 744322e7..., after Astra's first implementation and before any
+run):
+- **Proposal.** Each catalogued attribute's kind is asked the seed form
+  "Name one measurable property that every {kind} has." The modal answer is
+  the candidate, unless it names a held attribute.
+- **Adoption.** The seed forward form "What is the {attribute} of
+  {subject}?" is asked of five members of the cluster (seed 161).
+  - The property is adopted when at least four answers are decided.
+  - The verdict is kept in the attribute index. It is never re-tested with
+    the same source.
+- **Growth.** An adopted property is asked of every member of its cluster
+  that lacks it.
+- **Used up** now also waits until every kind has a verdict.
+- **Found in review.** A kind the source cannot name was being asked again
+  every round. It is now recorded as none. Amendment A made the exam read
+  "one more round asks nothing" from the teacher's own log, which would have
+  caught it.
+
+**VOID, and criterion 3 FAILED,** live against Command-R and on replay.
+- **What happened.** Only "element" got a kind, so only elements got a
+  property.
+  - The capitals' three sampled members were a state, a country and a state,
+    because the library's capitals include US states.
+  - The books' were a novel, a musical ("Les Misérables") and a novel.
+  - Neither cluster shares a kind.
+  - Atomic mass was adopted for elements (5 of 5 probes decided) and asked of
+    the other 113. 101 of 118 now hold it.
+  - The loop closed on its own signal, the growth stayed in its cluster, and
+    the round after it asked nothing.
+- **VOID.** With one proposal, and that one adopted, P90 (adopt every
+  proposal without the probe) changes nothing. So criterion 2 was not shown
+  able to fail. The pre-registration expected refused proposals (population,
+  word count) that this library's mixed clusters never produced.
+- **FAILED criterion 3.** 68 of 74 scored atomic masses equal the current
+  IUPAC values (0.919, against 0.95).
+  - Four of the six misses are superseded standard values: molybdenum 95.96,
+    germanium 72.64, selenium 78.96, sulfur 32.065.
+  - Two are wrong: holmium 165.93 (it is 164.93) and osmium 225.87 (it is
+    190.23).
+  - Sulfur's 32.065 lies inside IUPAC's interval for sulfur, [32.059,
+    32.076], so the exam's conventional-value instrument counted it wrong.
+    Recounted, it is 69 of 74 (0.932), still short.
+- **The lessons.**
+  - One source's answers for a new property carry that source's age and its
+    slips. They land at about the precision its calibration predicted
+    (0.912). That is what a second source is for.
+  - A cluster defined by an attribute can mix kinds. The kind belongs to each
+    subject, not to the attribute.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 115 of 119 gates. `growth_gate` joins the ledger as VOID, failed when written, and the timing gates recallskip and vram passed this time. `kind_gate` is superseded by design, as pre-registered: its world now reaches the growth step, whose questions its recordings do not hold.
+
+Suite: 2,657 passed, 5 skipped, 0 failed (2,662).
 
 ### 11.160 The kind, asked one member at a time
 

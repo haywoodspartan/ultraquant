@@ -90,9 +90,9 @@ class ReverseTarget:
 def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
     """Reuse a learned kind, or choose a label shared by three subjects."""
     normalized = normalize_subject(attribute)
-    kind = memory._attribute_vocabulary().get(normalized, {}).get("kind")
-    if kind:
-        return kind
+    item = memory._attribute_vocabulary().get(normalized, {})
+    if "kind" in item:
+        return item["kind"]
     form = _seed_questions().get("kind")
     if not form:
         return None
@@ -122,8 +122,7 @@ def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
         -sum(count for answer, count in counts.items()
              if elicit.agree(answer, candidate)),
         -counts[candidate], candidate), default=None)
-    if kind is not None:
-        memory.learn_kind(attribute, kind)
+    memory.learn_kind(attribute, kind)
     return kind
 
 
@@ -267,18 +266,162 @@ def verification_queue(memory, ledger=None) -> list[tuple[str, str]]:
     return list(dict.fromkeys(queued))
 
 
+def cluster(memory, attribute) -> set[str]:
+    """Return recorded subject spellings holding the normalized attribute."""
+    normalized = normalize_subject(attribute)
+    members = set()
+    for key in memory.fact_keys():
+        record = memory.recall_fact(key) or {}
+        if (record.get("subject")
+                and normalize_subject(record.get("attribute") or "") == normalized):
+            members.add(record["subject"])
+    return members
+
+
+def adopts(decided: int, asked: int) -> bool:
+    """Require five probes with at least four decided answers."""
+    return asked >= 5 and decided >= 4
+
+
+def _has_property_verdict(memory, kind) -> bool:
+    if kind is None:
+        return False
+    return any(item.get("properties") and item.get("kind")
+               and elicit.agree(item["kind"], kind)
+               for item in memory._attribute_vocabulary().values())
+
+
+def _property_target(stash, candidate, subject):
+    asking = targets.question_form(stash, candidate)
+    form = asking[1] if asking is not None else _seed_questions().get("forward")
+    if not form:
+        return None
+    return targets.Target(candidate, subject,
+                          form.format(attribute=candidate, subject=subject), candidate)
+
+
+class _CountingTeacher:
+    """Count questions sent during kind discovery without changing the replies."""
+
+    def __init__(self, teacher):
+        self.teacher = teacher
+        self.asked = 0
+
+    def ask(self, questions, **kwargs):
+        questions = list(questions)
+        self.asked += len(questions)
+        return self.teacher.ask(questions, **kwargs)
+
+
+def propose(memory, stash, teacher, ledger, source, *, confidence, run_id,
+            records_path) -> dict:
+    """Probe new properties once per kind and retain only answerable ones."""
+    result = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
+    form = _seed_questions().get("property")
+    if not form:
+        return result
+    vocabulary = memory._attribute_vocabulary()
+    attributes = sorted((item.get("name", name) for name, item in vocabulary.items()),
+                        key=normalize_subject)
+    asked_kinds = []
+    kind_teacher = _CountingTeacher(teacher)
+    for attribute in attributes:
+        kind = frontier.kind_of(memory, attribute, kind_teacher)
+        if (kind is None or _has_property_verdict(memory, kind)
+                or any(elicit.agree(kind, previous) for previous in asked_kinds)):
+            continue
+        asked_kinds.append(kind)
+        replies = teacher.ask(
+            [form.format(kind=kind)], system=elicit.SYSTEM, samples=elicit.SAMPLES,
+            temperature=elicit.TEMPERATURE, top_p=elicit.TOP_P,
+            max_tokens=elicit.MAX_TOKENS, seeds=elicit.SEEDS)
+        if len(replies) != 1 or len(replies[0]) != elicit.SAMPLES:
+            raise ValueError("Teacher returned an incomplete sample matrix")
+        result["asked"] += 1
+        candidate = elicit.held(replies[0])
+        if candidate is None or any(
+                elicit.agree(candidate, normalize_subject(item.get("name", name)))
+                for name, item in memory._attribute_vocabulary().items()):
+            continue
+        result["proposed"].append(candidate)
+        members = sorted(frontier.cluster(memory, attribute))
+        members = random.Random(161).sample(members, min(5, len(members)))
+        probes = [target for member in members
+                  if (target := _property_target(stash, candidate, member)) is not None]
+        records = (elicit.elicit(teacher, source, probes, records_path) if probes else [])
+        result["asked"] += len(probes)
+        decisions = sources.single_source_decide(records, probes)
+        decided = sum(answer is not None for answer in decisions.values())
+        verdict = "adopted" if frontier.adopts(decided, len(probes)) else "refused"
+        memory.learn_property(attribute, candidate, verdict)
+        result[verdict].append(candidate)
+        if verdict == "adopted":
+            # The new attribute covers this same kind; reuse its learned label.
+            memory.learn_kind(candidate, kind)
+            file.file_distilled(stash, records, probes, confidence, run_id, min_lineages=1)
+        promoted = {_claim_provenance(entry) for entry in stash.entries(status="promoted")}
+        for probe in probes:
+            qid = elicit.question_id(probe)
+            ledger.record(source, qid, (run_id, qid) in promoted)
+    result["asked"] += kind_teacher.asked
+    return result
+
+
+def growth_targets(memory, stash) -> list[targets.Target]:
+    """Ask adopted properties of members that do not yet hold them."""
+    result = []
+    for attribute, item in memory._attribute_vocabulary().items():
+        for candidate, verdict in item.get("properties", {}).items():
+            if verdict != "adopted":
+                continue
+            held = {normalize_subject(subject)
+                    for subject in frontier.cluster(memory, candidate)}
+            for subject in frontier.cluster(memory, item.get("name", attribute)):
+                if normalize_subject(subject) not in held:
+                    target = _property_target(stash, candidate, subject)
+                    if target is not None:
+                        result.append(target)
+    return sorted(result, key=lambda target: (
+        target.attribute, target.subject, target.question, target.category))
+
+
+class _ProbeLedger:
+    """Defer probe ledger writes until the round's approver has run."""
+
+    def __init__(self):
+        self.rows = []
+
+    def record(self, source, question_id, promoted):
+        self.rows.append((source, question_id))
+
+
 def pending(memory, stash, teacher, ledger, source) -> list:
     """Return questions this source has not answered from the current frontier."""
     items = (targets.completion_targets(memory, stash)
-             + frontier.reverse_targets(memory, stash, teacher))
+             + frontier.reverse_targets(memory, stash, teacher)
+             + frontier.growth_targets(memory, stash))
     asked = ledger.asked(source)
-    return [target for target in items if elicit.question_id(target) not in asked]
+    result = []
+    for target in items:
+        qid = elicit.question_id(target)
+        if qid not in asked:
+            result.append(target)
+            asked.add(qid)
+    return result
 
 
 def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
                 records_path, approver=None) -> dict:
     """Ask the unvisited frontier, file its answers, and record promotions."""
     items = frontier.pending(memory, stash, teacher, ledger, source)
+    growth = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
+    probe_ledger = _ProbeLedger()
+    before = len(stash.entries())
+    if not items:
+        growth = frontier.propose(
+            memory, stash, teacher, probe_ledger, source, confidence=confidence,
+            run_id=run_id, records_path=records_path)
+    probe_filed = len(stash.entries()) - before
     forward = [t for t in items if not isinstance(t, ReverseTarget)]
     reverse = [t for t in items if isinstance(t, ReverseTarget)]
     records = (elicit.elicit(teacher, source, items, records_path)
@@ -295,6 +438,8 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
     approver.approve_all()
     promoted = {_claim_provenance(entry)
                 for entry in stash.entries(status="promoted")}
+    for probe_source, qid in probe_ledger.rows:
+        ledger.record(probe_source, qid, (run_id, qid) in promoted)
     queued = 0
     for target in items:
         qid = elicit.question_id(target)
@@ -311,7 +456,15 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
         else:
             ledger.record(source, qid, (run_id, qid) in promoted)
     regenerated = (targets.completion_targets(memory, stash)
-                   + frontier.reverse_targets(memory, stash, teacher))
-    return {"asked": len(items), "filed": len(filed), "queued": queued,
-            "used_up": bool(sources.used_up(
-                ledger, source, [elicit.question_id(t) for t in regenerated]))}
+                   + frontier.reverse_targets(memory, stash, teacher)
+                   + frontier.growth_targets(memory, stash))
+    exhausted = sources.used_up(
+        ledger, source, [elicit.question_id(t) for t in regenerated])
+    kinds = [item["kind"] for item in memory._attribute_vocabulary().values()
+             if item.get("kind")]
+    return {"asked": len(items) + growth["asked"],
+            "filed": len(filed) + probe_filed, "queued": queued,
+            "proposed": growth["proposed"], "adopted": growth["adopted"],
+            "refused": growth["refused"],
+            "used_up": bool(exhausted and all(
+                _has_property_verdict(memory, kind) for kind in kinds))}

@@ -295,12 +295,24 @@ class SystematicMemory:
         self._attributes = vocabulary
         return vocabulary
 
-    def learn_kind(self, attribute: str, kind: str) -> None:
-        """Store a source's kind label in the attribute vocabulary."""
+    def learn_kind(self, attribute: str, kind: str | None) -> None:
+        """Store a source's kind label, or its failure to name a shared kind."""
         vocabulary = self._attribute_vocabulary()
         item = vocabulary.setdefault(normalize_subject(attribute), {
             "name": attribute, "subjects": 0})
         item["kind"] = kind
+
+    def learn_property(self, attribute: str, candidate: str, verdict: str) -> None:
+        """Store a property verdict and the attribute an adoption extends."""
+        if verdict not in {"adopted", "refused"}:
+            raise ValueError("Property verdict must be adopted or refused")
+        vocabulary = self._attribute_vocabulary()
+        item = vocabulary.setdefault(normalize_subject(attribute), {
+            "name": attribute, "subjects": 0})
+        item.setdefault("properties", {})[candidate] = verdict
+        if verdict == "adopted":
+            vocabulary.setdefault(normalize_subject(candidate), {
+                "name": candidate, "subjects": 0})["extends"] = attribute
 
     def learn_asking(self, attribute: str, subject: str, question: str) -> None:
         """Learn how an attribute was asked about, once per subject and word."""

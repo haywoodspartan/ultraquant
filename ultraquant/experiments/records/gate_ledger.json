@@ -302,6 +302,14 @@
    "commit": "3f02048",
    "seconds": 1.6
   },
+  "growth_gate": {
+   "verdict": "VOID",
+   "line": "VOID: plants not caught: ['P90 every proposal adopted without the probe']",
+   "commit": "11.161",
+   "seconds": 109.9,
+   "class": "failed when written",
+   "cause": "11.161 VOID when written: only one property was proposed (atomic mass, adopted), because the library's capitals mix countries and US states and the sampled books include a musical, so neither cluster shares a kind; P90 (adopt without the probe) then changes nothing. Criterion 3 also failed: 68 of 74 atomic masses right (0.919; 0.932 with sulfur's in-interval 32.065), four of the misses superseded IUPAC values."
+  },
   "history_gate": {
    "verdict": "PASS",
    "line": "PASS - history questions answer at 1.000 against the present-only arm's 0.127 (+0.873, 11.16x seed sd), zero histories invented, and the present untouched at 1.000 in both arms",
@@ -329,10 +337,12 @@
    "cause": "4e66462 (bisected) added unit conversion; this gate's cross-unit-sum decoy is now answered by conversion. All 5 decoy falls in 8 worlds were cross-unit sums; every other decoy is refused."
   },
   "kind_gate": {
-   "verdict": "PASS",
-   "line": "PASS: 4 cases; 3 of 3 plants caught",
-   "commit": "11.160",
-   "seconds": 53.0
+   "verdict": "VOID",
+   "line": "VOID: plants not caught: ['P87 the kind asked of three members together', 'P88 every decided reverse answer comes back', 'P89 a source used up once it has answered a round']",
+   "commit": "11.161",
+   "seconds": 71.9,
+   "class": "superseded by design",
+   "cause": "11.160 PASSED when written (dbc759d). 11.161's study goes on to the growth step once nothing is pending, asking kind and property questions this gate's recordings do not hold, so its replay stops before it can score (pre-registered in 11.161)."
   },
   "ladder_gate": {
    "verdict": "FAIL",

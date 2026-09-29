@@ -33,6 +33,13 @@ class FakeTeacher:
 
 
 class DenseWindowTests(unittest.TestCase):
+    def test_adopts_requires_four_decisions_and_five_probes(self):
+        for decided, asked, expected in ((3, 5, False), (4, 5, True),
+                                         (5, 5, True), (4, 4, False),
+                                         (3, 3, False), (0, 0, False)):
+            with self.subTest(decided=decided, asked=asked):
+                self.assertIs(frontier.adopts(decided, asked), expected)
+
     def test_comes_back_requires_normalized_equality(self):
         self.assertTrue(frontier.comes_back("The Alpha.", "alpha"))
         self.assertTrue(frontier.comes_back(39, "39"))
@@ -109,6 +116,309 @@ class MemoryFrontierTests(unittest.TestCase):
         self.teacher.replies.update(zip(questions, rows))
         return questions
 
+    def property_world(self, attribute="atomic number", kind="element",
+                       candidate="atomic mass", *, count=8, decided=5):
+        for number in range(1, count + 1):
+            self.fact(number, attribute)
+        self.memory.learn_kind(attribute, kind)
+        seeds = frontier._seed_questions()
+        question = seeds["property"].format(kind=kind)
+        self.teacher.replies[question] = [candidate] * 5
+        members = random.Random(161).sample(
+            sorted(f"Member {number}" for number in range(1, count + 1)), min(5, count))
+        for index, member in enumerate(members):
+            self.teacher.replies[seeds["forward"].format(
+                attribute=candidate, subject=member)] = ["12.5" if index < decided else "UNKNOWN"] * 5
+        return question, members
+
+    def propose(self, ledger=None, run_id="proposal"):
+        if ledger is None:
+            ledger = sources.SourceLedger(self.home / "ledger.json")
+        return frontier.propose(
+            self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+            run_id=run_id, records_path=self.home / f"{run_id}.jsonl")
+
+    def test_cluster_normalizes_attributes_and_keeps_recorded_subjects(self):
+        self.memory.remember_fact("one", "1", subject="The Íron", attribute="Atomic Number")
+        self.memory.remember_fact("two", "2", subject="iron", attribute="atomic-number")
+        self.memory.remember_fact("three", "3", subject="Outside", attribute="rank")
+        self.memory.remember_fact("unstructured", "4")
+        self.memory.remember_fact("no subject", "5", attribute="atomic number")
+        self.assertEqual(frontier.cluster(self.memory, " THE ATOMIC NUMBER "), {"The Íron", "iron"})
+        self.assertEqual(frontier.cluster(self.memory, "missing"), set())
+
+    def test_learn_property_preserves_entries_and_persists_both_verdicts(self):
+        self.fact(1)
+        self.memory.learn_kind("atomic number", "element")
+        self.memory.learn_kind("atomic mass", "stored kind")
+        self.memory.learn_property("Atomic Number", "atomic mass", "adopted")
+        self.memory.learn_property("atomic number", "density", "refused")
+        self.memory.learn_asking("atomic mass", "Member 1", "Mass for Member 1?")
+        self.memory.save()
+        vocabulary = self.open_memory()._attribute_vocabulary()
+        self.assertEqual(vocabulary["atomic number"]["properties"], {
+            "atomic mass": "adopted", "density": "refused"})
+        self.assertEqual(vocabulary["atomic number"]["kind"], "element")
+        self.assertEqual(vocabulary["atomic mass"]["extends"], "Atomic Number")
+        self.assertEqual(vocabulary["atomic mass"]["kind"], "stored kind")
+        self.assertNotIn("density", vocabulary)
+        if self.sharded:
+            self.assertEqual(self.open_memory().shards.vault.get("index:attributes")
+                             ["attributes"]["atomic number"]["properties"],
+                             vocabulary["atomic number"]["properties"])
+        with self.assertRaises(ValueError):
+            self.memory.learn_property("atomic number", "density", "maybe")
+
+    def test_propose_one_per_agreeing_kind_sorted_and_held_candidate_dropped(self):
+        # Insert out of order; the first normalized attribute supplies the kind.
+        self.memory.learn_kind("zulu", "chemical element")
+        self.memory.learn_kind("Beta", "country")
+        self.memory.learn_kind("Alpha", "element")
+        seeds = frontier._seed_questions()
+        questions = [seeds["property"].format(kind=kind) for kind in ("element", "country")]
+        self.teacher.replies.update({questions[0]: ["the Alpha"] * 5,
+                                     questions[1]: ["UNKNOWN"] * 5})
+        with mock.patch.object(frontier, "kind_of", wraps=frontier.kind_of) as kinds:
+            result = self.propose()
+        self.assertEqual([call.args[1] for call in kinds.call_args_list], ["Alpha", "Beta", "zulu"])
+        self.assertEqual(result, {"proposed": [], "adopted": [], "refused": [], "asked": 2})
+        self.assertEqual([call[0] for call in self.teacher.calls], [[q] for q in questions])
+        self.assertEqual(self.stash.entries(), [])
+
+    def test_propose_seed_probes_adoption_filing_and_no_retest(self):
+        question, members = self.property_world(decided=4)
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        with mock.patch.object(frontier, "cluster", wraps=frontier.cluster) as cluster, \
+                mock.patch.object(frontier, "adopts", wraps=frontier.adopts) as adopts, \
+                mock.patch.object(sources, "single_source_decide",
+                                  wraps=sources.single_source_decide) as decide, \
+                mock.patch.object(file, "file_distilled", wraps=file.file_distilled) as filing:
+            result = self.propose(ledger)
+        self.assertEqual(result, {"proposed": ["atomic mass"], "adopted": ["atomic mass"],
+                                  "refused": [], "asked": 6})
+        cluster.assert_called_once_with(self.memory, "atomic number")
+        adopts.assert_called_once_with(4, 5)
+        decide.assert_called_once()
+        self.assertEqual(filing.call_args.kwargs, {"min_lineages": 1})
+        self.assertEqual([p.subject for p in filing.call_args.args[2]], members)
+        self.assertTrue(all(p.category == p.attribute == "atomic mass"
+                            for p in filing.call_args.args[2]))
+        self.assertEqual(self.teacher.calls[0], ([question], {
+            "system": elicit.SYSTEM, "samples": elicit.SAMPLES,
+            "temperature": elicit.TEMPERATURE, "top_p": elicit.TOP_P,
+            "max_tokens": elicit.MAX_TOKENS, "seeds": elicit.SEEDS}))
+        self.assertEqual(self.teacher.calls[1][0], [frontier._seed_questions()["forward"].format(
+            attribute="atomic mass", subject=member) for member in members])
+        self.assertEqual(len(self.stash.entries()), 4)
+        self.assertEqual(ledger.history("source"), [
+            {"question_id": f"atomic mass:{member}", "promoted": False} for member in members])
+        self.memory.save()
+        self.memory = self.open_memory()
+        self.assertEqual(self.propose(ledger)["asked"], 0)
+        self.assertEqual(len(self.teacher.calls), 2)
+
+    def test_propose_refuses_three_decisions_and_never_files_or_retests(self):
+        self.property_world(attribute="capital", kind="country", candidate="population", decided=3)
+        with mock.patch.object(file, "file_distilled", wraps=file.file_distilled) as filing:
+            result = self.propose()
+        filing.assert_not_called()
+        self.assertEqual(result, {"proposed": ["population"], "adopted": [],
+                                  "refused": ["population"], "asked": 6})
+        self.assertEqual(self.memory._attribute_vocabulary()["capital"]["properties"],
+                         {"population": "refused"})
+        self.memory.learn_kind("language", "country")
+        self.memory.save()
+        self.memory = self.open_memory()
+        self.assertEqual(self.propose()["asked"], 0)
+        self.assertEqual(len(self.teacher.calls), 2)
+        self.assertEqual(len(sources.SourceLedger(self.home / "ledger.json").history("source")), 5)
+
+    def test_propose_counts_kind_property_and_probe_questions(self):
+        for number in range(1, 6):
+            self.fact(number)
+        self.kind_reply()
+        seeds = frontier._seed_questions()
+        self.teacher.replies[seeds["property"].format(kind="element")] = ["atomic mass"] * 5
+        for number in range(1, 6):
+            self.teacher.replies[seeds["forward"].format(
+                attribute="atomic mass", subject=f"Member {number}")] = ["12.5"] * 5
+        result = self.propose()
+        self.assertEqual(result["adopted"], ["atomic mass"])
+        self.assertEqual(result["asked"], 9)
+        self.assertEqual([len(questions) for questions, _ in self.teacher.calls], [3, 1, 5])
+        self.assertEqual(result["asked"], sum(len(qs) for qs, _ in self.teacher.calls))
+
+    def test_no_shared_kind_persists_and_is_not_asked_in_later_proposals_or_rounds(self):
+        for number in range(1, 4):
+            self.fact(number)
+        questions = self.kind_reply(rows=[["person"] * 5, ["book"] * 5, ["novel"] * 5])
+        self.assertEqual(self.propose(), {
+            "proposed": [], "adopted": [], "refused": [], "asked": 3})
+        self.assertIsNone(self.memory._attribute_vocabulary()["atomic number"]["kind"])
+        self.memory.save()
+        self.memory = self.open_memory()
+        self.assertIsNone(self.memory._attribute_vocabulary()["atomic number"]["kind"])
+        if self.sharded:
+            self.assertIsNone(self.memory.shards.vault.get("index:attributes")
+                              ["attributes"]["atomic number"]["kind"])
+        self.assertEqual(self.propose()["asked"], 0)
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        for index in range(2):
+            result = frontier.study_round(
+                self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+                run_id=f"no-kind-{index}", records_path=self.home / f"no-kind-{index}.jsonl")
+            self.assertEqual(result["asked"], 0)
+            self.assertTrue(result["used_up"])
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+
+    def test_study_with_no_shared_kind_is_used_up_and_extra_round_sends_nothing(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.kind_reply(rows=[["person"] * 5, ["book"] * 5, ["novel"] * 5])
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        for index, expected_asked in enumerate((3, 0)):
+            before = sum(len(qs) for qs, _ in self.teacher.calls)
+            result = frontier.study_round(
+                self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+                run_id=f"exhaust-{index}", records_path=self.home / f"exhaust-{index}.jsonl")
+            after = sum(len(qs) for qs, _ in self.teacher.calls)
+            self.assertEqual(after - before, expected_asked)
+            self.assertEqual(result["asked"], expected_asked)
+            self.assertTrue(result["used_up"])
+
+    def test_none_kind_has_no_property_verdict_and_produces_no_reverse_targets(self):
+        for number in (1, 2, 3, 4, 6):
+            self.fact(number)
+        self.form()
+        self.memory.learn_kind("atomic number", None)
+        self.memory.learn_property("atomic number", "mass", "refused")
+        self.assertFalse(frontier._has_property_verdict(self.memory, "element"))
+        self.memory.learn_kind("symbol", "element")
+        self.memory.learn_property("symbol", "density", "refused")
+        self.assertFalse(frontier._has_property_verdict(self.memory, None))
+        self.assertTrue(frontier._has_property_verdict(self.memory, "element"))
+        self.assertEqual(frontier.reverse_targets(self.memory, self.stash, self.teacher), [])
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_propose_small_cluster_and_missing_forms(self):
+        self.property_world(count=4)
+        self.assertEqual(self.propose(), {"proposed": ["atomic mass"], "adopted": [],
+                                         "refused": ["atomic mass"], "asked": 5})
+        self.assertEqual(self.stash.entries(), [])
+        with mock.patch.object(frontier, "_seed_questions", return_value={}):
+            self.assertEqual(self.propose()["asked"], 0)
+            self.memory.learn_property("atomic number", "mass", "adopted")
+            self.assertEqual(frontier.growth_targets(self.memory, self.stash), [])
+
+    def test_propose_and_growth_prefer_learned_form_without_forward_seed(self):
+        question, members = self.property_world()
+        entry = self.form("atomic mass", "old-category")
+        self.stash._entries[entry]["title"] = "Mass <Template> {literal}"
+        self.stash.save()
+        questions = [f"Mass <{member}> {{literal}}" for member in members]
+        self.teacher.replies.update({q: ["12.5"] * 5 for q in questions})
+        seeds = {"property": frontier._seed_questions()["property"]}
+        with mock.patch.object(frontier, "_seed_questions", return_value=seeds):
+            self.assertEqual(self.propose()["adopted"], ["atomic mass"])
+            growing = frontier.growth_targets(self.memory, self.stash)
+        self.assertEqual(self.teacher.calls[0][0], [question])
+        self.assertEqual(self.teacher.calls[1][0], questions)
+        self.assertEqual(len(growing), 8)
+        self.assertTrue(all(t.category == "atomic mass" and t.question ==
+                            f"Mass <{t.subject}> {{literal}}" for t in growing))
+
+    def test_growth_only_members_without_normalized_property(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.fact(99, "other")
+        self.memory.remember_fact("odd key", "12.5", subject="THE MEMBER 2",
+                                  attribute="Atomic Mass")
+        self.memory.learn_property("atomic number", "atomic mass", "adopted")
+        self.memory.learn_property("atomic number", "density", "refused")
+        expected = [targets.Target("atomic mass", f"Member {n}",
+                    frontier._seed_questions()["forward"].format(
+                        attribute="atomic mass", subject=f"Member {n}"), "atomic mass")
+                    for n in (1, 3)]
+        self.assertEqual(frontier.growth_targets(self.memory, self.stash), expected)
+
+    def test_growth_normalizes_recorded_attribute_name_only_once(self):
+        self.memory.remember_fact("one", "1", subject="Member", attribute="The A Rank")
+        self.memory.learn_property("The A Rank", "mass", "adopted")
+        self.assertEqual([t.subject for t in frontier.growth_targets(self.memory, self.stash)],
+                         ["Member"])
+
+    def test_pending_deduplicates_ids_first_occurrence_wins_and_filters_source(self):
+        first = targets.Target("mass", "Member", "first", "mass")
+        duplicate = targets.Target("mass", "Member", "duplicate", "mass")
+        reverse = frontier.ReverseTarget("number", "5", "reverse", "number", "5")
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        ledger.record("source", elicit.question_id(reverse), False)
+        with mock.patch.object(targets, "completion_targets", return_value=[first, first]), \
+                mock.patch.object(frontier, "reverse_targets", return_value=[reverse]), \
+                mock.patch.object(frontier, "growth_targets", return_value=[duplicate, duplicate]):
+            self.assertEqual(frontier.pending(
+                self.memory, self.stash, self.teacher, ledger, "source"), [first])
+            self.assertEqual(frontier.pending(
+                self.memory, self.stash, self.teacher, ledger, "other"), [first, reverse])
+
+    def test_study_adopts_grows_then_asks_nothing(self):
+        self.property_world()
+        for number in range(1, 9):
+            self.teacher.replies[frontier._seed_questions()["forward"].format(
+                attribute="atomic mass", subject=f"Member {number}")] = ["12.5"] * 5
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        outcomes = []
+        for n in range(3):
+            with mock.patch.object(sources, "used_up", wraps=sources.used_up) as used_up:
+                outcomes.append(frontier.study_round(
+                    self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+                    run_id=f"growth-{n}", records_path=self.home / f"growth-{n}.jsonl"))
+                used_up.assert_called_once()
+            if n == 0:
+                self.assertEqual(len(frontier.growth_targets(self.memory, self.stash)), 3)
+        self.assertEqual([r["asked"] for r in outcomes], [6, 3, 0])
+        self.assertEqual([r["filed"] for r in outcomes], [5, 3, 0])
+        self.assertEqual([r["used_up"] for r in outcomes], [False, True, True])
+        self.assertEqual(outcomes[0]["adopted"], ["atomic mass"])
+        self.assertTrue(all(r["queued"] == 0 for r in outcomes))
+        self.assertEqual(sum(len(qs) for qs, _ in self.teacher.calls), 9)
+        self.assertEqual(len(ledger.history("source")), 8)
+        self.assertTrue(all(row["promoted"] for row in ledger.history("source")))
+        for number in range(1, 9):
+            self.assertEqual(self.memory.held_value(f"Member {number}", "atomic mass"), "12.5")
+        self.assertEqual(frontier.pending(self.memory, self.stash, self.teacher, ledger, "source"), [])
+
+    def test_study_probe_ledger_waits_for_custom_approval(self):
+        self.property_world()
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        approver = mock.Mock()
+
+        def approve_one():
+            self.assertEqual(ledger.history("source"), [])
+            self.stash._entries[self.stash.entries()[0]["id"]]["status"] = "promoted"
+
+        approver.approve_all.side_effect = approve_one
+        result = frontier.study_round(
+            self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+            run_id="custom", records_path=self.home / "custom.jsonl", approver=approver)
+        self.assertEqual(result["filed"], 5)
+        self.assertEqual([row["promoted"] for row in ledger.history("source")],
+                         [True, False, False, False, False])
+
+    def test_study_used_up_requires_verdict_for_each_stored_kind(self):
+        self.property_world()
+        item = targets.Target("number", "missing", "existing question", "atomic number")
+        self.teacher.replies[item.question] = ["UNKNOWN"] * 5
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        with mock.patch.object(frontier, "pending", return_value=[item]), \
+                mock.patch.object(frontier, "kind_of", side_effect=AssertionError("No new kinds")), \
+                mock.patch.object(sources, "used_up", return_value=True) as used_up:
+            result = frontier.study_round(
+                self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
+                run_id="existing", records_path=self.home / "existing.jsonl")
+        used_up.assert_called_once()
+        self.assertFalse(result["used_up"])
+
     def test_sequence_gaps_and_verification_queue(self):
         missing = [21, 23, 37, 39, 40]
         for number in range(1, 119):
@@ -165,6 +475,7 @@ class MemoryFrontierTests(unittest.TestCase):
             self.fact(number)
         self.form()
         self.memory.learn_kind("atomic number", "element")
+        self.memory.learn_property("atomic number", "mass", "refused")
         target = frontier.reverse_targets(self.memory, self.stash, self.teacher)[0]
         self.teacher.replies[target.question] = ["Member 2"] * 5
         ledger = sources.SourceLedger(self.home / "ledger.json")
@@ -173,7 +484,8 @@ class MemoryFrontierTests(unittest.TestCase):
                 self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
                 run_id="held", records_path=self.home / "held.jsonl")
         ask.assert_not_called()
-        self.assertEqual(result, {"asked": 1, "filed": 0, "queued": 1, "used_up": True})
+        self.assertEqual(result, {"asked": 1, "filed": 0, "queued": 1, "used_up": True,
+                                  "proposed": [], "adopted": [], "refused": []})
         self.assertEqual(frontier.forward_value(self.memory, "Member 2", "atomic number"), "2")
         self.assertEqual(ledger.history("source"), [{
             "question_id": "number:5", "promoted": False, "queued": {
@@ -191,6 +503,7 @@ class MemoryFrontierTests(unittest.TestCase):
                 self.fact(number)
         self.form()
         self.memory.learn_kind("atomic number", "element")
+        self.memory.learn_property("atomic number", "mass", "refused")
         reverse = frontier.reverse_targets(self.memory, self.stash, self.teacher)
         for target in reverse:
             self.teacher.replies[target.question] = ["Member Six", "**Member Six**",
@@ -206,7 +519,8 @@ class MemoryFrontierTests(unittest.TestCase):
                 run_id="unheld", records_path=path)
         ask.assert_called_once()
         self.assertEqual(back.call_count, 2)
-        self.assertEqual(result, {"asked": 2, "filed": 1, "queued": 1, "used_up": True})
+        self.assertEqual(result, {"asked": 2, "filed": 1, "queued": 1, "used_up": True,
+                                  "proposed": [], "adopted": [], "refused": []})
         self.assertEqual(self.teacher.calls[1][0], [question])
         self.assertEqual(len(self.teacher.calls), 2)
         self.assertEqual(frontier.forward_value(self.memory, "Member Six", "atomic number"), "6")
@@ -307,13 +621,16 @@ class MemoryFrontierTests(unittest.TestCase):
         for number in (1, 2, 3, 4, 6):
             self.fact(number)
         self.form()
+        with mock.patch.object(frontier, "_seed_questions", return_value={}):
+            self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
         self.kind_reply(rows=[["element"] * 5, ["metal"] * 5, ["element"] * 5])
         self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
         self.assertEqual(frontier.reverse_targets(self.memory, self.stash, self.teacher), [])
-        self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
+        self.assertIsNone(self.memory._attribute_vocabulary()["atomic number"]["kind"])
         with mock.patch.object(frontier, "_seed_questions", return_value={}):
             self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
-        self.assertEqual(len(self.teacher.calls), 2)
+        self.assertEqual(len(self.teacher.calls), 1)
 
     def test_kind_asks_three_members_in_one_batch_using_seed_and_data(self):
         for number in range(1, 7):
@@ -363,7 +680,7 @@ class MemoryFrontierTests(unittest.TestCase):
             ["element"] * 5, ["element"] * 5,
             ["UNKNOWN", "", "!!!", "element or metal", "element\nI do not know"]])
         self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
-        self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
+        self.assertIsNone(self.memory._attribute_vocabulary()["atomic number"]["kind"])
 
     def test_kind_ranks_agreement_then_exact_count_then_lexically(self):
         for number in range(1, 4):
@@ -396,6 +713,7 @@ class MemoryFrontierTests(unittest.TestCase):
         for number in range(1, 3):
             self.fact(number)
         self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
         self.assertEqual(self.teacher.calls, [])
 
     def test_kind_rejects_incomplete_reply_matrix(self):
@@ -475,6 +793,8 @@ class MemoryFrontierTests(unittest.TestCase):
         self.form()
         self.form("chemical symbol", "symbol")
         self.kind_reply()
+        self.memory.learn_kind("chemical symbol", "element")
+        self.memory.learn_property("chemical symbol", "mass", "refused")
         seed = frontier._seed_questions()
         for number in (6, 9):
             self.teacher.replies[seed["reverse"].format(
@@ -511,6 +831,7 @@ class MemoryFrontierTests(unittest.TestCase):
             self.fact(number)
         self.form()
         self.memory.learn_kind("atomic number", "element")
+        self.memory.learn_property("atomic number", "mass", "refused")
         question = frontier.reverse_targets(self.memory, self.stash, self.teacher)[0].question
         self.teacher.replies[question] = ["UNKNOWN"] * 5
         ledger = sources.SourceLedger(self.home / "ledger.json")

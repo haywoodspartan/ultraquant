@@ -1,4 +1,6 @@
 {
   "kind": "What kind of thing is {a}?",
-  "reverse": "Which {kind} has {attribute} {value}?"
+  "reverse": "Which {kind} has {attribute} {value}?",
+  "property": "Name one measurable property that every {kind} has.",
+  "forward": "What is the {attribute} of {subject}?"
 }
