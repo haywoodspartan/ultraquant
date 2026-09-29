@@ -1,0 +1,774 @@
+{
+ "about": "11.151: every gate's verdict, read from its own text, at the commit named per entry (3f02048 and 254859e differ only by the committed target module, which forms_gate imports; the native gates were measured after building native/uq in the worktree). Diff a sweep (tools/gate_sweep.py) against this; a difference is a pre-registered flip or a failure.",
+ "gates": {
+  "abstention_gate": {
+   "verdict": "PASS",
+   "line": "PASS - decoys declined 0.025 -> 0.975 (+0.950, 12.57x seed sd) with genuine routing held at 1.000",
+   "commit": "3f02048",
+   "seconds": 0.2
+  },
+  "adoption_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - hidden 64 does not beat the deployed width on held-out variants at the family shape (-0.026); capacity binds the monolith, not the family experts, and the deployed default survives measured",
+   "commit": "3f02048",
+   "seconds": 170.0,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - hidden 64 is worse at the deployed shape."
+  },
+  "aggregate_gate": {
+   "verdict": "PASS",
+   "line": "PASS - aggregates answer at 1.000 against the hedging arm's 0.343 (+0.657, 5.05x seed sd), zero drifted numbers, and the pairwise door and recall held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 2.8
+  },
+  "answers_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 3 of 3 plants caught",
+   "commit": "3f02048",
+   "seconds": 269.5
+  },
+  "arithmetic_gate": {
+   "verdict": "PASS",
+   "line": "PASS - exact arithmetic at 1.000 against the float arm's 0.443 (+0.557, 3.69x seed sd), 0 wrong answers, 0 undefined divisions answered - while the float arm was wrong 45 times and answered 8 undefined divisions - and 0 ordinary questions moved",
+   "commit": "3f02048",
+   "seconds": 2.0
+  },
+  "askable_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL: ['2 curiosity still asks what it should']",
+   "commit": "3f02048",
+   "seconds": 261.8,
+   "class": "superseded by design",
+   "cause": "11.150 (3f02048) keys a catalogued curiosity premise as the catalogue keys the attribute, 'conductivity of steel'; case 2 pins 'steel conductivity'."
+  },
+  "autoapprove_gate": {
+   "verdict": "PASS",
+   "line": "PASS: every criterion; 5 of 5 plants caught",
+   "commit": "3f02048",
+   "seconds": 15.8
+  },
+  "bill_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 12 calls per arm; 0 fixed discrepancies; 0 answer differences; wiring=True",
+   "commit": "3f02048",
+   "seconds": 5.1
+  },
+  "capacity_gate": {
+   "verdict": "PASS",
+   "line": "PASS - positional/64 lifts held-variant recognition 0.448 -> 0.539 (+0.091, 1.86x seed sd) with the canonical control held (0.758 -> 0.867)",
+   "commit": "3f02048",
+   "seconds": 88.0
+  },
+  "catalogue_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL: ['4 curiosity only within a subject']",
+   "commit": "3f02048",
+   "seconds": 127.3,
+   "class": "superseded by design",
+   "cause": "11.149 (996ac56) stopped curiosity through a catalogued bridge for an uncatalogued attribute; criterion 4 pins exactly that ask ('steel conductivity'). Confirmed PASS at 7c092ab and FAIL at 996ac56 on clean worktrees."
+  },
+  "choice_gate": {
+   "verdict": "PASS",
+   "line": "PASS - choice questions answer at 0.901 against the wrong-No arm's 0.235 (+0.667, 5.92x seed sd), zero sides elected without grounds, and plain polar held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 2.7
+  },
+  "clause_gate": {
+   "verdict": "PASS",
+   "line": "PASS - clause statements teach at 1.000 against the swallowing arm's 0.361 (+0.639, 4.59x seed sd), zero statements swallowed, zero and-values split - while the baseline swallowed 20, the corruption measured beside the fix - and singulars held at 1.000",
+   "commit": "3f02048",
+   "seconds": 1.8
+  },
+  "clock_gate": {
+   "verdict": "PASS",
+   "line": "PASS - parity held on all 10 questions and the clock fell 460.2 -> 109.4 ms per depth-4 query (+350.8 ms, 15.09x rep sd)",
+   "commit": "3f02048",
+   "seconds": 31.0
+  },
+  "comparative_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - a verdict without operands: 10 refusal-kind question(s) answered yes or no in the treatment arm",
+   "commit": "3f02048",
+   "seconds": 5.8,
+   "class": "superseded by design",
+   "cause": "11.55 (2deb4c3, bisected) derives comparative operands through material chains; this 11.54 exam scores those answers as verdicts without operands. With thoughts._COMPARE_DERIVES off it reports zero such verdicts."
+  },
+  "comparison_gate": {
+   "verdict": "PASS",
+   "line": "PASS - comparisons at 1.000 against the coin's 0.383 (+0.617, 3.23x seed sd), 0 wrong verdicts, 0 unknown relations answered, 0 old-vocabulary answers moved, 0 plain polar answers moved",
+   "commit": "3f02048",
+   "seconds": 1.7
+  },
+  "compderive_gate": {
+   "verdict": "PASS",
+   "line": "PASS - derived-operand comparatives answer at 0.674 against the refusing arm's 0.000 (+0.674, 5.84x seed sd), every derived side named its trail, zero verdicts crossed a broken or denied chain, and stored comparatives and recall held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 4.6
+  },
+  "composition_gate": {
+   "verdict": "PASS",
+   "line": "PASS - composition answers compound inputs the monolithic",
+   "commit": "3f02048",
+   "seconds": 73.0
+  },
+  "compound_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - every world gave the same contrast (+1.000); nothing varied",
+   "commit": "3f02048",
+   "seconds": 1.8,
+   "class": "on its own success",
+   "cause": "Since 8a9ca5e (bisected, adjective tolerance) every world scores +1.000, so the seed sd is 0 and the variance rule fails."
+  },
+  "compoundpolar_gate": {
+   "verdict": "PASS",
+   "line": "PASS: polar conjunctions 0/8 -> 8/8; junk curiosities -> 0; 'what is' compounds 8/8 unchanged; 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 5.9
+  },
+  "confirm_gate": {
+   "verdict": "PASS",
+   "line": "PASS: stale confirmations 6 -> 0; immediate 6/6 and fresh-turn 6/6 unchanged; 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 5.9
+  },
+  "conjunction_gate": {
+   "verdict": "PASS",
+   "line": "PASS - conjunctions teach at 0.836 against the dropping arm's 0.000 (+0.836, 6.45x seed sd), zero junk keys, and singular statements untouched",
+   "commit": "3f02048",
+   "seconds": 2.3
+  },
+  "consolidation_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the repetition control failed: asking twice consolidated something (leak 1.000 / 1.000); only affirmation may promote",
+   "commit": "3f02048",
+   "seconds": 3.9,
+   "class": "superseded by design",
+   "cause": "f2f4137 (bisected) raised _MAX_HOPS from 2 to 3, so the repetition control's deep question became ordinary derivation - the leak its own docstring warns of; both arms leak identically."
+  },
+  "containment_gate": {
+   "verdict": "PASS",
+   "line": "PASS - containment lifts elaboration-world corroboration 0.000 -> 0.600 (+0.600, 1.16x seed sd) with zero negation falls, zero paraphrase falls, and exact behavior unchanged",
+   "commit": "3f02048",
+   "seconds": 0.1
+  },
+  "context_gate": {
+   "verdict": "PASS",
+   "line": "PASS - buried recall 0.000 -> 0.896 (+0.896, 10.39x seed sd), controls held (0.979 distractor, 1.000 resident), and the window stayed inside its 512 B budget",
+   "commit": "3f02048",
+   "seconds": 0.6
+  },
+  "conversion_gate": {
+   "verdict": "PASS",
+   "line": "PASS - cross-unit combinations answer correctly in 0.643 of all worlds against the baseline's 0.000 (+0.643, 1.29x seed sd), with zero refusal falls and same-unit behavior identical",
+   "commit": "3f02048",
+   "seconds": 0.1
+  },
+  "curation_gate": {
+   "verdict": "PASS",
+   "line": "PASS - label noise confirmed: dropping reader-rejected variants lifts kept-held recognition 0.561 -> 0.633 (+0.072, 2.00x seed sd) with the control held",
+   "commit": "3f02048",
+   "seconds": 120.9
+  },
+  "curiosity_gate": {
+   "verdict": "PASS",
+   "line": "PASS - the loop closes in 0.750 of all worlds against the baseline's 0.000 (+0.750, 1.62x seed sd), premises named at 1.000 precision, zero spam, zero ungrounded asks",
+   "commit": "3f02048",
+   "seconds": 0.9
+  },
+  "data_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - 67 new variants do not lift the original held set (-0.073 at sd 0.070)",
+   "commit": "3f02048",
+   "seconds": 88.7,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - the data lever, pulled naively, is negative."
+  },
+  "decline_gate": {
+   "verdict": "PASS",
+   "line": "PASS - declines land at 1.000 against the mush arm's 0.472 (+0.528, 3.07x seed sd), no unnamed premise blamed, no declined conclusion stored, and consolidation untouched",
+   "commit": "3f02048",
+   "seconds": 4.3
+  },
+  "density_gate": {
+   "verdict": "PASS",
+   "line": "PASS - at 10,000 colliding-token facts: fabrication 0.000 (vs 0.000 at 100), chains 1.000 (vs 1.000), recall 1.000 (vs 1.000) - convergence discipline survives three orders of magnitude",
+   "commit": "3f02048",
+   "seconds": 26.0
+  },
+  "depth4_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the third hop buys nothing (+0.000)",
+   "commit": "3f02048",
+   "seconds": 6.1,
+   "class": "superseded by design",
+   "cause": "f2f4137 shipped _MAX_HOPS = 3, this gate's treatment; its baseline arm reads the shipped constant, so both arms are identical. (Bisect reported 1ca874d only because the introducing commit is assumed good.)"
+  },
+  "depth5_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the fourth hop buys nothing (+0.000)",
+   "commit": "3f02048",
+   "seconds": 9.3,
+   "class": "superseded by design",
+   "cause": "fa1387a shipped _MAX_HOPS = 4, this gate's treatment; its baseline arm reads the shipped constant, so both arms are identical. (Bisect reported 6d447ba for the same reason.)"
+  },
+  "depth_gate": {
+   "verdict": "PASS",
+   "line": "PASS - three-fact chains answer at 0.688 against the one-hop baseline's 0.000 (+0.688, 2.85x seed sd) with zero assertions on either decoy form and recall at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 7.2
+  },
+  "derivedoperand_gate": {
+   "verdict": "PASS",
+   "line": "PASS - reached operands at 1.000 against the held-only arm's 0.662 (+0.338, 3.64x seed sd), 0 wrong values, 0 derived denials given a number, 0 voice splits against the chain machinery, 0 held operands moved",
+   "commit": "3f02048",
+   "seconds": 3.1
+  },
+  "disconfirm_gate": {
+   "verdict": "PASS",
+   "line": "PASS - contests land at 1.000 against the mush arm's 0.278 (+0.722, 3.33x seed sd), nothing deleted, strays inert, and confirmations untouched",
+   "commit": "3f02048",
+   "seconds": 2.3
+  },
+  "discovery_gate": {
+   "verdict": "PASS",
+   "line": "PASS - the groups it proposes for itself line up with the real",
+   "commit": "3f02048",
+   "seconds": 9.4
+  },
+  "distill_hard_gate": {
+   "verdict": "PASS",
+   "line": "PASS: held-out 101/101 right (1.000) at coverage 0.96; invented 1/40; confidence 0.964",
+   "commit": "3f02048",
+   "seconds": 0.4
+  },
+  "distribution_gate": {
+   "verdict": "NOT REJECTED",
+   "line": "NOT REJECTED - not rejected: transfer holds within noise in original->new and new->original; �11.25's interference diagnosis needs another explanation",
+   "commit": "3f02048",
+   "seconds": 130.8,
+   "recorded": "NOT REJECTED - its docstring records the hypothesis was not rejected."
+  },
+  "ellipsis_gate": {
+   "verdict": "PASS",
+   "line": "PASS - elided conjunctions teach at 1.000 against the refusing arm's 0.333 (+0.667, 3.83x seed sd), no relation-free conjunction stored anything, and full-subject conjunctions held at 1.000",
+   "commit": "3f02048",
+   "seconds": 1.3
+  },
+  "embed_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - embeddings also beat lexical on the partial-overlap control by +0.075 (control sd 0.043); that is a capacity advantage, so the paraphrase margin cannot be attributed to meaning",
+   "commit": "3f02048",
+   "seconds": 0.3,
+   "class": "failed when written",
+   "cause": "Its docstring records the control violated and 'this gate failed'. It also calls the user's LM Studio server (embeddings), so unattended sweeps skip it."
+  },
+  "enough_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - 5 worlds of 12 experts, 120 questions each; adaptive reads 2.61 of 12 (sd 0.95, FIXED COST), 0.10 paid, sparing 78.2%; accuracy 0.9950 adaptive against 0.9900 reading everything (holds) and 0.9883 for fixed top-3 (gap +0.0067 at seed sd 0.0062, beats the constant); plateaus justified 100.0% (honest)",
+   "commit": "3f02048",
+   "seconds": 20.2,
+   "class": "failed when written",
+   "cause": "Its docstring records FAILED: the sharding half vindicated, the adaptive-read half not."
+  },
+  "entropy_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - 5 seeds, accuracy 0.9250; at 80% coverage the error rate is 0.0260 ranked by entropy against 0.0130 by max-softmax (gap -0.0130 at seed sd 0.0201, NOT a win); untrained evidence 0.184 of 3.00 bits (quiet when ignorant); floor 1.774 bits keeps 79.8% of the test split at 0.0178 error against 0.0750 for everything; noise declined 98.8% against 20.2% for glyphs (noise is caught)",
+   "commit": "3f02048",
+   "seconds": 9.8,
+   "class": "failed when written",
+   "cause": "Its docstring records FAILED criterion 2: entropy was the worst of the three measures."
+  },
+  "forms_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 3 of 3 plants caught",
+   "commit": "254859e",
+   "seconds": 47.4
+  },
+  "glyph_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - gain +0.013 is 0.23x the seed sd (0.055)",
+   "commit": "3f02048",
+   "seconds": 19.3,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - the section 11.5 lesson again."
+  },
+  "glyphimport_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 128 glyphs through both networks; 0 with differing logits, 0 classified differently, accuracy 0.9000 -> 0.9000, 0 bias elements changed, 0 unreachable layers, 1/1 ternary layers idempotent under re-quantisation, 20.974 bits/weight stored",
+   "commit": "3f02048",
+   "seconds": 1.6
+  },
+  "history_gate": {
+   "verdict": "PASS",
+   "line": "PASS - history questions answer at 1.000 against the present-only arm's 0.127 (+0.873, 11.16x seed sd), zero histories invented, and the present untouched at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 3.8
+  },
+  "hops_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 3 cases; 2 of 2 plants caught",
+   "commit": "3f02048",
+   "seconds": 332.1
+  },
+  "impliedattr_gate": {
+   "verdict": "PASS",
+   "line": "PASS - natural shapes at 0.700 against 0.000 (+0.700, 9.48x seed sd), 0 ambiguous words answered, 0 unwinnables answered, 0 named-form mismatches, 0 bare pairs unanswered-or-shadowed",
+   "commit": "3f02048",
+   "seconds": 4.6
+  },
+  "inference_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the decoy control failed: inference answers 0.156 of the decoys against the baseline's 0.000 - connections that are puns, not proofs",
+   "commit": "3f02048",
+   "seconds": 3.4,
+   "class": "superseded by design",
+   "cause": "4e66462 (bisected) added unit conversion; this gate's cross-unit-sum decoy is now answered by conversion. All 5 decoy falls in 8 worlds were cross-unit sums; every other decoy is refused."
+  },
+  "ladder_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the ladder closes nothing (+0.000)",
+   "commit": "3f02048",
+   "seconds": 1.4,
+   "class": "superseded by design",
+   "cause": "f2f4137 (bisected) raised _MAX_HOPS to 3: chains the ladder confirmed step by step now derive directly - the baseline closes the same 0.625 and the ladder needs 0 confirmations."
+  },
+  "language_gate": {
+   "verdict": "PASS",
+   "line": "PASS - both hidden languages are learned by the same code, novel",
+   "commit": "3f02048",
+   "seconds": 0.1
+  },
+  "list_gate": {
+   "verdict": "PASS",
+   "line": "PASS - lists at 0.804 against 0.000 (+0.804, 11.27x seed sd), 0 wrong values, 0 undefined answers, 0 boundary answers moved",
+   "commit": "3f02048",
+   "seconds": 1.5
+  },
+  "load_gate": {
+   "verdict": "NOT SUPPORTED",
+   "line": "load NOT SUPPORTED / remedy NOT SUPPORTED - the largest load is not beaten beyond sd (+0.000 at sd 0.040); anchor scaling does not rescue N=90 (+0.017 at sd 0.047)",
+   "commit": "3f02048",
+   "seconds": 379.0,
+   "recorded": "NOT SUPPORTED - its docstring records both claims not supported, twice."
+  },
+  "mathdensity_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 5818 facts; 10/10 forms at 1.000; 0 fabrications across 8 refusal families; 0 false bounds",
+   "commit": "3f02048",
+   "seconds": 6.4
+  },
+  "matvec_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 24 rows, worst relative error 0.0e+00; decode bit-identical; the wrong type failed 8/8 rows; fallback 0.0e+00; ffn_up 19.5 ms = 5.80 GB/s against llama.cpp's ~46",
+   "commit": "3f02048",
+   "seconds": 1.3
+  },
+  "modifier_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - modifier honesty failed: only 0.667 of tolerated answers named the token they dropped",
+   "commit": "3f02048",
+   "seconds": 1.0,
+   "class": "superseded by design",
+   "cause": "3e10462 (bisected, 11.46) answers two dropped adjectives and names them in the plural, 'as modifiers'; this 11.36 check looks only for 'as a modifier'. 11.46's own gate confirms every tolerated answer names both words."
+  },
+  "multichoice_gate": {
+   "verdict": "PASS",
+   "line": "PASS - compound choices answer at 1.000 against the refusing arm's 0.175 (+0.825, 7.66x seed sd), zero sides elected without grounds, and single-word choices held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 2.0
+  },
+  "multimodifier_gate": {
+   "verdict": "PASS",
+   "line": "PASS - double-modifier questions answer at 0.583 against the cap-1 baseline's 0.000 (+0.583, 1.13x seed sd), every tolerated answer names both dropped words, and zero decoys of either form were asserted in either arm",
+   "commit": "3f02048",
+   "seconds": 1.1
+  },
+  "names_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL: ['3 nothing regresses']",
+   "commit": "3f02048",
+   "seconds": 239.6,
+   "class": "superseded by design",
+   "cause": "Its criterion 3 reruns the quantity gate, which fails on its own success."
+  },
+  "nativebigint_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 4000 operations compared against Python, 0 mismatches, 0.494 of operands past 2^64, 0 roots failing their own exponentiation",
+   "commit": "254859e",
+   "seconds": 0.7
+  },
+  "nativecalc_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 3000 questions asked of both tiers, 0 records differed (0 answered only by Python, 0 only by the native tier)",
+   "commit": "254859e",
+   "seconds": 0.9
+  },
+  "nativechat_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 1430 turns across 20 conversations; 0 unexplained differences, 0 differing only by the curiosity hint, 0 intent differences, 0 conversations ending with unequal stores",
+   "commit": "254859e",
+   "seconds": 14.0
+  },
+  "nativeforms_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 540 set-claims put to both tiers across 60 worlds, 0 answers differed (0 owned only by Python, 0 only by the native tier)",
+   "commit": "254859e",
+   "seconds": 7.8
+  },
+  "nativeinfer_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 368 questions put to both engines across 40 worlds, 0 derivations differed (0 derived only by Python, 0 only by the native tier), 0 curiosity gaps differed",
+   "commit": "254859e",
+   "seconds": 0.7
+  },
+  "nativememory_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 4800 script steps compared across 12 sessions, 0 records differed",
+   "commit": "254859e",
+   "seconds": 0.3
+  },
+  "nativepolar_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 1624 turns across 24 conversations; 0 unexplained differences, 74 differing only by the belief-operand gap, 0 intent differences, 0 conversations ending with unequal stores, 0 fabricated verdicts over 109 questions about unheld subjects",
+   "commit": "254859e",
+   "seconds": 14.3
+  },
+  "nearkey_gate": {
+   "verdict": "PASS",
+   "line": "PASS - near-key statements are annotated at 0.912 against the silent arm's 0.000 (+0.912, 8.37x seed sd), zero false notes, and both keys kept their own values in both arms",
+   "commit": "3f02048",
+   "seconds": 5.2
+  },
+  "negation_gate": {
+   "verdict": "PASS",
+   "line": "PASS - polar questions answer at 1.000 against the baseline's 0.273 (+0.727, 28.33x seed sd), no denial derived, no unheld subject was denied, and chains and recall held in both arms � while the baseline arm derived 36 chain(s) straight through a denial, which is the fabrication this unit closes",
+   "commit": "3f02048",
+   "seconds": 13.5
+  },
+  "negchain_gate": {
+   "verdict": "PASS",
+   "line": "PASS - negative terminals answer at 0.694 against the closed door's 0.000 (+0.694, 2.09x seed sd), every delivered answer named its polarity and trail, negated middles derived zero times in either arm, and chains and recall held",
+   "commit": "3f02048",
+   "seconds": 7.6
+  },
+  "ondemand_gate": {
+   "verdict": "PASS",
+   "line": "PASS: all 8 measured criteria hold; 19 of 19 planted defects caught; 138.9 s",
+   "commit": "3f02048",
+   "seconds": 139.1
+  },
+  "parts_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the best parts arm (hybrid/64) does not beat positional/64 on held-out variants (-0.000 at sd 0.106)",
+   "commit": "3f02048",
+   "seconds": 111.9,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - the last candidate measures nothing."
+  },
+  "percent_gate": {
+   "verdict": "PASS",
+   "line": "PASS - percentages at 0.832 against 0.000 (+0.832, 17.28x seed sd), 0 wrong values, 0 conventions taken, 0 voice splits against the spelled-out arithmetic, 0 ordinary questions moved",
+   "commit": "3f02048",
+   "seconds": 1.5
+  },
+  "planning_gate": {
+   "verdict": "QUESTIONABLE",
+   "line": "QUESTIONABLE - the single-step pipeline solved a task that was",
+   "commit": "3f02048",
+   "seconds": 0.9,
+   "class": "superseded by design",
+   "cause": "ARCHITECTURE.md 11.9 records a pass. Since ebe61a6 (bisected: 'the library learned to infer') the single-step pipeline solves the task that was supposed to need several, so the gate reports QUESTIONABLE."
+  },
+  "plasticity_gate": {
+   "verdict": "PASS",
+   "line": "PASS - re-attested facts surface: chains answer in 0.571 of all worlds against the baseline's 0.000 (+0.571, 1.11x seed sd), with zero entrenchment falls and better token matches still winning everywhere",
+   "commit": "3f02048",
+   "seconds": 0.1
+  },
+  "polararith_gate": {
+   "verdict": "PASS",
+   "line": "PASS - polar arithmetic at 1.000 against 0.341 (+0.659, 8.52x seed sd), 0 wrong verdicts, 0 unreadable sides answered, 0 comparisons moved, 0 plain polar answers moved",
+   "commit": "3f02048",
+   "seconds": 1.6
+  },
+  "polarderive_gate": {
+   "verdict": "PASS",
+   "line": "PASS - derived polar questions answer at 1.000 against the recall-only arm's 0.688 (+0.312, 5.11x seed sd), every verdict named its trail, no unknown subject was denied, negated middles got zero verdicts in either arm, and direct polar and recall held at 1.000",
+   "commit": "3f02048",
+   "seconds": 9.9
+  },
+  "polarity_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 10/10 denials kept (old arm inverted 10); 29 changed replies == 29 negated semantic readings; 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 8.7
+  },
+  "power_gate": {
+   "verdict": "PASS",
+   "line": "PASS - exact powers and roots at 1.000 against the float arm's 0.702 (+0.298, 3.56x seed sd), 0 wrong values, 0 irrationals named, 0 false bounds, 0 refusals missed",
+   "commit": "3f02048",
+   "seconds": 0.8
+  },
+  "qellipsis_gate": {
+   "verdict": "PASS",
+   "line": "PASS - elided questions answer at 1.000 against the hedging arm's 0.278 (+0.722, 4.04x seed sd), no denial read positive, and both floors held at 1.000",
+   "commit": "3f02048",
+   "seconds": 3.1
+  },
+  "quantity_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - quantity arithmetic at 1.000 against 0.000 (+1.000, infx seed sd), 0 wrong values, 0 undefined answers, 0 voice splits against the combine path, 0 ordinary questions moved",
+   "commit": "3f02048",
+   "seconds": 3.5,
+   "class": "on its own success",
+   "cause": "Quantity arithmetic scores 1.000 on every seed against 0.000, so the seed sd is 0 and the rule seed_sd > 0 fails (found in 11.147)."
+  },
+  "reads_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL: ['5 nothing regresses']",
+   "commit": "3f02048",
+   "seconds": 161.9,
+   "class": "superseded by design",
+   "cause": "Its criterion 5 reruns the catalogue gate, superseded by 11.149."
+  },
+  "recallskip_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - 0 response differences, 0 recalled-fact differences; expressions 9.26 -> 1.63 ms (5.7x, +7.63 ms at 6.83 sd); beliefs 88.18 -> 94.75 ms (+6.57 ms at 1.66 sd)",
+   "commit": "3f02048",
+   "seconds": 30.8,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run twice, and FAILED on criterion 4."
+  },
+  "recovery_gate": {
+   "verdict": "PASS",
+   "line": "PASS: decoys asserted 8 -> 0, code turns quoted 4 -> 0, genuine recoveries 8/8 identical, 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 6.9
+  },
+  "reinforcement_gate": {
+   "verdict": "PASS",
+   "line": "PASS - wrong-answer margin 2.33 -> 0.60 (+1.73, 7.75x seed sd) with paraphrase transfer held at 1.000",
+   "commit": "3f02048",
+   "seconds": 0.1
+  },
+  "representation_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - no gain over the positional arm (-0.043)",
+   "commit": "3f02048",
+   "seconds": 44.6,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - twice."
+  },
+  "requests_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 4 of 4 plants caught",
+   "commit": "3f02048",
+   "seconds": 179.5
+  },
+  "retraction_gate": {
+   "verdict": "PASS",
+   "line": "PASS - retracted subjects answer at 1.000 against the baseline's 0.369 (+0.631, 7.82x seed sd), zero endings invented, and the �11.64 floor and present held",
+   "commit": "3f02048",
+   "seconds": 6.3
+  },
+  "retrieval_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 12 worlds at width 3; 0 keys lost by the routes and 0 covering keys dropped by stopping early (nothing lost); examined 4.00 on index-answerable questions against 17.00 on harder ones (cost scales); the semantic route ran 24 times, 0 of them on already-covered questions (never wasted); 0 coverage disagreements, 0 routes changed by the suggester's absence",
+   "commit": "3f02048",
+   "seconds": 0.9
+  },
+  "revalidate_gate": {
+   "verdict": "PASS",
+   "line": "PASS: fulfilled asks 6 -> 0, stale bridges 8 -> 0 (incl. 2 polarity flips), live gaps 6/6 + denied premises 2/2 still asked once, unchanged, loop closes 6/6, 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 8.0
+  },
+  "review6_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 9 cases; 8 of 8 plants caught",
+   "commit": "3f02048",
+   "seconds": 0.9
+  },
+  "review7_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 6 cases; 4 of 4 plants caught; all 179 live legacy approvals exact",
+   "commit": "3f02048",
+   "seconds": 1.8
+  },
+  "review8_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 3 cases; 3 of 3 plants caught; the user's library intact",
+   "commit": "3f02048",
+   "seconds": 4.4
+  },
+  "review9_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; the world is live; 3 of 3 plants caught",
+   "commit": "3f02048",
+   "seconds": 176.1
+  },
+  "revision_gate": {
+   "verdict": "PASS",
+   "line": "PASS - revisions are narrated at 0.803 against the silent arm's 0.000 (+0.803, 5.03x seed sd), zero agreements were called revisions, and the semantics held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 12.3
+  },
+  "revisit_gate": {
+   "verdict": "PASS",
+   "line": "PASS - every floor held and nothing fabricated at 9,632 facts; the full-scan forms cost what the table says and no more",
+   "commit": "3f02048",
+   "seconds": 8.1
+  },
+  "rounding_gate": {
+   "verdict": "PASS",
+   "line": "PASS - rounding on request at 0.802 against 0.000 (+0.802, 14.51x seed sd), 0 wrong roundings, 0 unlabelled approximations, 0 unrequested answers moved",
+   "commit": "3f02048",
+   "seconds": 1.1
+  },
+  "same_fact_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 3 cases; 2 of 2 plants caught; the user's library untouched",
+   "commit": "3f02048",
+   "seconds": 0.8
+  },
+  "semantic_gate": {
+   "verdict": "PASS",
+   "line": "PASS - the synonym wall moves 0.000 -> 0.833 on the live path (+0.833, 2.04x seed sd) with zero decoy falls in either arm and the lexical families untouched",
+   "commit": "3f02048",
+   "seconds": 1.1
+  },
+  "structure_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the gate was a conjunction and only half of it holds.",
+   "commit": "3f02048",
+   "seconds": 0.5,
+   "class": "failed when written",
+   "cause": "ARCHITECTURE.md 11.7 records 'Hypervectors: half a pass' - the conjunction held in one half only, as it still does."
+  },
+  "superlative_gate": {
+   "verdict": "PASS",
+   "line": "PASS - superlatives answer at 1.000 against the hedging arm's 0.206 (+0.794, 7.45x seed sd), no denial was ever crowned, and recall held at 1.000 in both arms",
+   "commit": "3f02048",
+   "seconds": 2.7
+  },
+  "testimony_gate": {
+   "verdict": "PASS",
+   "line": "PASS - confirmations land at 1.000 against the dropped-yes arm's 0.442 (+0.558, 3.99x seed sd), the two strengths never conflated, strays inert, and consolidation untouched",
+   "commit": "3f02048",
+   "seconds": 4.2
+  },
+  "transfer_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL  masked reconstruction (unsupervised)  (delta +0.001, CI includes zero)",
+   "commit": "3f02048",
+   "seconds": 673.2,
+   "class": "failed when written",
+   "cause": "ARCHITECTURE.md 11.5 records 'Stage 1 was run, and it failed'."
+  },
+  "transformerops_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 60 randomised cases; worst gap against the 50-digit definition 3.80e-15 (tolerance 1e-12); naive forms broke on layer_norm 15, silu 60, softmax 15; 0 causal leaks, row sums off by 1.11e-16, 0 masked rows non-zero, 0 head-split errors; attention 22.1 M MAC/s; on a mean-1e6 stream (reported, not gated) worst gap 9.81e-11",
+   "commit": "3f02048",
+   "seconds": 1.5
+  },
+  "triplemodifier_gate": {
+   "verdict": "PASS",
+   "line": "PASS - triple-modifier questions answer at 0.583 against the cap-2 baseline's 0.000 (+0.583, 1.13x seed sd), every tolerated answer names all three dropped words, and zero decoys of either form were asserted in either arm",
+   "commit": "3f02048",
+   "seconds": 1.0
+  },
+  "undo_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 9 cases; 8 of 8 plants caught",
+   "commit": "3f02048",
+   "seconds": 0.9
+  },
+  "unitkeep_gate": {
+   "verdict": "PASS",
+   "line": "PASS - answers name their unit at 1.000 against 0.528 (+0.472, 1.87x seed sd), 0 numeric values moved, 0 units invented, 0 converted-or-refused answers changed",
+   "commit": "3f02048",
+   "seconds": 2.0
+  },
+  "validator_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - the keep bar failed: 0.947 of reader-kept items survive (bar 0.95); recall was bought by shedding good variants",
+   "commit": "3f02048",
+   "seconds": 10.9,
+   "class": "failed when written",
+   "cause": "Its docstring records: it was run, and it FAILED - the family cannot see what the reader sees."
+  },
+  "vram_gate": {
+   "verdict": "FAIL",
+   "line": "FAIL - saving +0.066 ms is 0.24x the repetition sd",
+   "commit": "3f02048",
+   "seconds": 0.3,
+   "class": "open",
+   "cause": "Recorded PASS. Swept while another process held 22.5 GB of the 4090's 24 GB, and a timing criterion failed (saving +0.066 ms at 0.24x the repetition sd). Re-run with the GPU free before anything is concluded."
+  },
+  "why_gate": {
+   "verdict": "PASS",
+   "line": "PASS - why-questions answer at 1.000 against the silent arm's 0.170 (+0.830, 19.88x seed sd), zero false premises rationalised, zero unheld subjects explained, and recall held at 1.000",
+   "commit": "3f02048",
+   "seconds": 12.4
+  },
+  "whystance_gate": {
+   "verdict": "PASS",
+   "line": "PASS: why agrees with polar on 16/16 cells (old arm: 10/16); 0 rationalised; why gate held; 284 standard turns unmoved",
+   "commit": "3f02048",
+   "seconds": 21.3
+  },
+  "wiring_gate": {
+   "verdict": "PASS",
+   "line": "PASS - 284 turns across 10 worlds; 0 answers differed (byte-identical); store reads per turn 16.34 against 12.83, a saving of +3.51 at seed sd 0.82 (cheaper); misses cost 21.62 against 21.62 (unchanged, as claimed); 0 intent differences, 0 stores differing",
+   "commit": "3f02048",
+   "seconds": 5.0
+  }
+ },
+ "skipped": {
+  "asking_gate": "11.152's exam: recorded with its unit.",
+  "completion_gate": "11.144's exam: needs the three teachers on the GPU; not yet run.",
+  "convert_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
+  "correction_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "distill_facts_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "distill_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "encoder_gate": "needs the model hardware: reads Command-R's weights.",
+  "fewshot_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "forward_gate": "needs the environment: llama.cpp oracle servers for Command-R on 127.0.0.1:8089 and 8090.",
+  "headtohead_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "kquant_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "offline_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "packlibrary_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
+  "paraphrase_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "permutation_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "refusal_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
+  "study_gate": "needs the environment: its teacher panel names google/gemma-4-31b, which is no longer in the user's LM Studio catalogue, so the panel cannot form and every question stays open (0 of 6 closed, in 1.1 s, no generation). The survey still mints the unknown-term question on the current code. A bisect named 118ee48, but only because every tested commit fails the same way today. It also queries the user's LM Studio, so it is run only with the user present.",
+  "tensorglyph_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
+  "tokenizer_gate": "needs the model hardware: llama-server as the tokenizer oracle.",
+  "vocabulary_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it."
+ },
+ "exit_code_disagrees": [
+  "adoption_gate",
+  "comparative_gate",
+  "compound_gate",
+  "consolidation_gate",
+  "data_gate",
+  "depth4_gate",
+  "depth5_gate",
+  "embed_gate",
+  "enough_gate",
+  "entropy_gate",
+  "glyph_gate",
+  "inference_gate",
+  "ladder_gate",
+  "modifier_gate",
+  "parts_gate",
+  "planning_gate",
+  "quantity_gate",
+  "recallskip_gate",
+  "representation_gate",
+  "structure_gate",
+  "transfer_gate",
+  "validator_gate",
+  "vram_gate"
+ ]
+}

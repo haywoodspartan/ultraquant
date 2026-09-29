@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.151](#11151-every-gate-measured-at-head) | Every gate, measured at HEAD |
 | [11.150](#11150-two-hops-through-the-catalogue-failed-kept) | Two hops through the catalogue (failed, kept) |
 | [11.149](#11149-curiosity-about-attributes-the-catalogue-knows-failed-kept) | Curiosity about attributes the catalogue knows (failed, kept) |
 | [11.148](#11148-reads-that-dont-write) | Reads that don't write |
@@ -837,6 +838,119 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.151 Every gate, measured at HEAD
+
+**Why:** every unit claims that "every earlier gate keeps its HEAD
+verdict", and on 2026-09-28 that claim was wrong three times.
+- §11.147 cited a gate that already failed at HEAD.
+- §11.149 flipped the catalogue gate, and with it the reads gate, and was
+  committed as PASSED.
+- §11.150 flipped §11.149's gate.
+
+The claim had been checked by hand-picked subsets and by exit codes, and
+24 gates print FAIL and exit 0.
+
+**The change** (pre-registration sha256 484f2eb9..., before the ledger
+existed; Amendment A 9c65d3bd..., recorded after the first 44 verdicts
+and before any entry was written, added two classes: *failed when
+written* and *needs the environment*):
+- **`tools/gate_sweep.py`** runs every gate in its own process from a
+  given checkout, keeps every log, and reads a verdict from the gate's own
+  text:
+  - PASS, FAIL or VOID;
+  - a hypothesis test's REJECTED / NOT REJECTED or SUPPORTED / NOT
+    SUPPORTED;
+  - planning's QUESTIONABLE.
+- **`ultraquant/experiments/records/gate_ledger.json`** records every
+  gate's verdict and verdict line. Every non-PASS entry carries a class
+  and a cause that Claude read in its log, backed by a bisect or a direct
+  test.
+- **`tests/test_gate_ledger.py`** holds the ledger to that.
+- From here on, "every earlier gate keeps its HEAD verdict" means a sweep
+  of the change, diffed against the ledger.
+
+**The ledger:** 111 gates.
+
+| verdict | gates |
+|---|---:|
+| PASS | 82 |
+| FAIL | 26 |
+| NOT REJECTED | 1 |
+| NOT SUPPORTED | 1 |
+| QUESTIONABLE | 1 |
+
+20 are skipped with a reason:
+- 11 need the user's LM Studio server;
+- 7 need a model checkpoint, oracle servers or the model hardware;
+- 2 are exams of units not yet recorded.
+
+Every failure has a cause:
+- **12 failed when written:** adoption, data, embed, enough, entropy,
+  glyph, parts, recallskip, representation, structure, transfer and
+  validator. Their own records say so, and the discipline keeps them.
+- **12 were superseded by design**, each bisected or tested:
+  - *The hop limit.* f2f4137 raised `_MAX_HOPS` from 2 to 3, and fa1387a
+    raised it to 4.
+    - The consolidation and ladder worlds became ordinary derivation.
+    - The depth4 and depth5 gates' baseline arms read the shipped
+      constant, which now equals their treatment.
+  - *Derived operands (§11.55).* §11.54's exam scores the comparative
+    operands §11.55 derives as fabrications. With derivation switched off
+    it reports zero.
+  - *Unit conversion (4e66462).* It answers the inference gate's
+    cross-unit-sum decoy. That decoy accounts for all 5 falls in 8
+    worlds, and every other decoy is still refused.
+  - *Plural naming (§11.46).* Two dropped adjectives are named in the
+    plural, and §11.36's modifier check looks only for the singular.
+  - *Inference (ebe61a6).* It solves the task the planning gate needed
+    several steps for, so planning reports QUESTIONABLE.
+  - *This session's own units.* §11.149 superseded the catalogue gate,
+    §11.150 the askable gate, and the reads and names gates follow the
+    gates they rerun.
+- **2 fail on their own success:** compound and quantity are perfect in
+  every world, and each demands nonzero seed variance.
+- **1 is open, a finding:** *vram*. A timing criterion failed while
+  another process held 22.5 GB of the 4090. It is to be re-run with the
+  GPU free before anything is concluded.
+- **One apparent regression was the environment.** The self-study gate
+  closed 0 of 6 worlds (it was 4 of 6).
+  - A bisect named 118ee48, but only because every commit fails the same
+    way today.
+  - The survey still mints its question. The gate's four-model teacher
+    panel names `google/gemma-4-31b`, which is no longer in the user's LM
+    Studio catalogue, so the panel cannot form and every question stays
+    open.
+  - It is listed as needing the environment. The lesson: check a gate's
+    environment before bisecting it.
+
+**It found a defect.** The first clean-checkout sweep reported
+forms_gate VOID. §11.146's committed exam imported §11.144's still
+uncommitted target module, and passed only in a working tree that held
+the untracked file. 254859e committed the module, and forms passes on a
+clean checkout.
+
+**It also found a side effect.** The sweep's embed gate asked the user's
+LM Studio for embeddings, which loaded an 84 MB embedding model there
+until its one-hour idle timeout. Unattended sweeps now skip every gate
+that talks to LM Studio.
+
+**PASSED**, with every criterion met:
+- **Complete.** Every gate module is recorded or skipped with a reason.
+- **Verdicts by text.** 24 gates whose exit code disagrees with their
+  printed verdict are recorded by the verdict, and the ledger lists them.
+- **Every failure explained.** Every failure has a class and a cause, and
+  the one open finding is reported.
+- **Reproducible.** A second sweep of the 30 non-PASS gates, plus 10 PASS
+  gates drawn with seed 151, reproduced every verdict (40 of 40).
+- **Both plants caught.** Reading verdicts from exit codes (P64) breaks
+  the parser test, and a failure without its cause (P65) breaks the
+  ledger test.
+- **Native gates.** They were measured after building `native/uq` in the
+  clean worktree, because a checkout has no built binaries.
+
+Suite: the three ledger tests pass with the ledger in place. The rest is
+as §11.152 reports.
 
 ### 11.150 Two hops through the catalogue (failed, kept)
 
