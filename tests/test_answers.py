@@ -186,8 +186,10 @@ class CatalogueAnswerTests(_Scratch):
                 # §11.141: every other word must be unknown, including shared
                 # qualifiers.
                 hold(memory, "the US state of Washington", value="Olympia")
-                self.assertIsNone(memory.catalogue_answer(
-                    "What is the capital of the US state of Zorbia?"))
+                # §11.142: words shared with held subjects' names no longer make a subject known
+                self.assertEqual(memory.catalogue_answer(
+                    "What is the capital of the US state of Zorbia?"),
+                    {"form": "unknown-subject"})
 
     def test_unstructured_facts_never_answer_through_catalogue(self) -> None:
         for label, memory, _root in self.memories():
@@ -308,6 +310,184 @@ class ChatCatalogueTests(_Scratch):
                                side_effect=AssertionError("exact recall must win")):
             reply, _ = run_pipeline("What is the tower height?", session)
         self.assertEqual(reply, "tower height is 300 (confidence 0.80).")
+
+
+# §11.142: requests and unheld subjects use the same catalogue in both stores.
+class CatalogueRequestTests(_Scratch):
+
+    def test_catalogue_request_returns_only_exact_answers(self) -> None:
+        memory = SystematicMemory()
+        for answer in (None, {"form": "unknown-subject"},
+                       {"form": "reading", "key": "k", "record": {}},
+                       {"form": "exact", "key": "k", "record": {}}):
+            with self.subTest(answer=answer), mock.patch.object(
+                    memory, "catalogue_answer", return_value=answer) as catalogue:
+                expected = answer if answer and answer["form"] == "exact" else None
+                self.assertIs(memory.catalogue_request("request"), expected)
+                catalogue.assert_called_once_with("request")
+
+    def test_catalogue_request_filters_real_readings_and_refusals(self) -> None:
+        for label, memory, _root in self.memories():
+            with self.subTest(memory=label):
+                key = hold(memory, "Kenya", value="Nairobi")
+                self.assertEqual(memory.catalogue_request("Tell me the capital of Kenya."),
+                                 {"form": "exact", "key": key,
+                                  "record": memory.recall_fact(key)})
+                visited = "I visited the capital of Kenya last year."
+                self.assertEqual(memory.catalogue_answer(visited)["form"], "reading")
+                self.assertIsNone(memory.catalogue_request(visited))
+                self.assertIsNone(memory.catalogue_request("Tell me the capital of Zorbia."))
+                self.assertIsNone(memory.catalogue_request("Hello there."))
+
+    def test_chat_intent_requests_use_catalogue_format_and_polarity(self) -> None:
+        session = build_session(self.scratch(), seed=0)
+        key = hold(session.memory, "Kenya", value="Nairobi")
+        for negated in (False, True):
+            with self.subTest(negated=negated):
+                session.memory.remember_fact(key, "Nairobi", confidence=.8,
+                                             negated=negated, subject="Kenya",
+                                             attribute="capital")
+                record = session.memory.recall_fact(key)
+                with mock.patch.object(session.memory, "catalogue_request",
+                                       wraps=session.memory.catalogue_request) as request:
+                    reply, trace = run_pipeline("Tell me the capital of Kenya.", session)
+                request.assert_called_once_with("Tell me the capital of Kenya.")
+                shown = "not Nairobi" if negated else "Nairobi"
+                self.assertEqual(reply, f"{key} is {shown} "
+                                 f"(confidence {record['confidence']:.2f}).")
+                self.assertIn("intent=chat", str(trace))
+                self.assertIn("catalogue exact", str(trace))
+                self.assertEqual(session.curiosities, [])
+
+    def test_nonexact_chat_keeps_reply_without_catalogue_trace(self) -> None:
+        session = build_session(self.scratch(), seed=0)
+        hold(session.memory, "Kenya", value="Nairobi")
+        for message in ("I visited the capital of Kenya last year.",
+                        "Tell me the capital of Zorbia.", "Hello there."):
+            with self.subTest(message=message):
+                with mock.patch.object(session.memory, "catalogue_request", return_value=None):
+                    expected, _ = run_pipeline(message, session)
+                reply, trace = run_pipeline(message, session)
+                self.assertEqual(reply, expected)
+                self.assertIn("intent=chat", str(trace))
+                self.assertNotIn("catalogue", str(trace))
+                self.assertEqual(session.curiosities, [])
+
+
+# §11.142: shared qualifiers need one unstructured key covering all other words.
+class UnheldSubjectTests(_Scratch):
+
+    def test_empty_others_never_probes(self) -> None:
+        memory = SystematicMemory()
+        with mock.patch.object(memory, "find_facts") as find:
+            self.assertFalse(memory._unheld_subject({"capital"}, {"capital"}))
+            self.assertFalse(memory._unheld_subject(set(), {"capital"}))
+        find.assert_not_called()
+
+    def test_shared_qualifiers_refuse_but_chat_taught_subject_survives(self) -> None:
+        for label, memory, _root in self.memories():
+            with self.subTest(memory=label):
+                hold(memory, "the US state of Washington", value="Olympia")
+                query = "What is the capital of the US state of Zorbia?"
+                self.assertTrue(memory._unheld_subject(question_words(query, ""),
+                                                       {"capital"}))
+                self.assertEqual(memory.catalogue_answer(query), {"form": "unknown-subject"})
+                memory.remember_fact("freedonia capital", "Fredville")
+                self.assertFalse(memory._unheld_subject({"freedonia", "capital"},
+                                                        {"capital"}))
+                self.assertIsNone(memory.catalogue_answer("What is the capital of Freedonia?"))
+
+    def test_one_unstructured_key_must_cover_all_others(self) -> None:
+        for label, memory, _root in self.memories():
+            with self.subTest(memory=label):
+                memory.remember_fact("north capital", "N")
+                memory.remember_fact("freedonia capital", "F")
+                words, known = {"north", "freedonia", "capital"}, {"capital"}
+                self.assertTrue(memory._unheld_subject(words, known))
+                hold(memory, "Elsewhere", key="north freedonia capital")
+                self.assertTrue(memory._unheld_subject(words, known))
+                memory.remember_fact("north-freedonia seat", "Fredville")
+                self.assertFalse(memory._unheld_subject(words, known))
+
+    def test_bounded_index_lookup_normalizes_and_skips_missing_records(self) -> None:
+        memory = SystematicMemory()
+        with mock.patch.object(memory, "find_facts",
+                               return_value=["missing", "Fréedonia-Capital"]) as find, \
+                mock.patch.object(memory, "recall_fact",
+                                  side_effect=[None, {"value": "Fredville"}]), \
+                mock.patch.object(memory, "fact_keys", side_effect=AssertionError("scan")):
+            self.assertFalse(memory._unheld_subject({"capital", "freedonia"}, {"capital"}))
+        find.assert_called_once_with("freedonia", top_k=10)
+
+
+# §11.142: covering candidates win in order before embeddings or nearest-held.
+class FirstCoveringTests(_Scratch):
+
+    def test_candidate_order_skips_partial_and_missing_keys(self) -> None:
+        from ultraquant.interpreter.thoughts import _first_covering
+
+        memory = SystematicMemory()
+        for key in ("capital of ghana", "freedonia capital", "freedonia capital seat"):
+            memory.remember_fact(key, "value")
+        candidates = ["capital of ghana", "missing freedonia capital",
+                      "freedonia capital seat", "freedonia capital"]
+        asked = {"freedonia", "capital"}
+        self.assertEqual(_first_covering(candidates, asked, memory), "freedonia capital seat")
+        self.assertEqual(_first_covering(list(reversed(candidates)), asked, memory),
+                         "freedonia capital")
+        self.assertIsNone(_first_covering(candidates[:2], asked, memory))
+        self.assertIsNone(_first_covering([], asked, memory))
+
+    def test_covering_uses_existing_informative_plural_normalization(self) -> None:
+        from ultraquant.interpreter.thoughts import _first_covering
+
+        memory = SystematicMemory()
+        memory.remember_fact("The TOWERS height", "300")
+        self.assertEqual(_first_covering(["The TOWERS height"], {"tower", "height"}, memory),
+                         "The TOWERS height")
+        self.assertIsNone(_first_covering(["The TOWERS height"], {"the", "height"}, memory))
+
+    def test_chat_taught_capital_answers_past_structured_partial_match(self) -> None:
+        session = build_session(self.scratch(), seed=0)
+        hold(session.memory, "Kenya", value="Nairobi")
+        hold(session.memory, "Ghana", value="Accra")
+        run_pipeline("freedonia capital is Fredville", session)
+        session.semantic = mock.Mock()
+        reply, trace = run_pipeline("What is the capital of Freedonia?", session)
+        self.assertEqual(reply, "freedonia capital is Fredville (confidence 0.60).")
+        self.assertIn("answered from keyword fact", str(trace))
+        session.semantic.suggest.assert_not_called()
+
+    def test_embedding_attempt_once_then_first_sharing_candidate(self) -> None:
+        session = build_session(self.scratch(), seed=0)
+        session.memory.remember_fact("copper weight", "10", .8)
+        session.memory.remember_fact("iron weight", "20", .8)
+        session.semantic = mock.Mock()
+        session.semantic.suggest.return_value = None
+        with mock.patch("ultraquant.reason.inference.infer", return_value=None), \
+                mock.patch("ultraquant.reason.inference.missing_premise", return_value={
+                    "premise_key": "alloy weight", "via_key": "copper weight"}), \
+                mock.patch.object(session.memory, "find_facts",
+                                  return_value=["copper weight", "iron weight"]):
+            reply, _ = run_pipeline("What is the alloy weight?", session)
+        session.semantic.suggest.assert_called_once_with("What is the alloy weight?",
+                                                        session.memory)
+        self.assertTrue(reply.startswith("I don't hold that exactly. Nearest I hold: "
+                                         "copper weight is 10 (confidence 0.80)."))
+        self.assertIn("If I knew the alloy weight", reply)
+
+
+class EmptyQuestionTests(_Scratch):
+    """Claude's review of §11.142: a question without informative tokens."""
+
+    def test_an_empty_question_asserts_nothing(self) -> None:
+        # "What is it?" folds to no informative token. The coverage pass
+        # must not assert whatever key find_facts happens to rank first.
+        session = build_session(self.scratch() / "session", seed=0)
+        session.memory.remember_fact(
+            "author of the moon is a harsh mistress", "Robert Heinlein", 0.9)
+        reply, _ = run_pipeline("What is it?", session)
+        self.assertNotIn("Robert Heinlein", reply)
 
 
 if __name__ == "__main__":

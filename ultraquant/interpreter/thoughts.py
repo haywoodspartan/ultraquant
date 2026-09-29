@@ -302,6 +302,25 @@ def _tokens(text: str) -> list[str]:
     return _TOKEN_RE.findall(text.lower())
 
 
+# §11.142: exhaust covering candidates before considering a partial match.
+def _first_covering(candidates, question_tokens, memory) -> str | None:
+    """Return the first held key covering every informative question token."""
+    from ultraquant.shards.router import _informative, normalize_token
+
+    # Claude's review of §11.142: an empty question covers nothing. The
+    # old loop's shared-token test refused it; without this, "What is
+    # it?" asserted any candidate, e.g. a title key containing "is".
+    if not question_tokens:
+        return None
+    for key in candidates:
+        key_tokens = {normalize_token(tok)
+                      for tok in _TOKEN_RE.findall(key.lower())
+                      if _informative(tok)}
+        if question_tokens <= key_tokens and memory.recall_fact(key) is not None:
+            return key
+    return None
+
+
 def _glyph_rows(text: str) -> list[str] | None:
     """Return five 5-character glyph rows if ``text`` is a glyph, else None."""
     rows = [line.strip() for line in text.strip().splitlines() if line.strip()]
@@ -1091,6 +1110,43 @@ class Reason(Thought):
         for key in memory.find_facts(folded_query, top_k=3):
             if key not in candidates:
                 candidates.append(key)
+        # §11.142: full coverage across all candidates wins before any demotion.
+        key = _first_covering(candidates, question_tokens, memory)
+        if key is not None:
+            fact = memory.recall_fact(key)
+            # Assert only when the key covers everything the question asked
+            # about. A question holding content the key lacks is asking
+            # about something ELSE that happens to share words - "the
+            # melting point of tungsten" reached "steel melting point" here
+            # and was answered with the wrong metal as if it were the
+            # answer. Nearest-held is still worth SAYING; it is not worth
+            # asserting as identity.
+            ctx.say(f"{key} is {_shown_value(fact)} "
+                    f"(confidence {fact['confidence']:.2f}).")
+            ctx.note(self.name, f"answered from keyword fact {key!r}")
+            return
+        # The embedding suggester gets one shot before the demote:
+        # §11.37 measured the synonym family failing lexically while
+        # cosine>0.75 plus an anchor token reads it correctly with
+        # zero decoy falls. The reading is named so it can be vetoed.
+        # §11.142: ask once, after all covering candidates have been checked.
+        suggester = getattr(ctx.session, "semantic", None)
+        if suggester is not None:
+            reading = suggester.suggest(ctx.text, memory)
+            if reading is not None:
+                # §11.116: a suggested reading must keep the held denial.
+                value = (_shown_value({"value": reading.value,
+                                       "negated": reading.negated})
+                         if _SEMANTIC_POLARITY else reading.value)
+                ctx.say(f"Reading that as '{reading.key}': "
+                        f"{reading.key} is {value} "
+                        f"(confidence {reading.confidence:.2f}, "
+                        f"embedding match {reading.similarity:.2f}).")
+                ctx.note(self.name,
+                         f"semantic reading {reading.key!r} at "
+                         f"{reading.similarity:.2f}")
+                return
+        # §11.142: demote only after coverage and the single semantic attempt.
         for key in candidates:
             key_tokens = {normalize_token(tok)
                           for tok in _TOKEN_RE.findall(key.lower())
@@ -1100,38 +1156,6 @@ class Reason(Thought):
             fact = memory.recall_fact(key)
             if fact is None:
                 continue
-            # Assert only when the key covers everything the question asked
-            # about. A question holding content the key lacks is asking
-            # about something ELSE that happens to share words - "the
-            # melting point of tungsten" reached "steel melting point" here
-            # and was answered with the wrong metal as if it were the
-            # answer. Nearest-held is still worth SAYING; it is not worth
-            # asserting as identity.
-            if question_tokens <= key_tokens:
-                ctx.say(f"{key} is {_shown_value(fact)} "
-                        f"(confidence {fact['confidence']:.2f}).")
-                ctx.note(self.name, f"answered from keyword fact {key!r}")
-                return
-            # The embedding suggester gets one shot before the demote:
-            # §11.37 measured the synonym family failing lexically while
-            # cosine>0.75 plus an anchor token reads it correctly with
-            # zero decoy falls. The reading is named so it can be vetoed.
-            suggester = getattr(ctx.session, "semantic", None)
-            if suggester is not None:
-                reading = suggester.suggest(ctx.text, memory)
-                if reading is not None:
-                    # §11.116: a suggested reading must keep the held denial.
-                    value = (_shown_value({"value": reading.value,
-                                           "negated": reading.negated})
-                             if _SEMANTIC_POLARITY else reading.value)
-                    ctx.say(f"Reading that as '{reading.key}': "
-                            f"{reading.key} is {value} "
-                            f"(confidence {reading.confidence:.2f}, "
-                            f"embedding match {reading.similarity:.2f}).")
-                    ctx.note(self.name,
-                             f"semantic reading {reading.key!r} at "
-                             f"{reading.similarity:.2f}")
-                    return
             ctx.say(f"I don't hold that exactly. Nearest I hold: {key} is "
                     f"{_shown_value(fact)} (confidence "
                     f"{fact['confidence']:.2f})." + hint)
@@ -2596,6 +2620,14 @@ class Reason(Thought):
         ctx.note(self.name, f"statement {parsed[0]!r} -> {parsed[1]!r}")
 
     def _chat(self, ctx: ThoughtContext) -> None:
+        # §11.142: exact catalogue requests share the chat intent's reply path.
+        answer = ctx.session.memory.catalogue_request(ctx.text)
+        if answer is not None:
+            key, record = answer["key"], answer["record"]
+            ctx.say(f"{key} is {_shown_value(record)} "
+                    f"(confidence {record['confidence']:.2f}).")
+            ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
+            return
         routes = ctx.data.get("routes", [])
         facts = ctx.data.get("facts", [])
         if facts:

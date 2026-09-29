@@ -241,6 +241,25 @@ class SystematicMemory:
         else:
             _learn_asking(self._attributes, attribute, subject, question)
 
+    # §11.142: chat requests accept only exact catalogue answers.
+    def catalogue_request(self, text: str) -> dict | None:
+        """Offer an exact catalogue answer without reinterpreting chat."""
+        answer = self.catalogue_answer(text)
+        return answer if answer is not None and answer["form"] == "exact" else None
+
+    # §11.142: only an indexed unstructured key can explain an unheld subject.
+    def _unheld_subject(self, words: set, known: set) -> bool:
+        """Whether remaining words name no held unstructured fact."""
+        others = words - known
+        if not others:
+            return False
+        for key in self.find_facts(" ".join(sorted(others)), top_k=10):
+            record = self.recall_fact(key)
+            if (record is not None and not record.get("subject")
+                    and others <= set(normalize_subject(key).split())):
+                return False
+        return True
+
     def catalogue_answer(self, text: str) -> dict | None:
         """Answer within one catalogued subject without registering curiosity."""
         subjects = self.subjects_in(text)
@@ -272,11 +291,9 @@ class SystematicMemory:
             return None
         known = set().union(*(attribute_words(attribute, item)
                               for attribute, item in vocabulary.items()))
-        if words & known:
-            from ultraquant.reason.inference import _library_unknown
-
-            if all(_library_unknown(word, self) for word in words - known):
-                return {"form": "unknown-subject"}
+        # §11.142: shared words in structured subjects do not establish identity.
+        if words & known and self._unheld_subject(words, known):
+            return {"form": "unknown-subject"}
         return None
 
     def fact_keys(self) -> list[str]:

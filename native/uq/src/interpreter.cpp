@@ -392,6 +392,20 @@ Turn Session::answer_question(const std::string& text) {
             == candidates.end())
             candidates.push_back(key);
     }
+    // §11.142: inspect all covering keys before demoting to a sharing key.
+    for (const std::string& key : candidates) {
+        const std::set<std::string> held = informative_tokens(key);
+        // Claude's review of §11.142: an empty question covers nothing.
+        if (!asked.empty() && std::includes(held.begin(), held.end(),
+                                            asked.begin(), asked.end())) {
+            const Fact* fact = memory_.recall_fact(key);
+            if (fact == nullptr) continue;
+            turn.response = key + " is " + shown_value(*fact)
+                + " (confidence " + confidence_text(fact->confidence) + ").";
+            return turn;
+        }
+    }
+    // §11.142: preserve candidate order and the hint on the partial fallback.
     for (const std::string& key : candidates) {
         const std::set<std::string> held = informative_tokens(key);
         bool shares = false;
@@ -400,12 +414,6 @@ Turn Session::answer_question(const std::string& text) {
         if (!shares) continue;
         const Fact* fact = memory_.recall_fact(key);
         if (fact == nullptr) continue;
-        if (std::includes(held.begin(), held.end(),
-                          asked.begin(), asked.end())) {
-            turn.response = key + " is " + shown_value(*fact)
-                + " (confidence " + confidence_text(fact->confidence) + ").";
-            return turn;
-        }
         turn.response = "I don't hold that exactly. Nearest I hold: " + key
             + " is " + shown_value(*fact) + " (confidence "
             + confidence_text(fact->confidence) + ")." + hint;

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.142](#11142-requests-and-unknown-subjects-through-the-catalogue) | Requests and unknown subjects, through the catalogue |
 | [11.141](#11141-answers-found-through-the-catalogue-failed-kept) | Answers found through the catalogue (failed, kept) |
 | [11.140](#11140-addresses-that-stay-put-flushes-that-finalize-late-undo-that-keeps-structure) | Addresses that stay put, flushes that finalize late, undo that keeps structure |
 | [11.139](#11139-facts-catalogued-by-what-they-are-about) | Facts catalogued by what they are about |
@@ -829,6 +830,59 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.142 Requests and unknown subjects, through the catalogue
+
+**What §11.141 left** (it failed, and was kept):
+- "Tell me the capital of X." was answered 57.5% of the time, because
+  it is classified as chat before any answering runs;
+- 18 of 50 unknown-subject questions got another subject's fact. The
+  refusal demanded every other word be unknown, and "the US state of
+  Kessaway" shares "us" and "state" with held subjects' names.
+
+**Claude's pre-registration missed something, and said so before any
+code** (Amendment A, sha256 94ae9c3c...):
+- **the Freedonia half of criterion 3 was never measured, and failed on
+  every commit since before §11.139.** With structured "capital of X"
+  facts held, "What is the capital of Freedonia?" answered "Nearest I
+  hold: capital of ghana is Accra" and never reached the chat-taught
+  "freedonia capital". The cause was in both tiers: the keyword loop
+  returned at the FIRST candidate sharing a word, asserting it if it
+  covered the question and otherwise demoting to it, so a later
+  candidate that covered the question was never looked at;
+- the exam's check on "I visited the capital of Kenya last year." wrongly
+  required "Nairobi" to be absent. Today's chat template names recalled
+  facts. The criterion asks for no catalogue answer, and the trace shows
+  that.
+
+**The fixes** (Astra):
+- a chat message is offered to the catalogue too, answered only in the
+  exact form. A reading is never given for chat, so "I visited the
+  capital of Kenya..." stays chat;
+- an unknown subject is judged by what memory holds. The refusal fires
+  unless some chat-taught key contains every other word, found through
+  the index, never by a scan;
+- in both tiers the keyword loop looks through all candidates for one
+  covering the question before demoting. The native tier was rebuilt.
+
+**Claude's review caught what the exam did not.** The new coverage pass
+lost the old loop's shared-word test. "What is it?" has no informative
+word, and an empty question "covers" every key, so both tiers would
+have asserted whatever ranked first, such as a title key containing
+"is". An empty question now covers nothing, in both tiers. The
+regression test fails without the fix.
+
+**PASSED** twice on Claude's machine and in Astra's run (pre-registration
+sha256 aa657285...): 4 of 4 cases and 4 of 4 plants.
+- "Tell me the capital of X." is answered 100% (was 57.5%), and every
+  other gated form is at 98.9-100%;
+- 0 of 50 unknown subjects get another subject's fact (was 18);
+- 0 wrong answers, and 0 junk hints on the gated forms.
+§11.141's recorded exam now fails only its criterion 4, on the form it
+exempted: 68 hints from "X was written by whom?". Every other gate
+passes, including all five native parity gates on the rebuilt binaries.
+
+Suite: 2,454 passed, 5 skipped, 0 failed.
 
 ### 11.141 Answers found through the catalogue (failed, kept)
 
