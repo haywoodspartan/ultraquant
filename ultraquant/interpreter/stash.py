@@ -734,6 +734,10 @@ class ContemporaryStash:
         result = memory.remember_fact(key, value, confidence=confidence,
                                       subject=fields.get("subject"),
                                       attribute=fields.get("attribute"))
+        # §11.141: learn from the writer's question and authoritative slots.
+        if (fields.get("subject") and fields.get("attribute")
+                and (entry.get("title") or "").strip()):
+            memory.learn_asking(fields["attribute"], fields["subject"], entry["title"])
         # Keep the public key return while exposing the actual memory outcome
         # and supplied confidence to the approval journal.
         self.last_promotion = {**result, "confidence": float(confidence)}

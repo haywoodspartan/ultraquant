@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.141](#11141-answers-found-through-the-catalogue-failed-kept) | Answers found through the catalogue (failed, kept) |
 | [11.140](#11140-addresses-that-stay-put-flushes-that-finalize-late-undo-that-keeps-structure) | Addresses that stay put, flushes that finalize late, undo that keeps structure |
 | [11.139](#11139-facts-catalogued-by-what-they-are-about) | Facts catalogued by what they are about |
 | [11.138](#11138-rivals-only-for-the-same-fact) | Rivals only for the same fact |
@@ -828,6 +829,72 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.141 Answers found through the catalogue (failed, kept)
+
+**Stage 2 of the indexing work.** §11.139 catalogued facts by subject,
+but chat still answered by word overlap. Measured on the user's migrated
+library, through the real pipeline, over 384 distilled facts asked in 15
+ordinary forms (1,461 questions):
+- 70% were answered. "Who wrote the novel X?", the very question each
+  author fact was distilled from, got 0 of 89;
+- two wrong answers were asserted. "What is Australia's capital?" gave
+  Adelaide, South Australia's capital, and "What is Mexico's capital?"
+  gave Santa Fe, New Mexico's;
+- every invented subject got another subject's fact as "Nearest I hold";
+- 165 replies carried a junk curiosity hint, and 132 were queued.
+
+**The design** (Astra; pre-registration sha256 bfdcff2c...):
+- the subject is chosen by the catalogue, and the longest match wins, so
+  "south australia" beats "australia";
+- the attribute is chosen among that subject's own facts, by its own
+  words and by ways of asking learned from data. The questions the facts
+  were distilled from are counted, per attribute, once at least 2
+  subjects used a word. "wrote" is learned, and there are no synonym
+  lists;
+- replies are exact, a labelled reading when words remain unexplained,
+  or a plain "I don't hold that" for a known attribute of an unknown
+  subject.
+
+**FAILED 3 of 4 criteria, with every plant caught (3 of 3).** Measured on
+the rebuilt library:
+
+| | before | after |
+|---|---|---|
+| "Who wrote the novel X?" / "Who wrote X?" | 0% | **98.9%** |
+| "Which city is the capital of X?" | 0.8% | **100%** |
+| "Tell me the capital of X." | 57.5% | 57.5% |
+| wrong answers asserted | 2 | **0** |
+| curiosity hints / queued | 165 / 132 | 68 / 63 |
+| unknown subjects answered with another's fact | 50 | 18 |
+
+- **Criterion 1 missed on one form.** "Tell me the capital of X." is
+  classified as chat, not a question, before any answering runs. The
+  catalogue was asked only on the question path.
+- **Criterion 3 missed on 18 invented states.** "The US state of
+  Kessaway" shares "us" and "state" with held subjects' names, and the
+  refusal rule demanded that every other word be unknown to the library.
+  Too strict.
+- **Criterion 4 missed on the form the same pre-registration exempted.**
+  All 68 remaining hints come from "X was written by whom?", whose word
+  "written" no distillation question used. Criterion 1 excused that form
+  and criterion 4 counted it: Claude's inconsistency, recorded rather
+  than repaired after the run.
+
+**Kept**, because it is a strict improvement: no wrong answers, the
+author and "which city" forms answered, and junk halved. Every other
+gate passes (below). Two parts are unfinished: routing requests
+("Tell me...") to the catalogue whatever their intent label, and a
+refusal rule that is not fooled by words shared with known subjects'
+names. The junk hint for an unlearned word ("If I knew the charles
+dickens written") needs learning from confirmation: a reading the user
+confirms should teach its words.
+
+Astra's tests arrived as pytest functions, which the project's runner
+(`unittest`) never ran. Claude converted them, with every assertion
+kept, and all 13 pass.
+
+Suite: 2,440 passed, 5 skipped, 0 failed.
 
 ### 11.140 Addresses that stay put, flushes that finalize late, undo that keeps structure
 

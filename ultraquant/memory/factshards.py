@@ -71,6 +71,59 @@ def subject_ngrams(text: str) -> set[str]:
             for size in range(1, min(8, len(words) - start) + 1)}
 
 
+# §11.141: token spans, shared by both stores; no inferred grammar.
+def _span_start(words: list[str], span: list[str]) -> int | None:
+    if span:
+        for start in range(len(words) - len(span) + 1):
+            if words[start:start + len(span)] == span:
+                return start
+    return None
+
+
+def choose_subject(subjects: set[str]) -> str | None:
+    """Choose the sole matched subject not contained in a longer match."""
+    tokens = {subject: subject.split() for subject in subjects}
+    survivors = [subject for subject, span in tokens.items()
+                 if not any(len(other) > len(span)
+                            and _span_start(other, span) is not None
+                            for other in tokens.values())]
+    return survivors[0] if len(survivors) == 1 else None
+
+
+def question_words(text: str, subject: str = "") -> set[str]:
+    """Remove one normalized subject span before filtering stopwords."""
+    from ultraquant.interpreter.learning import _STOPWORDS
+
+    words = normalize_subject(text).split()
+    # §11.141: callers already normalized the subject; do not strip twice.
+    span = subject.split()
+    start = _span_start(words, span)
+    if start is not None:
+        del words[start:start + len(span)]
+    return set(words) - _STOPWORDS
+
+
+def _learn_asking(vocabulary: dict, attribute: str, subject: str,
+                  question: str) -> None:
+    """Index each question word by the distinct subjects that used it."""
+    normalized = normalize_subject(attribute)
+    subject = normalize_subject(subject)
+    if not normalized or not subject or not question.strip():
+        return
+    item = vocabulary.setdefault(normalized, {"name": attribute, "subjects": 0})
+    asked_by = item.setdefault("asked_by", {})
+    for word in question_words(question, subject) - set(normalized.split()):
+        asked_by[word] = sorted(set(asked_by.get(word, ())) | {subject})
+
+
+def attribute_words(attribute: str, item: dict) -> set[str]:
+    """Attribute tokens and asking words attested by at least two subjects."""
+    # §11.141: vocabulary keys are already normalized.
+    return set(attribute.split()) | {
+        word for word, subjects in item.get("asked_by", {}).items()
+        if len(subjects) >= 2}
+
+
 class FactShards:
     """Sharded, catalogued storage for semantic facts.
 
@@ -260,6 +313,16 @@ class FactShards:
         self._ensure_indexes()
         return {phrase for phrase in subject_ngrams(text)
                 if phrase in self._index_data("subjects", phrase)}
+
+    # §11.141: the public seams use the same span and learning rules as RAM.
+    def _choose_subject(self, subjects: set[str]) -> str | None:
+        """Resolve nested matches, declining unrelated surviving subjects."""
+        return choose_subject(subjects)
+
+    def learn_asking(self, attribute: str, subject: str, question: str) -> None:
+        """Stage learned question words in the normal attribute index flush."""
+        self._ensure_indexes()
+        _learn_asking(self._index_data("attributes"), attribute, subject, question)
 
     def _other_attribute(self, subject: str, attribute: str, key: str) -> bool:
         item = self._index_data("subjects", subject).get(subject)

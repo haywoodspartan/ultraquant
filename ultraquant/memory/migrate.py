@@ -57,3 +57,26 @@ def structure_from_provenance(memory, stash) -> dict:
     stash.save()
     memory.save()
     return counts
+
+
+# §11.141: backfill asking evidence from promoted entries, without parsing.
+def learn_question_forms(memory, stash) -> dict:
+    """Learn eligible promoted titles; return counts of entries and slots read.
+
+    Repeated runs count the same inputs but add no duplicate evidence. The
+    caller persists the memory through its normal save/flush transaction.
+    """
+    from ultraquant.memory.factshards import normalize_subject
+
+    count, subjects, attributes = 0, set(), set()
+    for entry in stash.entries(status="promoted"):
+        fields = entry.get("fields") or {}
+        subject, attribute = fields.get("subject"), fields.get("attribute")
+        title = entry.get("title") or ""
+        if not subject or not attribute or not title.strip():
+            continue
+        memory.learn_asking(attribute, subject, title)
+        count += 1
+        subjects.add(normalize_subject(subject))
+        attributes.add(normalize_subject(attribute))
+    return {"entries": count, "subjects": len(subjects), "attributes": len(attributes)}

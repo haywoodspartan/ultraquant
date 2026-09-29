@@ -28,6 +28,10 @@ from typing import Any
 from ultraquant.memory.metering import charge_index, charge_lookup
 # §11.139: one normalization and n-gram rule for both fact stores.
 from ultraquant.memory.factshards import normalize_subject, subject_ngrams
+# §11.141: catalogue selection and question learning share token operations.
+from ultraquant.memory.factshards import (
+    _learn_asking, attribute_words, choose_subject, question_words,
+)
 
 
 def _utc_now() -> str:
@@ -65,6 +69,8 @@ class SystematicMemory:
 
         self._episodes: list[dict[str, Any]] = []
         self._facts: dict[str, dict[str, Any]] = {}
+        # §11.141: unsharded asking evidence stays in RAM.
+        self._attributes: dict[str, dict] = {}
         # §11.139: reverse premise edges, maintained with the records.
         self._derived: dict[str, set[str]] = {}
         self._signatures: list[dict[str, Any]] = []
@@ -204,6 +210,74 @@ class SystematicMemory:
         subjects = {normalize_subject(record["subject"])
                     for record in self._facts.values() if record.get("subject")}
         return subjects & subject_ngrams(text)
+
+    # §11.141: use only explicit record slots and indexed asking evidence.
+    def _attribute_vocabulary(self) -> dict:
+        """The attribute page, or its in-memory counterpart."""
+        if self.shards is not None:
+            self.shards._ensure_indexes()
+            return self.shards._index_data("attributes")
+        # §11.141: keep asking evidence learned before a record was filed.
+        vocabulary = {attribute: {**item, "subjects": 0}
+                      for attribute, item in self._attributes.items()}
+        subjects: dict[str, set[str]] = {}
+        for record in self._facts.values():
+            subject = normalize_subject(record.get("subject") or "")
+            attribute = normalize_subject(record.get("attribute") or "")
+            if subject and attribute:
+                subjects.setdefault(attribute, set()).add(subject)
+                vocabulary.setdefault(attribute, {
+                    **self._attributes.get(attribute, {}),
+                    "name": record["attribute"], "subjects": 0})
+        for attribute, members in subjects.items():
+            vocabulary[attribute]["subjects"] = len(members)
+        self._attributes = vocabulary
+        return vocabulary
+
+    def learn_asking(self, attribute: str, subject: str, question: str) -> None:
+        """Learn how an attribute was asked about, once per subject and word."""
+        if self.shards is not None:
+            self.shards.learn_asking(attribute, subject, question)
+        else:
+            _learn_asking(self._attributes, attribute, subject, question)
+
+    def catalogue_answer(self, text: str) -> dict | None:
+        """Answer within one catalogued subject without registering curiosity."""
+        subjects = self.subjects_in(text)
+        chosen = (self.shards._choose_subject(subjects) if self.shards is not None
+                  else choose_subject(subjects))
+        vocabulary = self._attribute_vocabulary()
+        words = question_words(text, chosen or "")
+        if chosen is not None:
+            if self.shards is not None:
+                keys = self.shards._index_data("subjects", chosen)[chosen]["keys"]
+            else:
+                keys = [key for key, record in self._facts.items()
+                        if normalize_subject(record.get("subject") or "") == chosen]
+            best, winners = 0, []
+            for key in keys:
+                record = self.recall_fact(key)
+                if not record or not record.get("attribute"):
+                    continue
+                attribute = normalize_subject(record["attribute"])
+                explained = attribute_words(attribute, vocabulary.get(attribute, {}))
+                score = len(words & explained)
+                if score > best:
+                    best, winners = score, []
+                if score == best and score >= 1:
+                    winners.append({"form": "exact" if words <= explained else "reading",
+                                    "key": key, "record": record})
+            return winners[0] if len(winners) == 1 else None
+        if subjects:
+            return None
+        known = set().union(*(attribute_words(attribute, item)
+                              for attribute, item in vocabulary.items()))
+        if words & known:
+            from ultraquant.reason.inference import _library_unknown
+
+            if all(_library_unknown(word, self) for word in words - known):
+                return {"form": "unknown-subject"}
+        return None
 
     def fact_keys(self) -> list[str]:
         """Every fact key held."""

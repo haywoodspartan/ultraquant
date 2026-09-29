@@ -992,6 +992,22 @@ class Reason(Thought):
                      f"sub-key hit {key!r} not asserted; question "
                      "content uncovered - falling through")
 
+        # §11.141: catalogue answers precede inference, coverage and curiosity.
+        memory = ctx.session.memory
+        catalogue = getattr(memory, "catalogue_answer", None)
+        answer = catalogue(ctx.text) if catalogue is not None else None
+        if answer is not None:
+            if answer["form"] == "unknown-subject":
+                ctx.say("I don't hold that: nothing it names is in my catalogue.")
+                ctx.note(self.name, "catalogue: unknown subject")
+            else:
+                key, record = answer["key"], answer["record"]
+                prefix = f"Reading that as '{key}': " if answer["form"] == "reading" else ""
+                ctx.say(f"{prefix}{key} is {_shown_value(record)} "
+                        f"(confidence {record['confidence']:.2f}).")
+                ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
+            return
+
         # Exact key-match missed. Two fallbacks, in trust order, before giving
         # up - both were sitting unused while the pipeline said "I don't hold
         # anything" about things it held:
