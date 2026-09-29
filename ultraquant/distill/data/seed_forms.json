@@ -1,0 +1,10 @@
+{
+  "claim": "The {attribute} of {subject} is {value}.",
+  "key": "{attribute} of {subject}",
+  "categories": {
+    "symbol": "chemical symbol",
+    "capital": "capital",
+    "author": "author",
+    "number": "atomic number"
+  }
+}

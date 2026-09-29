@@ -406,8 +406,13 @@ class ContemporaryStash:
         # Direct structured claims have named slots. A book title may exceed
         # six words, and names such as Antimony or May Alcott are neither
         # opinions nor hedges. Keep the page-text heuristics unchanged.
-        classification = ("factual-claim" if _STRUCTURED_CLAIM.fullmatch(claim)
-                          else self.classify(claim))
+        if (fields and all(fields.get(name) is not None and str(fields[name]) != ""
+                           for name in ("key", "value", "subject", "attribute"))
+                and fields["subject"] in claim and str(fields["value"]) in claim):
+            classification = "factual-claim"
+        else:
+            classification = ("factual-claim" if _STRUCTURED_CLAIM.fullmatch(claim)
+                              else self.classify(claim))
         self._entries[entry_id] = {
             "id": entry_id, "url": url, "netloc": netloc, "title": title,
             "fetched": _utc_now(), "claim": claim,

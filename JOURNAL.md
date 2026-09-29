@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.146](#11146-claims-filed-in-the-librarys-own-forms) | Claims filed in the library's own forms |
 | [11.145](#11145-chat-that-mentions-ambiguity-judged-whole-absence-proven-by-the-index) | Chat that mentions, ambiguity judged whole, absence proven by the index |
 | [11.143](#11143-the-lupine-leases-retried-at-forty-dollars-a-month) | The lupine leases, retried at forty dollars a month |
 | [11.142](#11142-requests-and-unknown-subjects-through-the-catalogue) | Requests and unknown subjects, through the catalogue |
@@ -832,6 +833,68 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.146 Claims filed in the library's own forms
+
+**Why:** `distill/file.py` filed every distilled answer through four
+hand-typed templates keyed by category, and derived each claim's
+attribute and key from them. The stash classified a claim as factual
+through `_STRUCTURED_CLAIM`, a regex listing the same four attributes,
+and the auto-approver approves only factual claims. A distillation
+target for any other attribute raised `KeyError`, and would not have
+been approved had it filed. The user ruled that the problem is
+hardcoding instead of indexing, and this was indexing's stage 4.
+
+**Measured on the user's library:** 384 promoted claims.
+- Each of the four attributes has exactly one claim form and one key
+  form, with the subject and value slotted. For example, "The atomic
+  number of {subject} is {value}." holds for 75 of 75, keyed "atomic
+  number of {subject}".
+- 2 claims cannot teach a form, because a slot's text occurs twice: "The
+  capital of Mexico is Mexico City."
+
+**The change** (pre-registration sha256 a2ca9d75..., Amendment A
+97b03233..., both before any code):
+- **Forms learned from promoted claims.** `claim_form`, `key_form` and
+  `category_attribute` learn, respectively:
+  - the claim with its subject and value slotted, where each must occur
+    exactly once and the two may not overlap;
+  - the key with its lowercased subject slotted;
+  - the attribute each question-id category was filed under.
+- **A seed in data.** `distill/data/seed_forms.json` holds one generic
+  claim form ("The {attribute} of {subject} is {value}."), one key form,
+  and the attributes of the four benchmark categories. It is used only
+  when the stash holds nothing for an attribute. `file.py` holds no
+  claim, key or attribute text.
+- **Structure at write time decides what is factual (Amendment A).**
+  Reading the stash showed the regex would block approval of any new
+  attribute. `add_claim` now classifies a claim as factual when its
+  fields carry key, value, subject and attribute, and its text contains
+  the subject and value. Claims without fields keep the regex, which
+  legacy migration still reads.
+
+**PASSED**, on Claude's machine and in Astra's run: 4 of 4 cases, and
+3 of 3 plants caught. The plants were the stash's forms ignored, a
+category's attribute taken as its name, and no seed.
+- **Byte-identical.** Both recorded runs (§11.130 and §11.134) were
+  replayed into a fresh stash, and into one already holding the other
+  run's promoted claims, so the learned forms decide. Each replay filed
+  384 entries identical to the committed templates, classification
+  included.
+- **A learned form wins over the seed.** A stash that files its mottos
+  "By decree, X keeps the motto V." filed a new target as "By decree,
+  Delta keeps the motto Fortis.", keyed "decreed motto of delta".
+- **A never-seen attribute files and is catalogued.** "The currency of
+  Veltra is Lumen." files as a factual claim and is auto-approved. The
+  catalogue then answers "What is the currency of Veltra?" exactly.
+- **Reproduced first.** On the committed code, the same two targets
+  raised `KeyError('motto')` and `KeyError('currency')`.
+- The catalogue, auto-approve and distillation-replay gates pass.
+  Astra's 14 new tests cover tie-breaks, the Mexico exclusion, brace
+  round-trips and a missing seed.
+
+Suite: 2,492 passed, 5 skipped, 0 failed (2,497, including §11.144's 18
+uncommitted target tests).
 
 ### 11.145 Chat that mentions, ambiguity judged whole, absence proven by the index
 

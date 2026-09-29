@@ -1,11 +1,92 @@
 """File agreed distilled answers as measured, quarantined claims."""
 
 from collections import Counter, defaultdict
+import json
+from pathlib import Path
 
 from ultraquant.distill.elicit import (
     agree, decide, extract, is_position, normalize, question_id,
 )
 from ultraquant.interpreter.stash import _claim_provenance
+
+
+def _slot_form(text, slots) -> str | None:
+    """Escape literal braces and replace unique, disjoint slot occurrences."""
+    spans = []
+    for name, value in slots.items():
+        if value is None or value == "":
+            return None
+        value = str(value)
+        start = text.find(value)
+        if start < 0 or text.find(value, start + 1) >= 0:
+            return None
+        spans.append((start, start + len(value), name))
+    spans.sort()
+    parts = []
+    end = 0
+    for start, stop, name in spans:
+        if start < end:
+            return None
+        parts.append(text[end:start].replace("{", "{{").replace("}", "}}"))
+        parts.append("{" + name + "}")
+        end = stop
+    parts.append(text[end:].replace("{", "{{").replace("}", "}}"))
+    return "".join(parts)
+
+
+def _most_common(counts) -> str | None:
+    return min(counts, key=lambda form: (-counts[form], form)) if counts else None
+
+
+def claim_form(stash, attribute) -> str | None:
+    """Return the modal claim form learned from promoted entries."""
+    counts = Counter()
+    for entry in stash.entries(status="promoted"):
+        fields = entry.get("fields") or {}
+        if fields.get("attribute") != attribute:
+            continue
+        form = _slot_form(entry.get("claim") or "", {
+            "subject": fields.get("subject"), "value": fields.get("value"),
+        })
+        if form is not None:
+            counts[form] += 1
+    return _most_common(counts)
+
+
+def key_form(stash, attribute) -> str | None:
+    """Return the modal key form learned from promoted entries."""
+    counts = Counter()
+    for entry in stash.entries(status="promoted"):
+        fields = entry.get("fields") or {}
+        if fields.get("attribute") != attribute:
+            continue
+        form = _slot_form(fields.get("key") or "", {
+            "subject": (fields.get("subject") or "").lower(),
+        })
+        if form is not None:
+            counts[form] += 1
+    return _most_common(counts)
+
+
+def category_attribute(stash, category) -> str | None:
+    """Return the modal attribute of a promoted provenance category."""
+    counts = Counter()
+    for entry in stash.entries(status="promoted"):
+        attribute = (entry.get("fields") or {}).get("attribute")
+        provenance = _claim_provenance(entry)
+        if (attribute and provenance is not None
+                and provenance[1].split(":", 1)[0] == category):
+            counts[attribute] += 1
+    return _most_common(counts)
+
+
+def _seed() -> dict:
+    """Read the fallback forms and category mapping from data."""
+    path = Path(__file__).with_name("data") / "seed_forms.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
 
 
 def _already_filed(stash, run_id, qid) -> bool:
@@ -29,12 +110,6 @@ def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
     by_question = defaultdict(list)
     for record in records:
         by_question[record.question_id].append(record)
-    templates = {
-        "symbol": "The chemical symbol of {subject} is {value}.",
-        "capital": "The capital of {subject} is {value}.",
-        "author": "The author of {subject} is {value}.",
-        "number": "The atomic number of {subject} is {value}.",
-    }
     filed = []
     for item in items:
         qid = question_id(item)
@@ -48,15 +123,18 @@ def file_distilled(stash, records, items, confidence, run_id) -> list[int]:
                    and agree(normalize(extract(r.raw)), promoted)]
         forms = Counter(extract(r.raw) for r in samples)
         value = min(forms, key=lambda form: (-forms[form], form))
-        claim = templates[item.category].format(subject=item.subject, value=value)
-        # §11.139: the template already names its attribute; keep that slot.
-        attribute = templates[item.category].split(" of {subject}")[0].lower()
-        for article in ("the ", "a ", "an "):
-            if attribute.startswith(article):
-                attribute = attribute[len(article):]
-                break
-        key = templates[item.category].split(" is {value}")[0].format(
-            subject=item.subject).lower()
+        attribute = (getattr(item, "attribute", None)
+                     or category_attribute(stash, item.category)
+                     or _seed().get("categories", {}).get(item.category))
+        if not attribute:
+            continue
+        claim_template = claim_form(stash, attribute) or _seed().get("claim")
+        key_template = key_form(stash, attribute) or _seed().get("key")
+        if not claim_template or not key_template:
+            continue
+        claim = claim_template.format(attribute=attribute, subject=item.subject,
+                                      value=value)
+        key = key_template.format(attribute=attribute, subject=item.subject).lower()
         for article in ("the ", "a ", "an "):
             if key.startswith(article):
                 key = key[len(article):]
