@@ -665,6 +665,12 @@
    "commit": "3f02048",
    "seconds": 0.8
   },
+  "second_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 6 cases; 4 of 4 plants caught",
+   "commit": "11.162",
+   "seconds": 171.2
+  },
   "semantic_gate": {
    "verdict": "PASS",
    "line": "PASS - the synonym wall moves 0.000 -> 0.833 on the live path (+0.833, 2.04x seed sd) with zero decoy falls in either arm and the lexical families untouched",

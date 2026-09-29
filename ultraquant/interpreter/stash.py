@@ -763,6 +763,15 @@ class ContemporaryStash:
         self.save()
         return key
 
+    def add_teacher(self, entry_id: int, source: str) -> None:
+        """Persist a corroborating teacher and its lineage on an existing entry."""
+        provenance = self._entries[int(entry_id)].setdefault("provenance", {})
+        for field in ("teachers", "lineages"):
+            names = provenance.setdefault(field, [])
+            if source not in names:
+                names.append(source)
+        self.save()
+
     def reject(self, entry_id: int, reason: str = "") -> None:
         """Mark an entry as rejected so it is never promoted."""
         entry = self._entries[int(entry_id)]

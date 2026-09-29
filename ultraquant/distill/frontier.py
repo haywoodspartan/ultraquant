@@ -413,6 +413,10 @@ def pending(memory, stash, teacher, ledger, source) -> list:
 def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
                 records_path, approver=None) -> dict:
     """Ask the unvisited frontier, file its answers, and record promotions."""
+    from . import corroborate
+
+    checks = corroborate.corroborate(
+        memory, stash, teacher, ledger, source, records_path=records_path, run_id=run_id)
     items = frontier.pending(memory, stash, teacher, ledger, source)
     growth = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
     probe_ledger = _ProbeLedger()
@@ -462,7 +466,9 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
         ledger, source, [elicit.question_id(t) for t in regenerated])
     kinds = [item["kind"] for item in memory._attribute_vocabulary().values()
              if item.get("kind")]
-    return {"asked": len(items) + growth["asked"],
+    return {"asked": len(items) + growth["asked"] + checks["asked"],
+            "checked": checks["checked"], "agreed": checks["agreed"],
+            "contested": checks["contested"],
             "filed": len(filed) + probe_filed, "queued": queued,
             "proposed": growth["proposed"], "adopted": growth["adopted"],
             "refused": growth["refused"],

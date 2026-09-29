@@ -18,10 +18,14 @@ class LMStudioTeacher:
     """An already-loaded teacher; replay uses recorded replies, not seed promises."""
 
     def __init__(self, model: str, gguf: str | Path,
-                 base_url: str = "http://127.0.0.1:1234/v1", timeout: float = 300):
+                 base_url: str = "http://127.0.0.1:1234/v1", timeout: float = 300,
+                 options=None):
         self.spec = TeacherSpec(model, Path(gguf))
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.options = (dict(options) if options is not None else json.loads(
+            (Path(__file__).with_name("data") / "sources.json").read_text(
+                encoding="utf-8")).get(model, {}))
 
     def ask(self, questions, *, system, samples, temperature, top_p,
             max_tokens, seeds) -> list[list[str]]:
@@ -39,6 +43,7 @@ class LMStudioTeacher:
                     "temperature": temperature, "top_p": top_p,
                     "max_tokens": max_tokens, "seed": seed,
                 }
+                payload.update(self.options)
                 request = urllib.request.Request(
                     self.base_url + "/chat/completions",
                     data=json.dumps(payload).encode("utf-8"),
@@ -70,11 +75,13 @@ class SourceLedger:
         with self.path.open(encoding="utf-8") as handle:
             return json.load(handle)
 
-    def record(self, source, question_id, promoted: bool, queued=None):
+    def record(self, source, question_id, promoted: bool, queued=None, check=None):
         data = self._read()
         row = {"question_id": question_id, "promoted": promoted}
         if queued is not None:
             row["queued"] = queued
+        if check is not None:
+            row["check"] = check
         data.setdefault(source, []).append(row)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None

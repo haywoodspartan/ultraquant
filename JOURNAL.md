@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.162](#11162-a-second-source) | A second source |
 | [11.161](#11161-properties-it-does-not-hold-yet-void-kept) | Properties it does not hold yet (void, kept) |
 | [11.160](#11160-the-kind-asked-one-member-at-a-time) | The kind, asked one member at a time |
 | [11.154](#11154-facts-found-by-their-value) | Facts found by their value |
@@ -849,6 +850,66 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.162 A second source
+
+**Why:** the user said: "use Command-R as the sole source then we do
+another source and then another after 1 model is used up." After §11.161,
+Command-R was used up on a copy of the user's library. Its answers for a
+new property were about 92% right, close to its calibrated 0.912.
+
+**Measured before any code.** The source was qwen/qwen3.8-27b, loaded in the
+user's LM Studio in Command-R's place. Command-R was reloaded as it was after
+the run.
+- **Qwen reasons before it answers.**
+  - Under the distillation prompt's 24 tokens, every answer came back empty.
+  - `/no_think` did not help.
+  - The request option `"reasoning_effort": "none"` did.
+- **Calibration:** 40 of 40.
+- **On Command-R's 51 answers,** Qwen agreed on 48. The three
+  disagreements:
+  - bohrium: 276 against 109, both wrong (it is 107);
+  - curium: 61 against 96;
+  - terbium: 65 against 69.
+- **On atomic masses,** Qwen was 83 of 83 right. Where both decided, the 66
+  they agreed on were all right.
+
+**The change** (pre-registration sha256 d77682d7..., before any code):
+- **Per-source options are data.** `distill/data/sources.json` gives Qwen
+  its request option. A model without an entry sends what it always sent.
+- **Corroboration.** A new source checks every held fact that one other
+  source put there alone.
+  - It asks the attribute's forward question, so reverse answers are
+    checked forward.
+  - Numbers agree at the coarser of their precisions (12 with 12.011).
+    Words agree by `elicit.agree`.
+- **Agreed:** the source is added to the claim's teachers and lineages.
+- **Contested:** the held value stays, because one contrary source does not
+  revise it. Both answers are queued for the next source.
+
+**PASSED,** live against Qwen (with Command-R's study replayed from its
+recordings) and again on replay: 6 of 6 cases, and 4 of 4 plants caught.
+- **The plants:**
+  - P93: every claim agreed;
+  - P94: agreement by string only;
+  - P95: a contrary answer revises;
+  - P96: contests not queued.
+- **The round.** Qwen checked 160 claims in one round: 145 agreed, 14 were
+  contested and 1 was undecided. It then filed atomic masses for the 15
+  elements Command-R could not decide, and was used up.
+- **Agreement is precise:** all 124 scored agreed claims are right.
+- **Contests found Command-R's errors:** all 6 scored ones. They were
+  osmium, holmium, and the superseded weights of molybdenum, germanium,
+  selenium and sulfur.
+- **Right answers were rarely contested:** 1 of 125 right pairs (cadmium,
+  112.411 against 112.414).
+- **Nothing was revised.** These wait for a third source:
+  - terbium keeps Command-R's right 65 against Qwen's 69;
+  - osmium keeps its wrong 225.87;
+  - six superheavy elements keep disputed mass numbers.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 117 of 120 gates. `second_gate` joins the ledger as PASS, and the timing gates recallskip and vram passed this time.
+
+Suite: 2,672 passed, 5 skipped, 0 failed (2,677).
 
 ### 11.161 Properties it does not hold yet (void, kept)
 
