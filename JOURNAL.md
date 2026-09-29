@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.164](#11164-what-the-chat-says-about-its-sources-failed-as-frozen) | What the chat says about its sources (failed as frozen) |
 | [11.163](#11163-a-third-source-settles-what-two-disputed) | A third source settles what two disputed |
 | [11.162](#11162-a-second-source) | A second source |
 | [11.161](#11161-properties-it-does-not-hold-yet-void-kept) | Properties it does not hold yet (void, kept) |
@@ -851,6 +852,75 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.164 What the chat says about its sources (failed as frozen)
+
+**Why:** after §11.163 the library knows what stands behind a distilled
+fact. The stash names its teachers, and the source ledger holds its
+unsettled contests. The chat said none of it: molybdenum's 95.96, which
+three sources gave three values for, read "(confidence 0.91)" exactly like
+gold's, which two sources agree on.
+
+**The change** (pre-registration sha256 95f8a6fd..., Amendment A
+f0ffd379..., both before any code):
+- **Provenance.** `distill/provenance.py` gives a held fact's distinct
+  teachers, from the promoted claims naming its value. It also gives its
+  unsettled contests, from `sources.json` in the library root.
+- **The note.** Every catalogue reply that states a held fact says so
+  inside its confidence parenthesis:
+  - "contested: other sources say 95.95, 95.94";
+  - "2 sources agree";
+  - "one source".
+- **No note without a source.** A fact no teacher names reads as before.
+- **The words are data.**
+- **Amendment A** replaced a plant that could not bite. Corroboration adds
+  teachers to the same claim, so counting per claim and across claims gave
+  the same number.
+
+**FAILED as frozen,** on criteria 3, 4 and 5, in Astra's run and in
+Claude's.
+- **The premises were wrong.**
+  - The pre-registration called iron "the user's own fact", and the 40
+    calibration items facts no teacher names.
+  - The user's stash names three teachers for them: 384 promoted claims came
+    from §11.130's and §11.134's three-teacher distillation.
+  - So iron's reply now reads "(confidence 0.96; 3 sources agree)". That is
+    true, and the exam counted it as a regression.
+  - Claude had not read the stash's provenance before freezing.
+- **The one-source probe** took the first Qwen-only atomic mass. That was
+  einsteinium, which is contested and correctly says so.
+- **The world's shape.** Here, 560 of 562 structured facts name teachers.
+  The two that do not are the user's corrections, bohrium and curium.
+
+**Amended after the run** (Amendment B ab9a2473... and Amendment C
+c1008d38..., both stated as post-run):
+- **The corrections** carry no note, and bohrium's reply is byte-identical.
+- **Every Qwen-only mass is asked.** The four uncontested ones say "one
+  source", and the contested one says it is contested.
+- **Iron and the 40 calibration facts** each say how many distinct teachers
+  the stash names. Amendment C corrected a count: iron is one of the 40.
+
+**Under the amendments the exam passes:** 5 of 5 cases, and 3 of 3 plants
+caught.
+- **The plants:**
+  - P100: contests ignored;
+  - P101: every fact noted as one source;
+  - P102: every claim's teachers counted, whatever value they named. Osmium
+    would then say three sources agree, though Command-R named 225.87.
+- **Replies now read, for example:**
+  - "atomic mass of molybdenum is 95.96 (confidence 0.91; contested: other
+    sources say 95.95, 95.94)."
+  - "atomic mass of gold is 196.966569 (confidence 0.91; 2 sources agree)."
+  - "atomic number of iron is 26 (confidence 0.96; 3 sources agree)."
+  - "atomic mass of hassium is 269 (confidence 0.91; one source)."
+  - "atomic number of bohrium is 107 (confidence 0.90)."
+- **Noted for later.** The same model appears under different teacher names
+  across runs: command-r-08-2024 in §11.130, and c4ai-command-r-08-2024 since
+  §11.155. A fact that both kinds of run distilled could count one model
+  twice. No fact in this world does.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 120 of 122 gates. `said_gate` joins the ledger as PASS, and the timing gate vram passed this time. No earlier gate pinned a reply's exact confidence text: those that look for an assertion look for "(confidence", and the note stays inside that parenthesis.
+
+Suite: 2,701 passed, 5 skipped, 0 failed (2,706).
 
 ### 11.163 A third source settles what two disputed
 

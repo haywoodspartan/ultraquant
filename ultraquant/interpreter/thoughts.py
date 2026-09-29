@@ -1022,6 +1022,14 @@ class Reason(Thought):
         ctx.note(self.name, f"planned {len(plan)} steps over {len(planner.actions)} "
                             f"actions, explored {plan.explored} states")
 
+    def _provenance_note(self, session, key, record) -> str:
+        from ultraquant.distill import provenance, sources
+
+        path = session.root / "sources.json"
+        ledger = sources.SourceLedger(path) if path.exists() else None
+        return provenance.note(provenance.provenance(
+            session.stash, ledger, key, record["value"]))
+
     def _question(self, ctx: ThoughtContext) -> None:
         # §11.121: polar conjuncts keep the single-question polar machinery.
         if (_COMPOUND_POLAR and re.search(r"\s+and\s+", ctx.text, re.I)
@@ -1040,7 +1048,8 @@ class Reason(Thought):
                     pieces.append(f"{answer['attribute']} of {answer['subject']} (unknown)")
                 else:
                     pieces.append(f"{key} is {_shown_value(record)} "
-                                  f"(confidence {record['confidence']:.2f})")
+                                  f"(confidence {record['confidence']:.2f}"
+                                  f"{self._provenance_note(ctx.session, key, record)})")
             ctx.say("; ".join(pieces) + ".")
             ctx.note(self.name, f"catalogue: {len(answers)} subjects")
             return
@@ -1107,7 +1116,8 @@ class Reason(Thought):
                     if _informative(tok)}
             if asked <= held:
                 ctx.say(f"{key} is {_shown_value(fact)} "
-                        f"(confidence {fact['confidence']:.2f}).")
+                        f"(confidence {fact['confidence']:.2f}"
+                        f"{self._provenance_note(ctx.session, key, fact)}).")
                 ctx.note(self.name, f"answered from fact {key!r}")
                 return
             ctx.note(self.name,
@@ -1122,7 +1132,8 @@ class Reason(Thought):
             for item in answer["records"]:
                 key, record = item["key"], item["record"]
                 pieces.append(f"{record['subject']}: {key} is {_shown_value(record)} "
-                              f"(confidence {record['confidence']:.2f})")
+                              f"(confidence {record['confidence']:.2f}"
+                              f"{self._provenance_note(ctx.session, key, record)})")
             ctx.say("; ".join(pieces) + ".")
             ctx.note(self.name, f"catalogue value: {len(answer['records'])} records")
             return
@@ -1137,16 +1148,17 @@ class Reason(Thought):
                 ctx.note(self.name, "catalogue: unknown subject")
             else:
                 key, record = answer["key"], answer["record"]
+                note = self._provenance_note(ctx.session, key, record)
                 if answer["form"] == "chain":
                     via = answer["via"]
                     confidence = min(record["confidence"], via["record"]["confidence"])
                     ctx.say(f"{key} is {_shown_value(record)} "
-                            f"(confidence {confidence:.2f}), through {via['key']} is "
+                            f"(confidence {confidence:.2f}{note}), through {via['key']} is "
                             f"{_shown_value(via['record'])}.")
                 else:
                     prefix = f"Reading that as '{key}': " if answer["form"] == "reading" else ""
                     ctx.say(f"{prefix}{key} is {_shown_value(record)} "
-                            f"(confidence {record['confidence']:.2f}).")
+                            f"(confidence {record['confidence']:.2f}{note}).")
                 ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
             return
 
