@@ -1114,6 +1114,19 @@ class Reason(Thought):
                      f"sub-key hit {key!r} not asserted; question "
                      "content uncovered - falling through")
 
+        # §11.154: a named value answers with every returned holder.
+        by_value = getattr(memory, "catalogue_by_value", None)
+        answer = by_value(ctx.text) if by_value is not None else None
+        if answer is not None and answer.get("records"):
+            pieces = []
+            for item in answer["records"]:
+                key, record = item["key"], item["record"]
+                pieces.append(f"{record['subject']}: {key} is {_shown_value(record)} "
+                              f"(confidence {record['confidence']:.2f})")
+            ctx.say("; ".join(pieces) + ".")
+            ctx.note(self.name, f"catalogue value: {len(answer['records'])} records")
+            return
+
         # §11.141: catalogue answers precede inference, coverage and curiosity.
         memory = ctx.session.memory
         catalogue = getattr(memory, "catalogue_answer", None)

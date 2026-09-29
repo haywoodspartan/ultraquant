@@ -219,6 +219,59 @@ class SystematicMemory:
                 if record.get("subject")
                 and normalize_subject(record["subject"]) == normalized}
 
+    def value_keys(self, value: str) -> list[str]:
+        """Keys of structured facts holding the normalized value."""
+        # N-grams are already normalized; do not strip a second article.
+        if self.shards is not None:
+            self.shards._ensure_indexes()
+            return list(self.shards._index_data("values", value).get(
+                value, {}).get("keys", ()))
+        return sorted(key for key, record in self._facts.items()
+                      if record.get("subject") and record.get("attribute")
+                      and normalize_subject(str(record["value"])) == value)
+
+    def value_attributes(self, value: str, words: set[str]) -> set[str] | None:
+        """Attributes that name a held value, or all for informative values."""
+        from ultraquant.shards.router import _informative
+
+        attributes = {normalize_subject(record["attribute"])
+                      for key in self.value_keys(value)
+                      if (record := self.recall_fact(key)) is not None
+                      and record.get("subject") and record.get("attribute")}
+        vocabulary = self._attribute_vocabulary()
+        named = {attribute for attribute in attributes
+                 if set(attribute.split()) <= words
+                 or words & (attribute_words(attribute, vocabulary.get(attribute, {}))
+                             - set(attribute.split()))}
+        if named:
+            return named
+        if any(_informative(token) for token in value.split()):
+            return attributes
+        return None
+
+    def catalogue_by_value(self, text: str) -> dict | None:
+        """Find every holder of the sole named, non-nested value."""
+        if self.subjects_in(text):
+            return None
+        candidates = {}
+        for value in subject_ngrams(text):
+            if self.value_keys(value):
+                attributes = self.value_attributes(value, question_words(text, value))
+                if attributes is not None:
+                    candidates[value] = attributes
+        value = choose_subject(set(candidates))
+        if value is None:
+            return None
+        attributes = candidates[value]
+        records = []
+        for key in sorted(self.value_keys(value)):
+            record = self.recall_fact(key)
+            if (record is not None and record.get("subject") and record.get("attribute")
+                    and normalize_subject(record["attribute"]) in attributes):
+                records.append({"key": key, "record": record})
+        return {"form": "value", "value": value, "attributes": sorted(attributes),
+                "records": records}
+
     # §11.141: use only explicit record slots and indexed asking evidence.
     def _attribute_vocabulary(self) -> dict:
         """The attribute page, or its in-memory counterpart."""
@@ -413,8 +466,9 @@ class SystematicMemory:
         # §11.142: shared words in structured subjects do not establish identity.
         from ultraquant.interpreter.learning import _STOPWORDS
 
-        if words & known and self._unheld_subject(
-                set(FactShards.tokens(text)) - _STOPWORDS, known):
+        if (words & known and self._unheld_subject(
+                set(FactShards.tokens(text)) - _STOPWORDS, known)
+                and self.catalogue_by_value(text) is None):
             return {"form": "unknown-subject"}
         return None
 

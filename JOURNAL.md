@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.154](#11154-facts-found-by-their-value) | Facts found by their value |
 | [11.159](#11159-answers-that-come-back) | Answers that come back |
 | [11.158](#11158-questions-from-the-shape-of-what-it-knows-failed) | Questions from the shape of what it knows (failed) |
 | [11.157](#11157-the-default-call-keeps-its-shape) | The default call keeps its shape |
@@ -846,6 +847,66 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.154 Facts found by their value
+
+**Why:** the chat answered none of 80 questions like these, although every
+value in them was held:
+- "Which element has atomic number 26?"
+- "Which country has the capital Nairobi?"
+- "What did Aldous Huxley write?"
+
+59 of them were refused with "nothing it names is in my catalogue" (79 when
+first measured, at b6b0597). The catalogue indexed subjects, keys,
+attributes and derivations, but not values.
+
+**The change** (pre-registration sha256 81bf30b1..., with Amendment A
+bb1da314... and Amendment B 4187c54e..., all before any code):
+- **A value index, written with the fact.**
+  - A paged index maps each normalized value to the keys of the structured
+    records holding it.
+  - It is maintained on every put and delete.
+  - Existing libraries, the user's among them, are migrated once. A marker
+    page keeps the scan from repeating.
+- **Named as a value (Amendment B).** Six held values are stopwords (as, at,
+  be, i, in, no), "he" and "am" are chemical symbols, and every integer 1..118
+  is held. So a value counts only when the question names it as a value, in
+  one of two ways:
+  - it names an attribute that holds it, by the attribute's name or by an
+    asking word attested by two subjects;
+  - or the value carries an informative token ("Aldous Huxley", "Nairobi").
+- **Every holder is named.** "What did Jane Austen write?" answers "Emma: ...;
+  Pride and Prejudice: ...". A named catalogued subject keeps the subject
+  path.
+- **No false refusal.** The unknown-subject refusal is given only when no
+  value is named.
+- **Amendment A** corrected the exam's instrument. A reply that repeats the
+  asked value no longer counts it as a wrong subject: Victoria is both a
+  subject and Seychelles' capital.
+
+**PASSED,** in Astra's run and on Claude's worktree: 5 of 5 cases, and 4 of 4
+plants caught.
+- **The plants:**
+  - P71: no value index;
+  - P72: only the first holder named;
+  - P73: the refusal kept;
+  - P86: every held n-gram counts as a value.
+- **Reverse questions.** 79 of 80 name the right subject (was 0), 0 name a
+  wrong one, and 0 are refused (was 59).
+- **The one miss is the one Amendment A predicted.** "Which country has the
+  capital Victoria?" takes the subject path and answers with the capital of
+  Victoria, Melbourne.
+- **Common words are not values.**
+  - "Which element has the chemical symbol No?" answers nobelium.
+  - These name no element: "What is in the box?", "Where did he go?", "Who am
+    I?", "Is it at home?" and "Which planet is number 4?".
+- **Found in review.** "What is the population of Nairobi?" now answers with
+  Kenya's capital. The library indexes no population attribute, so the
+  question cannot be seen to ask for something else. Before, it was refused
+  as naming nothing held.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 115 of 118 gates. The timing gate vram passed this time, and `values_gate` joins the ledger as PASS. `embed_gate` calls the user's LM Studio embeddings and ran by mistake, in this sweep and the last: it moves to the ledger's skipped list, which is the list sweeps skip, and its historical FAIL is kept in the reason.
+
+Suite: 2,604 passed, 5 skipped, 0 failed (2,609).
 
 ### 11.159 Answers that come back
 

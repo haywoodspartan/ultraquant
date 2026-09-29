@@ -219,6 +219,7 @@ class FactShards:
             return
         entries = self.vault.catalog()
         if any(e["shard_id"].startswith("index:derivations:") for e in entries):
+            self._ensure_values(entries)
             self._indexes_ready = True
             return
         # §11.139: even an edgeless library persists a migration marker.
@@ -233,6 +234,8 @@ class FactShards:
             marker = "index:derivations:00"
             self._indexes.setdefault(marker, {"derived": {}})
             self._index_before.setdefault(marker, None)
+            self._indexes.setdefault("index:values:00", {"values": {}})
+            self._index_before.setdefault("index:values:00", None)
             locations: dict[str, set[str]] = {}
             # §11.139: preserve get's precedence when old stores hold duplicates.
             # Only catalogue fields are retained during this one-time scan.
@@ -254,7 +257,7 @@ class FactShards:
                                   if previous and previous[0] in preferred else 3)
                     if previous is None or rank < prior_rank:
                         selected[key] = (bucket, {field: record[field] for field in
-                            ("subject", "attribute", "derived_from") if field in record})
+                            ("subject", "attribute", "value", "derived_from") if field in record})
             for key, (bucket, record) in selected.items():
                 directory = self._index_data("keys", key)
                 if bucket != self.bucket_of(key):
@@ -271,6 +274,7 @@ class FactShards:
                         self._index_data("attributes").setdefault(attribute, {
                             "name": record["attribute"], "subjects": 0})
                 self._update_derivations(key, None, record)
+                self._update_values(key, None, record)
             for attribute, subjects in attribute_subjects.items():
                 self._index_data("attributes")[attribute]["subjects"] = len(subjects)
             self._duplicates = {key: buckets for key, buckets in locations.items()
@@ -280,6 +284,44 @@ class FactShards:
         # so the directory remains sufficient after a restart.
         for key in list(self._duplicates):
             self.put(key, self.get(key))
+
+    def _ensure_values(self, entries: list[dict]) -> None:
+        """Stage the value index once for libraries with older indexes."""
+        if any(e["shard_id"].startswith("index:values:") for e in entries):
+            return
+        with self.vault.batch():
+            self._indexes.setdefault("index:values:00", {"values": {}})
+            self._index_before.setdefault("index:values:00", None)
+            selected: dict[str, tuple[int, dict]] = {}
+            for entry in entries:
+                if entry.get("kind") != "fact-bucket":
+                    continue
+                bucket = entry["shard_id"]
+                for key, record in self._load(bucket).items():
+                    directed = self._index_data("keys", key).get(key)
+                    preferred = (directed, self.bucket_of(key), self._legacy_bucket_of(key))
+                    rank = preferred.index(bucket) if bucket in preferred else 3
+                    if key not in selected or rank < selected[key][0]:
+                        selected[key] = (rank, record)
+            for key, (_rank, record) in selected.items():
+                self._update_values(key, None, record)
+
+    def _update_values(self, key: str, old: dict | None, new: dict | None) -> None:
+        """Move a structured fact's membership with its stored value."""
+        for record, adding in ((old, False), (new, True)):
+            if not record or not record.get("subject") or not record.get("attribute"):
+                continue
+            value = normalize_subject(str(record["value"]))
+            index = self._index_data("values", value)
+            keys = set(index.get(value, {}).get("keys", ()))
+            if adding:
+                keys.add(key)
+            else:
+                keys.discard(key)
+            if keys:
+                index[value] = {"keys": sorted(keys)}
+            else:
+                index.pop(value, None)
 
     def _locations(self, key: str) -> list[str]:
         """Directory address first, followed by both historical fallbacks."""
@@ -344,6 +386,7 @@ class FactShards:
     def _update_structure(self, key: str, old: dict | None, new: dict | None,
                           bucket: str | None) -> None:
         """Maintain subject membership and counts of subjects per attribute."""
+        self._update_values(key, old, new)
         old, new = old or {}, new or {}
         before = tuple(normalize_subject(old.get(f) or "") for f in ("subject", "attribute"))
         after = tuple(normalize_subject(new.get(f) or "") for f in ("subject", "attribute"))
@@ -568,7 +611,8 @@ class FactShards:
                        or payload != self._index_written.get(sid, self._index_before[sid]))
                    and (self._index_before[sid] is not None
                         or sid in self._index_written
-                        or any(payload.values()) or sid == "index:derivations:00")}
+                        or any(payload.values())
+                        or sid in ("index:derivations:00", "index:values:00"))}
         if not self._dirty and not changed:
             return 0
         # review 8: snapshots survive later staging until the outer commit.

@@ -266,14 +266,6 @@
    "commit": "3f02048",
    "seconds": 1.3
   },
-  "embed_gate": {
-   "verdict": "FAIL",
-   "line": "FAIL - embeddings also beat lexical on the partial-overlap control by +0.075 (control sd 0.043); that is a capacity advantage, so the paraphrase margin cannot be attributed to meaning",
-   "commit": "3f02048",
-   "seconds": 0.3,
-   "class": "failed when written",
-   "cause": "Its docstring records the control violated and 'this gate failed'. It also calls the user's LM Studio server (embeddings), so unattended sweeps skip it."
-  },
   "enough_gate": {
    "verdict": "FAIL",
    "line": "FAIL - 5 worlds of 12 experts, 120 questions each; adaptive reads 2.61 of 12 (sd 0.95, FIXED COST), 0.10 paid, sparing 78.2%; accuracy 0.9950 adaptive against 0.9900 reading everything (holds) and 0.9883 for fixed top-3 (gap +0.0067 at seed sd 0.0062, beats the constant); plateaus justified 100.0% (honest)",
@@ -736,6 +728,12 @@
    "class": "failed when written",
    "cause": "Its docstring records: it was run, and it FAILED - the family cannot see what the reader sees."
   },
+  "values_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 5 cases; 4 of 4 plants caught",
+   "commit": "11.154",
+   "seconds": 9.1
+  },
   "vram_gate": {
    "verdict": "FAIL",
    "line": "FAIL - saving +0.066 ms is 0.24x the repetition sd",
@@ -769,6 +767,7 @@
   "correction_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "distill_facts_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "distill_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
+  "embed_gate": "needs the environment: calls the user's LM Studio server (embeddings), so unattended sweeps skip it. Recorded FAIL when written (3f02048): its docstring records the control violated and 'this gate failed' - embeddings also beat lexical on the partial-overlap control (+0.075, sd 0.043). Two sweeps on 2026-09-29 ran it by mistake, while it sat under gates; its control moved with the environment (+0.087, then +0.000).",
   "encoder_gate": "needs the model hardware: reads Command-R's weights.",
   "fewshot_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it.",
   "forward_gate": "needs the environment: llama.cpp oracle servers for Command-R on 127.0.0.1:8089 and 8090.",
@@ -782,7 +781,6 @@
   "study_gate": "needs the environment: its teacher panel names google/gemma-4-31b, which is no longer in the user's LM Studio catalogue, so the panel cannot form and every question stays open (0 of 6 closed, in 1.1 s, no generation). The survey still mints the unknown-term question on the current code. A bisect named 118ee48, but only because every tested commit fails the same way today. It also queries the user's LM Studio, so it is run only with the user present.",
   "tensorglyph_gate": "needs the environment: a GGUF checkpoint named by UQ_CONVERT_MODEL.",
   "tokenizer_gate": "needs the model hardware: llama-server as the tokenizer oracle.",
-  "values_gate": "11.154's exam: recorded with its unit.",
   "vocabulary_gate": "needs the environment: calls the user's LM Studio server, so unattended sweeps skip it."
  },
  "exit_code_disagrees": [
