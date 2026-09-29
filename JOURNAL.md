@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.168](#11168-the-session-leaves-your-models-alone) | The session leaves your models alone |
 | [11.167](#11167-a-dictionary) | A dictionary |
 | [11.166](#11166-one-session-three-sources-everything-restored) | One session, three sources, everything restored |
 | [11.165](#11165-a-teacher-is-known-by-its-weights-failed-kept) | A teacher is known by its weights (failed, kept) |
@@ -855,6 +856,70 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.168 The session leaves your models alone
+
+**Why:** "GUI needs to work while your working also."
+- §11.166's session swaps the GPU. Live, it unloaded the user's Command-R
+  (context 128000, parallel 4) for about ten minutes while Qwen and Cydonia
+  answered. Anything using Command-R meanwhile lost it: the GUI's LLM panel,
+  and the user's other programs.
+- Lupine could not host the sources instead. Its leases fail with "no GPU
+  capacity" while its status lists 24 free, and its pods have 4 GiB of
+  memory. A RAM increase was requested.
+
+**Measured first** (2026-09-29), with Command-R on the GPU:
+- **The load.** Qwen3.8-27B loaded CPU-only (`lms load ... --gpu off`) in
+  15.5 s, taking about 19.6 GB of RAM and 100 MiB of GPU memory.
+- **Its answers.** It calibrated 40 of 40 on §11.166's live pairs, the same
+  as on the GPU, at 1.32 s a request. That is about 3.7 times the GPU's
+  rate.
+- **Command-R.** It answered every probe meanwhile in 0.08 to 0.14 s.
+- **The restore.** `lms ps` was unchanged afterwards.
+
+**The change** (pre-registration sha256 0df366c2..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository meanwhile.
+- **The plan data** says `"device": "cpu"`. `run_session(..., device=)`
+  defaults to "gpu", which is §11.166's path unchanged. The command line
+  passes the data file's device, and `--device gpu` overrides it.
+- **The swapper.** `LMStudioSwapper.load_alongside` shares a source that is
+  already loaded ("shared": one `ps`, nothing else). Any other source it
+  loads CPU-only beside whatever is loaded ("cpu"). It never unloads.
+- **Cleanup.** Each source placed "cpu" is unloaded when it ends, used up or
+  failed, before the next is placed.
+- **The report** gives each source's device and seconds.
+
+**PASSED** on the first run: 5 of 5 cases, 3 of 3 plants.
+- **The same knowledge.** The session reproduces the three-source world
+  value for value.
+- **The user's models untouched.** No load or unload named a snapshot
+  model, and every snapshot model was held unchanged at every load. This
+  held with Qwen made to fail too.
+- **Cleaned up.** At every load the fake held exactly the snapshot, and it
+  did at the end of both runs.
+- **Shared.** Command-R was never loaded, and the two loads (Qwen, Cydonia)
+  carried `--gpu off`. The devices were shared, cpu, cpu.
+- **Live,** through the implementation's own commands:
+  - Qwen was placed "cpu" and scored 40 of 40 (Wilson bound 0.912) in 250 s.
+  - Command-R answered "Paris" to all 13 probes meanwhile, the slowest in
+    0.1 s.
+  - `lms ps` was unchanged afterwards.
+  - Command-R itself was placed "shared" with nothing but `ps` issued.
+- **The plants:**
+  - P112 (load_alongside doing the GPU swap) breached 2;
+  - P113 (unload doing nothing) breached 3;
+  - P114 (an already-loaded source loaded again) breached 4.
+- **In the sweep,** alongside_gate joins the gates that replay their record
+  (`--rescore`). A sweep never loads a model.
+- **A gap, reported by the implementer before the exam ran.** A CPU session
+  still ends with `restore(snapshot)`, which would unload a model the user
+  loads mid-session. §11.168's criteria never simulated that. §11.169 takes
+  it.
+
+**Nothing regresses.** A sweep of all 126 gates matches the ledger except the timing gates recallskip_gate and vram_gate (FAIL to PASS, as they have moved in earlier sweeps) and the new alongside_gate (PASS, from its record). session_gate still passes: the GPU path is unchanged.
+
+Suite: 2808 tests, OK (5 skipped).
 
 ### 11.167 A dictionary
 

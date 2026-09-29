@@ -1,0 +1,102 @@
+{
+ "before": [
+  [
+   "c4ai-command-r-08-2024",
+   "llm",
+   128000,
+   4,
+   null
+  ],
+  [
+   "text-embedding-nomic-embed-text-v1.5",
+   "embedding",
+   2048,
+   null,
+   3600000
+  ]
+ ],
+ "qwen placed": "cpu",
+ "calibration seconds": 249.8,
+ "calibration": {
+  "right": 40,
+  "promoted": 40,
+  "wilson_lower": 0.9123783975415363
+ },
+ "probes": [
+  {
+   "seconds": 0.1,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.077,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.091,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.088,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.093,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.086,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.088,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.089,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.076,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.093,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.093,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.081,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  },
+  {
+   "seconds": 0.088,
+   "reply": "Paris<|END_OF_TURN_TOKEN|>"
+  }
+ ],
+ "after": [
+  [
+   "c4ai-command-r-08-2024",
+   "llm",
+   128000,
+   4,
+   null
+  ],
+  [
+   "text-embedding-nomic-embed-text-v1.5",
+   "embedding",
+   2048,
+   null,
+   3600000
+  ]
+ ],
+ "command-r placed": "shared",
+ "command-r calls": [
+  [
+   "ps",
+   "--json"
+  ]
+ ]
+}

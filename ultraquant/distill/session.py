@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 
 from . import elicit, frontier, session, sources
 from ultraquant.interpreter.autoapprove import AutoApprover
@@ -22,6 +23,7 @@ from ultraquant.shards.vault import ShardVault
 
 PLAN_PATH = Path(__file__).with_name("data") / "session.json"
 TOTALS = ("asked", "filed", "agreed", "contested", "revised")
+DEVICES = ("cpu", "gpu")
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,14 @@ def load_plan(path=None) -> list[SourcePlan]:
     data = json.loads(Path(path or PLAN_PATH).read_text(encoding="utf-8"))
     return [SourcePlan(row["name"], row["gguf"], data["context_length"])
             for row in data["sequence"]]
+
+
+def load_device(path=None) -> str:
+    data = json.loads(Path(path or PLAN_PATH).read_text(encoding="utf-8"))
+    device = data.get("device", "gpu")
+    if device not in DEVICES:
+        raise ValueError(f"device must be 'cpu' or 'gpu', not {device!r}")
+    return device
 
 
 def _stamp():
@@ -74,6 +84,18 @@ class LMStudioSwapper:
                 self._command("unload", model["identifier"])
         if not any(model["identifier"] == name for model in current):
             self._command("load", name, "--context-length", str(context_length), "-y")
+
+    def load_alongside(self, name, context_length):
+        # The user's models stay as they are (§11.168): a source already loaded
+        # is shared, and any other loads CPU-only beside whatever is loaded.
+        if any(model["identifier"] == name for model in self.snapshot()):
+            return "shared"
+        self._command("load", name, "--gpu", "off",
+                      "--context-length", str(context_length), "-y")
+        return "cpu"
+
+    def unload(self, name):
+        self._command("unload", name)
 
     def restore(self, snapshot):
         wanted = {model["identifier"]: model for model in snapshot}
@@ -120,7 +142,9 @@ def _co_distilled(stash, pairs, name):
 
 
 def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
-                report_path, max_rounds=8, pairs=None) -> dict:
+                report_path, max_rounds=8, pairs=None, device="gpu") -> dict:
+    if device not in DEVICES:
+        raise ValueError(f"device must be 'cpu' or 'gpu', not {device!r}")
     backup_path = session.backup(root, backup_dir)
     root, report_path = Path(root), Path(report_path)
     report = {"status": "complete", "failed": None, "error": None,
@@ -147,34 +171,56 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
         Path(backup_dir).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=f"session-{stamp}-", dir=backup_dir) as scratch:
             for index, source in enumerate(plan):
-                active = source.name
-                swapper.load(source.name, source.context_length)
-                teacher = teacher_factory(source)
-                records = elicit.elicit(teacher, source.name, [t for t, _ in pairs],
-                                        Path(scratch) / f"{index}-calibration.jsonl")
-                calibration = sources.calibrate(records, pairs)
-                entry = {"name": source.name,
-                         "calibration": {"right": calibration["right"],
-                                         "decided": calibration["promoted"],
-                                         "bound": calibration["wilson_lower"]},
-                         "co_distilled": _co_distilled(stash, pairs, source.name),
-                         "rounds": [], "totals": dict.fromkeys(TOTALS, 0)}
-                report["sources"].append(entry)
-                for n in range(1, max_rounds + 1):
-                    result = frontier.study_round(
-                        memory, stash, teacher, ledger, source.name,
-                        confidence=calibration["wilson_lower"],
-                        run_id=f"session-{stamp}-{source.name}-{n}",
-                        records_path=Path(scratch) / f"{index}-{n}.jsonl",
-                        approver=approver)
-                    entry["rounds"].append(result)
-                    for key in TOTALS:
-                        entry["totals"][key] += result.get(key, 0)
-                    if result["used_up"]:
-                        break
+                active, where, entry = source.name, None, None
+                started = time.perf_counter()
+                try:
+                    if device == "gpu":
+                        swapper.load(source.name, source.context_length)
+                        where = "gpu"
+                    else:
+                        where = swapper.load_alongside(source.name, source.context_length)
+                    teacher = teacher_factory(source)
+                    records = elicit.elicit(teacher, source.name, [t for t, _ in pairs],
+                                            Path(scratch) / f"{index}-calibration.jsonl")
+                    calibration = sources.calibrate(records, pairs)
+                    entry = {"name": source.name, "device": where,
+                             "calibration": {"right": calibration["right"],
+                                             "decided": calibration["promoted"],
+                                             "bound": calibration["wilson_lower"]},
+                             "co_distilled": _co_distilled(stash, pairs, source.name),
+                             "rounds": [], "totals": dict.fromkeys(TOTALS, 0)}
+                    report["sources"].append(entry)
+                    for n in range(1, max_rounds + 1):
+                        result = frontier.study_round(
+                            memory, stash, teacher, ledger, source.name,
+                            confidence=calibration["wilson_lower"],
+                            run_id=f"session-{stamp}-{source.name}-{n}",
+                            records_path=Path(scratch) / f"{index}-{n}.jsonl",
+                            approver=approver)
+                        entry["rounds"].append(result)
+                        for key in TOTALS:
+                            entry["totals"][key] += result.get(key, 0)
+                        if result["used_up"]:
+                            break
+                except BaseException as exc:
+                    failed(exc)
+                finally:
+                    # What the session loaded beside the user's models leaves as
+                    # its source ends, used up or failed, before the next is
+                    # placed (§11.168). The source's own error, if any, wins.
+                    if where == "cpu":
+                        try:
+                            swapper.unload(source.name)
+                        except BaseException as exc:
+                            failed(exc)
+                    if entry is not None:
+                        entry["seconds"] = time.perf_counter() - started
+                if error is not None:
+                    raise error
                 active = None
     except BaseException as exc:
-        failed(exc)
+        if exc is not error:  # a source's failure is reported already
+            failed(exc)
     finally:
         try:
             if snapshot is not None:
@@ -225,6 +271,7 @@ def main(argv=None):
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--device", choices=DEVICES, default=session.load_device())
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     plan = session.load_plan()
@@ -234,7 +281,8 @@ def main(argv=None):
         snapshot = swapper.snapshot()
         memory, stash = _preview_library(args.root)
         pairs = sources.calibration_items(memory, stash, k=40, seed=155)
-        print(json.dumps({"plan": [asdict(source) for source in plan],
+        print(json.dumps({"device": args.device,
+                          "plan": [asdict(source) for source in plan],
                           "snapshot": snapshot, "pairs": len(pairs),
                           "sources": [{"name": source.name,
                                        "co_distilled": _co_distilled(stash, pairs, source.name)}
@@ -245,7 +293,7 @@ def main(argv=None):
         report = session.run_session(
             args.root, plan, swapper=swapper,
             teacher_factory=lambda source: sources.LMStudioTeacher(source.name, source.gguf),
-            backup_dir=backup_dir, report_path=report_path)
+            backup_dir=backup_dir, report_path=report_path, device=args.device)
         print(json.dumps(report, indent=2))
     return 0
 

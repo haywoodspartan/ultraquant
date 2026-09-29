@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -47,12 +48,23 @@ class FakeRun:
                 return args[args.index(name) + 1] if name in args else default
             ttl = flag("--ttl")
             parallel = flag("--parallel")
-            self.loaded.append(model(args[2], int(flag("--context-length")),
-                                     int(parallel) if parallel is not None else None,
-                                     float(ttl) * 1000 if ttl is not None else None))
+            loaded = model(args[2], int(flag("--context-length")),
+                           int(parallel) if parallel is not None else None,
+                           float(ttl) * 1000 if ttl is not None else None)
+            # `--gpu off` places a model CPU-only (§11.168); a plain load has no flag.
+            if "--gpu" in args:
+                loaded["gpu"] = flag("--gpu")
+            self.loaded.append(loaded)
         else:
             raise AssertionError(args)
         return subprocess.CompletedProcess(args, 0, "", "")
+
+
+PS = ("ps", "--json")
+
+
+def cpu_load(name, context=4096):
+    return ("load", name, "--gpu", "off", "--context-length", str(context), "-y")
 
 
 class SwapperTests(unittest.TestCase):
@@ -116,6 +128,34 @@ class SwapperTests(unittest.TestCase):
         self.assertEqual(run.calls[-1], ["fake", "load", "original", "--context-length",
                                         "4096", "--ttl", "3600.001", "-y"])
 
+    def test_load_alongside_shares_a_loaded_model_issuing_only_ps(self):
+        user = [model("mine", 128000, 4), model("embed", 2048, kind="embedding")]
+        run = FakeRun(user)
+        self.assertEqual(session.LMStudioSwapper("fake", run).load_alongside("mine", 4096),
+                         "shared")
+        self.assertEqual(run.calls, [["fake", "ps", "--json"]])
+        self.assertEqual(run.loaded, user)
+
+    def test_load_alongside_loads_cpu_only_beside_everything_and_never_unloads(self):
+        user = [model("mine", 128000, 4), model("embed", 2048, ttl=3600000, kind="embedding")]
+        run = FakeRun(user)
+        swapper = session.LMStudioSwapper("fake", run)
+        self.assertEqual(swapper.load_alongside("source", 8192), "cpu")
+        self.assertEqual(run.calls, [["fake", "ps", "--json"],
+                                     ["fake", "load", "source", "--gpu", "off",
+                                      "--context-length", "8192", "-y"]])
+        # A second source joins the first: unlike load, nothing is unloaded.
+        self.assertEqual(swapper.load_alongside("next", 4096), "cpu")
+        self.assertNotIn("unload", [call[1] for call in run.calls])
+        self.assertEqual(run.loaded, user + [dict(model("source", 8192), gpu="off"),
+                                             dict(model("next"), gpu="off")])
+
+    def test_unload_unloads_only_the_named_model(self):
+        run = FakeRun([model("mine", 128000, 4), model("source")])
+        session.LMStudioSwapper("fake", run).unload("source")
+        self.assertEqual(run.calls, [["fake", "unload", "source"]])
+        self.assertEqual(run.loaded, [model("mine", 128000, 4)])
+
 
 class FakeTeacher:
     def __init__(self, source, events):
@@ -176,6 +216,30 @@ class SessionTests(unittest.TestCase):
                                    backup_dir=self.backups, report_path=self.report_path,
                                    **kwargs)
 
+    def lms(self, loaded, fail=()):
+        """Swap through a real swapper over FakeRun, logging its commands as events.
+
+        A command in ``fail`` fails once, as lms would, and changes nothing.
+        """
+        run, fail = FakeRun(loaded), set(fail)
+
+        def logged(args, **kwargs):
+            command = tuple(args[1:])
+            self.event(command)
+            if command in fail:
+                fail.remove(command)
+                return subprocess.CompletedProcess(args, 1, "", "failed")
+            return run(args, **kwargs)
+        self.swapper = session.LMStudioSwapper("lms", logged)
+        return run
+
+    def study_round(self, memory, stash, teacher, ledger, source, **kwargs):
+        self.event(("round", source))
+        return {"used_up": True}
+
+    def studied(self, name):
+        return [("calibrate", name, [self.pairs[0][0].question]), ("round", name)]
+
     def test_load_plan_default_custom_and_frozen(self):
         plan = session.load_plan()
         self.assertEqual([s.name for s in plan], ["c4ai-command-r-08-2024",
@@ -187,6 +251,22 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(session.load_plan(path), [session.SourcePlan("custom", "model.gguf", 128)])
         with self.assertRaises(FrozenInstanceError):
             plan[0].name = "changed"
+
+    def test_load_device_default_absent_and_bad(self):
+        self.assertEqual(session.load_device(), "cpu")
+        self.assertEqual(set(json.loads(session.PLAN_PATH.read_text(encoding="utf-8"))),
+                         {"cli", "context_length", "device", "sequence"})
+        path = self.home / "plan.json"
+        path.write_text(json.dumps({"context_length": 128, "sequence": []}), encoding="utf-8")
+        self.assertEqual(session.load_device(path), "gpu")
+        for device in ("cpu", "gpu"):
+            path.write_text(json.dumps({"device": device}), encoding="utf-8")
+            self.assertEqual(session.load_device(path), device)
+        for device in ("GPU", "cuda", "", None, 0, ["cpu"]):
+            with self.subTest(device=device):
+                path.write_text(json.dumps({"device": device}), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    session.load_device(path)
 
     def test_backup_is_complete_unique_and_outside_root(self):
         (self.root / "nested").mkdir()
@@ -307,12 +387,185 @@ class SessionTests(unittest.TestCase):
                                                    "--report", str(self.report_path)]), 0)
                 plan.assert_called_once_with()
                 data = json.loads(output.getvalue())
+                self.assertEqual(data["device"], "cpu")
                 self.assertEqual(data["snapshot"], self.loaded)
                 self.assertEqual(data["pairs"], 1)
                 self.assertEqual([s["co_distilled"] for s in data["sources"]], [1, 1, 1])
                 self.assertEqual(tree(self.home), before)
                 self.swapper.load.assert_not_called()
                 self.swapper.restore.assert_not_called()
+
+    def test_cpu_shares_a_loaded_source_and_unloads_each_it_loaded_before_the_next(self):
+        user = [model("first", 128000, 4), model("embed", 2048, ttl=3600000, kind="embedding")]
+        run = self.lms(user)
+        with mock.patch.object(frontier, "study_round", side_effect=self.study_round):
+            report = self.run_session(pairs=self.pairs, device="cpu")
+        expected = [PS, PS] + self.studied("first")
+        for name in ("second/model", "third"):
+            expected += [PS, cpu_load(name)] + self.studied(name) + [("unload", name)]
+        # The restore finds the models as they were and issues nothing but ps.
+        self.assertEqual(self.events, expected + [PS])
+        self.assertEqual(run.loaded, user)
+        self.assertEqual(report["status"], "complete")
+        self.assertEqual([(e["name"], e["device"]) for e in report["sources"]],
+                         [("first", "shared"), ("second/model", "cpu"), ("third", "cpu")])
+
+    def test_cpu_source_that_raises_is_unloaded_and_its_error_reraised(self):
+        real_ask = FakeTeacher.ask
+        for stage in ("calibration", "round"):
+            with self.subTest(stage=stage):
+                self.events.clear()
+                fault = RuntimeError(f"{stage} failed")
+                user = [model("first", 128000, 4)]
+                run = self.lms(user)
+
+                def ask(teacher, questions, **kwargs):
+                    if stage == "calibration" and teacher.spec.name == "second/model":
+                        raise fault
+                    return real_ask(teacher, questions, **kwargs)
+
+                def study_round(memory, stash, teacher, ledger, source, **kwargs):
+                    self.event(("round", source))
+                    if source == "second/model":
+                        raise fault
+                    return {"used_up": True}
+
+                with mock.patch.object(FakeTeacher, "ask", ask), \
+                        mock.patch.object(frontier, "study_round", side_effect=study_round):
+                    with self.assertRaises(RuntimeError) as raised:
+                        self.run_session(pairs=self.pairs, device="cpu")
+                self.assertIs(raised.exception, fault)
+                studied = self.studied("second/model") if stage == "round" else []
+                self.assertEqual(self.events, [PS, PS] + self.studied("first")
+                                 + [PS, cpu_load("second/model")] + studied
+                                 + [("unload", "second/model"), PS])
+                self.assertEqual(run.loaded, user)
+                report = json.loads(self.report_path.read_text())
+                self.assertEqual((report["status"], report["failed"], report["error"]),
+                                 ("failed", "second/model", repr(fault)))
+                # An entry is appended once its source is calibrated, as before.
+                self.assertEqual([e["name"] for e in report["sources"]],
+                                 ["first"] + (["second/model"] if stage == "round" else []))
+
+    def test_cpu_unload_failure_is_a_cleanup_error_and_the_source_error_wins(self):
+        for raises in (True, False):
+            with self.subTest(raises=raises):
+                self.events.clear()
+                fault = RuntimeError("round failed")
+                user = [model("first", 128000, 4)]
+                run = self.lms(user, fail=[("unload", "second/model")])
+
+                def study_round(memory, stash, teacher, ledger, source, **kwargs):
+                    self.event(("round", source))
+                    if raises and source == "second/model":
+                        raise fault
+                    return {"used_up": True}
+
+                with mock.patch.object(frontier, "study_round", side_effect=study_round):
+                    with self.assertRaises(Exception) as raised:
+                        self.run_session(pairs=self.pairs, device="cpu")
+                report = json.loads(self.report_path.read_text())
+                self.assertEqual((report["status"], report["failed"]), ("failed", "second/model"))
+                if raises:
+                    self.assertIs(raised.exception, fault)
+                    self.assertTrue(report["error"].startswith(
+                        repr(fault) + "; cleanup: CalledProcessError("), report["error"])
+                    self.assertEqual(len(fault.__notes__), 1)
+                else:
+                    self.assertIsInstance(raised.exception, subprocess.CalledProcessError)
+                    self.assertEqual(report["error"], repr(raised.exception))
+                # The next source is never placed, and the restore unloads the leftover.
+                self.assertEqual(self.events, [PS, PS] + self.studied("first")
+                                 + [PS, cpu_load("second/model")] + self.studied("second/model")
+                                 + [("unload", "second/model"), PS, ("unload", "second/model")])
+                self.assertEqual(run.loaded, user)
+
+    def test_report_device_and_seconds_span_placement_to_cleanup(self):
+        pause = 0.05
+
+        def load_alongside(name, context):
+            time.sleep(pause)
+            return "shared" if name == "first" else "cpu"
+        self.swapper.load_alongside.side_effect = load_alongside
+        self.swapper.unload.side_effect = lambda name: time.sleep(pause)
+        self.swapper.load.side_effect = lambda name, context: time.sleep(pause)
+        with mock.patch.object(frontier, "study_round", return_value={"used_up": True}):
+            cpu = self.run_session(pairs=self.pairs, device="cpu")
+            self.assertEqual(json.loads(self.report_path.read_text()), cpu)
+            gpu = self.run_session(pairs=self.pairs, device="gpu")
+        self.assertEqual([e["device"] for e in cpu["sources"]], ["shared", "cpu", "cpu"])
+        self.assertEqual([e["device"] for e in gpu["sources"]], ["gpu"] * 3)
+        self.assertEqual(self.swapper.unload.call_args_list,
+                         [mock.call("second/model"), mock.call("third")])
+        # Each span holds its placement, and its unload where there is one.
+        for entry, pauses in zip(cpu["sources"] + gpu["sources"], (1, 2, 2, 1, 1, 1)):
+            self.assertIsInstance(entry["seconds"], float)
+            self.assertGreaterEqual(entry["seconds"], 0.9 * pause * pauses)
+
+    def test_gpu_device_is_todays_path(self):
+        with mock.patch.object(frontier, "study_round", side_effect=self.study_round):
+            default = self.run_session(pairs=self.pairs)
+            events = self.events[:]
+            self.events.clear()
+            explicit = self.run_session(pairs=self.pairs, device="gpu")
+        self.assertEqual(self.events, events)
+        self.assertEqual(events, ["snapshot"] + [event for source in self.plan for event in
+                                                 [("load", source.name)] + self.studied(source.name)]
+                         + [("restore", self.loaded)])
+        self.swapper.load_alongside.assert_not_called()
+        self.swapper.unload.assert_not_called()
+        for report in (default, explicit):
+            self.assertEqual([e["device"] for e in report["sources"]], ["gpu"] * 3)
+
+    def test_bad_device_raises_before_the_backup(self):
+        before = tree(self.home)
+        with mock.patch.object(session, "backup", side_effect=AssertionError("backup")):
+            for device in ("GPU", "cuda", "", None):
+                with self.subTest(device=device), self.assertRaises(ValueError):
+                    self.run_session(pairs=self.pairs, device=device)
+        self.assertEqual(self.swapper.mock_calls, [])
+        self.assertEqual(tree(self.home), before)
+        self.assertFalse(self.backups.exists())
+
+    def test_cli_device_defaults_to_load_device_and_reaches_the_session(self):
+        common = ["--root", str(self.root), "--backup-dir", str(self.backups),
+                  "--report", str(self.report_path)]
+        cases = (("cpu", [], "cpu"), ("gpu", [], "gpu"),
+                 ("gpu", ["--device", "cpu"], "cpu"), ("cpu", ["--device", "gpu"], "gpu"))
+        with mock.patch.object(session, "load_plan", return_value=self.plan), \
+                mock.patch.object(session, "LMStudioSwapper", return_value=self.swapper), \
+                mock.patch.object(session, "run_session", return_value={}) as run_session:
+            for default, argv, device in cases:
+                with self.subTest(default=default, argv=argv), \
+                        mock.patch.object(session, "load_device", return_value=default) as load, \
+                        mock.patch("sys.stdout", io.StringIO()):
+                    self.assertEqual(session.main(common + argv), 0)
+                    load.assert_called_with()
+                    self.assertEqual(run_session.call_args.args, (self.root, self.plan))
+                    self.assertEqual(run_session.call_args.kwargs["device"], device)
+            with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                session.main(common + ["--device", "tpu"])
+        self.assertEqual(run_session.call_count, len(cases))
+
+    def test_dry_run_prints_the_device_and_writes_nothing(self):
+        before = tree(self.home)
+        for default, argv, device in (("cpu", ["--device", "gpu"], "gpu"),
+                                      ("gpu", [], "gpu"), ("gpu", ["--device", "cpu"], "cpu")):
+            with self.subTest(default=default, argv=argv):
+                output = io.StringIO()
+                with mock.patch.object(session, "load_plan", return_value=self.plan), \
+                        mock.patch.object(session, "load_device", return_value=default), \
+                        mock.patch.object(session, "LMStudioSwapper", return_value=self.swapper), \
+                        mock.patch.object(session, "run_session", side_effect=AssertionError("run")), \
+                        mock.patch.object(session, "backup", side_effect=AssertionError("backup")), \
+                        mock.patch.object(Path, "mkdir", side_effect=AssertionError("mkdir")), \
+                        mock.patch.object(Path, "write_text", side_effect=AssertionError("write")), \
+                        mock.patch.object(SystematicMemory, "save", side_effect=AssertionError("save")), \
+                        mock.patch("sys.stdout", output):
+                    self.assertEqual(session.main(["--root", str(self.root), "--dry-run", *argv]), 0)
+                self.assertEqual(json.loads(output.getvalue())["device"], device)
+        self.assertEqual(tree(self.home), before)
+        self.assertEqual([name for name, _, _ in self.swapper.mock_calls], ["snapshot"] * 3)
 
 
 if __name__ == "__main__":
