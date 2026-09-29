@@ -97,14 +97,17 @@ class MemoryFrontierTests(unittest.TestCase):
         self.stash.save()
         return entry_id
 
-    def kind_reply(self, answers=None):
+    def kind_reply(self, answers=None, *, rows=None, seed=158):
         subjects = sorted({self.memory.recall_fact(key)["subject"]
                            for key in self.memory.fact_keys()
                            if self.memory.recall_fact(key).get("attribute") == "atomic number"})
-        a, b, c = random.Random(158).sample(subjects, 3)
-        question = frontier._seed_questions()["kind"].format(a=a, b=b, c=c)
-        self.teacher.replies[question] = answers or ["element"] * 5
-        return question
+        members = random.Random(seed).sample(subjects, 3)
+        questions = [frontier._seed_questions()["kind"].format(a=member)
+                     for member in members]
+        if rows is None:
+            rows = [answers if answers is not None else ["element"] * elicit.SAMPLES] * 3
+        self.teacher.replies.update(zip(questions, rows))
+        return questions
 
     def test_sequence_gaps_and_verification_queue(self):
         missing = [21, 23, 37, 39, 40]
@@ -280,13 +283,14 @@ class MemoryFrontierTests(unittest.TestCase):
     def test_kind_is_normalized_persisted_and_reused(self):
         for number in range(1, 7):
             self.fact(number)
-        question = self.kind_reply(["Element.", "**element**", "ELEMENT",
-                                    "substance", "UNKNOWN"])
+        questions = self.kind_reply(["Element.", "**element**", "ELEMENT",
+                                     "substance", "UNKNOWN"])
         self.assertEqual(frontier.kind_of(self.memory, "atomic number", self.teacher),
                          "element")
-        self.assertEqual(self.teacher.calls[0][0], [question])
-        self.assertEqual(self.teacher.calls[0][1]["samples"], 5)
-        self.assertEqual(self.teacher.calls[0][1]["system"], elicit.SYSTEM)
+        self.assertEqual(self.teacher.calls, [(questions, {
+            "system": elicit.SYSTEM, "samples": elicit.SAMPLES,
+            "temperature": elicit.TEMPERATURE, "top_p": elicit.TOP_P,
+            "max_tokens": elicit.MAX_TOKENS, "seeds": elicit.SEEDS})])
         self.memory.learn_asking("atomic number", "Member 1", "Number for Member 1?")
         self.memory.save()
         reopened = self.open_memory()
@@ -299,15 +303,118 @@ class MemoryFrontierTests(unittest.TestCase):
             self.assertEqual(reopened.shards.vault.get("index:attributes")
                              ["attributes"]["atomic number"]["kind"], "element")
 
-    def test_kind_requires_majority_and_seed(self):
-        for number in range(1, 7):
+    def test_kind_requires_shared_answer_and_seed(self):
+        for number in (1, 2, 3, 4, 6):
             self.fact(number)
-        self.kind_reply(["element", "element", "substance", "substance", "UNKNOWN"])
+        self.form()
+        self.kind_reply(rows=[["element"] * 5, ["metal"] * 5, ["element"] * 5])
         self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertEqual(frontier.reverse_targets(self.memory, self.stash, self.teacher), [])
         self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
         with mock.patch.object(frontier, "_seed_questions", return_value={}):
             self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertEqual(len(self.teacher.calls), 2)
+
+    def test_kind_asks_three_members_in_one_batch_using_seed_and_data(self):
+        for number in range(1, 7):
+            self.fact(number)
+        self.fact(99, "other attribute")
+        self.memory.remember_fact("duplicate member", "1", subject="Member 1",
+                                  attribute="Atomic Number")
+        form = "kind <{a}>"
+        members = random.Random(23).sample([f"Member {n}" for n in range(1, 7)], 3)
+        questions = [form.format(a=member) for member in members]
+        self.teacher.replies.update({q: ["element"] * 5 for q in questions})
+        with mock.patch.object(frontier, "_seed_questions", return_value={"kind": form}):
+            self.assertEqual(frontier.kind_of(
+                self.memory, " ATOMIC NUMBER ", self.teacher, seed=23), "element")
         self.assertEqual(len(self.teacher.calls), 1)
+        self.assertEqual(self.teacher.calls[0][0], questions)
+
+    def test_kind_shared_through_agreement(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.kind_reply(rows=[
+            ["element", "chemical element", "UNKNOWN", "UNKNOWN", "UNKNOWN"],
+            ["element", "metal", "UNKNOWN", "UNKNOWN", "UNKNOWN"],
+            ["element", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]])
+        self.assertEqual(frontier.kind_of(self.memory, "atomic number", self.teacher),
+                         "element")
+
+    def test_kind_shared_without_identical_answer_in_every_row(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.kind_reply(rows=[
+            ["chemical element"] * 5, ["element"] * 5, ["element"] * 5])
+        self.assertEqual(frontier.kind_of(self.memory, "atomic number", self.teacher),
+                         "element")
+
+    def test_kind_ignores_abstentions_and_empty_answers(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.kind_reply(["**Element.**", "UNKNOWN", "element\nI do not know", "", "!!!"])
+        self.assertEqual(frontier.kind_of(self.memory, "atomic number", self.teacher),
+                         "element")
+
+    def test_kind_requires_a_position_from_every_member(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.kind_reply(rows=[
+            ["element"] * 5, ["element"] * 5,
+            ["UNKNOWN", "", "!!!", "element or metal", "element\nI do not know"]])
+        self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertNotIn("kind", self.memory._attribute_vocabulary()["atomic number"])
+
+    def test_kind_ranks_agreement_then_exact_count_then_lexically(self):
+        for number in range(1, 4):
+            self.fact(number)
+        cases = [
+            ("agreement", ["element", "chemical element", "synthetic element", "metal", "metal"],
+             "element"),
+            ("exact count", ["chemical element", "chemical element", "element", "element", "element"],
+             "element"),
+            ("lexical", ["metal", "element", "UNKNOWN", "UNKNOWN", "UNKNOWN"], "element")]
+        for rule, answers, expected in cases:
+            with self.subTest(rule=rule), mock.patch.object(self.memory, "learn_kind") as learn:
+                self.kind_reply(answers)
+                self.assertEqual(frontier.kind_of(self.memory, "atomic number", self.teacher),
+                                 expected)
+                learn.assert_called_once_with("atomic number", expected)
+
+    def test_stored_kind_is_returned_unchanged_without_asking(self):
+        with mock.patch.object(self.memory, "_attribute_vocabulary", return_value={
+                "atomic number": {"kind": "Stored Kind."}}), \
+                mock.patch.object(frontier, "_seed_questions") as seed, \
+                mock.patch.object(self.memory, "learn_kind") as learn:
+            self.assertEqual(frontier.kind_of(
+                self.memory, " ATOMIC NUMBER ", self.teacher), "Stored Kind.")
+        seed.assert_not_called()
+        learn.assert_not_called()
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_kind_requires_three_members(self):
+        for number in range(1, 3):
+            self.fact(number)
+        self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_kind_rejects_incomplete_reply_matrix(self):
+        for number in range(1, 4):
+            self.fact(number)
+        full = ["element"] * elicit.SAMPLES
+        matrices = [[], [full], [full] * 2, [full] * 4]
+        for index in range(3):
+            for size in (elicit.SAMPLES - 1, elicit.SAMPLES + 1):
+                rows = [full] * 3
+                rows[index] = ["element"] * size
+                matrices.append(rows)
+        for rows in matrices:
+            with self.subTest(lengths=[len(row) for row in rows]), \
+                    mock.patch.object(self.teacher, "ask", return_value=rows), \
+                    mock.patch.object(self.memory, "learn_kind") as learn:
+                with self.assertRaisesRegex(ValueError, "incomplete sample matrix"):
+                    frontier.kind_of(self.memory, "atomic number", self.teacher)
+                learn.assert_not_called()
 
     def test_reverse_questions_use_only_seed_kind_and_question_category(self):
         for number in (1, 2, 3, 4, 6):
@@ -319,6 +426,9 @@ class MemoryFrontierTests(unittest.TestCase):
             kind="element", attribute="atomic number", value="5"), "atomic number", "5")
         self.assertEqual(frontier.reverse_targets(self.memory, self.stash, self.teacher),
                          [expected])
+        with mock.patch.object(frontier, "kind_of", return_value=None) as kind:
+            self.assertEqual(frontier.reverse_targets(self.memory, self.stash, self.teacher), [])
+        kind.assert_called_once_with(self.memory, "atomic number", self.teacher)
         self.assertEqual(elicit.question_id(expected), "custom:5")
         with self.assertRaises(FrozenInstanceError):
             expected.value = "6"

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.160](#11160-the-kind-asked-one-member-at-a-time) | The kind, asked one member at a time |
 | [11.154](#11154-facts-found-by-their-value) | Facts found by their value |
 | [11.159](#11159-answers-that-come-back) | Answers that come back |
 | [11.158](#11158-questions-from-the-shape-of-what-it-knows-failed) | Questions from the shape of what it knows (failed) |
@@ -847,6 +848,53 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.160 The kind, asked one member at a time
+
+**Why:** §11.158 learned a cluster's kind from one question about three
+members, and Command-R answered it in the plural: "Elements". The reverse
+question then read "Which elements has atomic number 39?", and Command-R
+answered "potassium" 4 of 5 times, in three separate runs. Asked "Which
+element has atomic number 39?", it says yttrium 5 of 5. So the plural label
+lost yttrium, not the source. Command-R was declared used up with a gap it
+could answer.
+
+**The change** (pre-registration sha256 133841fc..., before any code):
+- **The seed kind form asks about one member:** "What kind of thing is {a}?"
+  This is data.
+- **Three members, one ask.**
+  - The kind is the category that every member's answers share, judged by
+    `elicit.agree`, under which "element" and "chemical element" agree by
+    head noun.
+  - The candidate most answers agree with wins. The next tie-breaks are the
+    answer given most often exactly, then the lexically first.
+
+**PASSED,** live against Command-R and again on replay: 4 of 4 cases, and 3
+of 3 plants caught.
+- **The plants:**
+  - P87: the three members asked together;
+  - P88: every answer comes back;
+  - P89: a source used up once it has answered a round.
+- **The kind is "element".** The three members' answers:
+  - roentgenium: element or chemical element;
+  - dysprosium: element, metal, or its own name;
+  - tin: element or metal.
+
+  "Element" is the category they all share.
+- **Every gap is filed right.**
+  - Every reverse question now reads "Which element has atomic number N?".
+  - All five gaps are filed right. 39 is yttrium, 5 of 5, and its forward
+    answer is 39, 5 of 5.
+  - The five symbols are right, nothing held changed, and nothing is queued.
+- **The round trip still guards.** With 39 planted as "Zirconium", only 40
+  is filed.
+- **The loop closes on its own signal,** after two rounds.
+- **The copy is complete.** In the exam's copy of the user's library, the
+  atomic numbers now run 1..118 without a gap. The user's own library still
+  waits for its filing.
+- **Nothing regresses.** A sweep of the change, on a clean worktree with native built, matches the ledger on 114 of 118 gates. `kind_gate` joins the ledger as PASS, and the timing gates recallskip and vram passed this time. `roundtrip_gate` is superseded by design, as pre-registered: its recordings hold §11.158's three-member kind question, not the singular ones now asked, so its replay stops before it can score.
+
+Suite: 2,622 passed, 5 skipped, 0 failed (2,627).
 
 ### 11.154 Facts found by their value
 

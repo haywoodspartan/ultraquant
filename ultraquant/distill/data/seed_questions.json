@@ -1,4 +1,4 @@
 {
-  "kind": "What kind of thing are {a}, {b} and {c}?",
+  "kind": "What kind of thing is {a}?",
   "reverse": "Which {kind} has {attribute} {value}?"
 }

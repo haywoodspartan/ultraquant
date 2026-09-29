@@ -88,7 +88,7 @@ class ReverseTarget:
 
 
 def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
-    """Reuse a learned kind, or ask for a majority label over three subjects."""
+    """Reuse a learned kind, or choose a label shared by three subjects."""
     normalized = normalize_subject(attribute)
     kind = memory._attribute_vocabulary().get(normalized, {}).get("kind")
     if kind:
@@ -104,14 +104,24 @@ def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
             subjects.add(record["subject"])
     if len(subjects) < 3:
         return None
-    a, b, c = random.Random(seed).sample(sorted(subjects), 3)
+    members = random.Random(seed).sample(sorted(subjects), 3)
     replies = teacher.ask(
-        [form.format(a=a, b=b, c=c)], system=elicit.SYSTEM,
+        [form.format(a=member) for member in members], system=elicit.SYSTEM,
         samples=elicit.SAMPLES, temperature=elicit.TEMPERATURE,
         top_p=elicit.TOP_P, max_tokens=elicit.MAX_TOKENS, seeds=elicit.SEEDS)
-    if len(replies) != 1 or len(replies[0]) != elicit.SAMPLES:
+    if len(replies) != 3 or any(len(row) != elicit.SAMPLES for row in replies):
         raise ValueError("Teacher returned an incomplete sample matrix")
-    kind = elicit.held(replies[0])
+    answers = [[answer for raw in row if elicit.is_position(raw)
+                if (answer := elicit.normalize(elicit.extract(raw)))]
+               for row in replies]
+    counts = Counter(answer for row in answers for answer in row)
+    shared = [candidate for candidate in counts
+              if all(any(elicit.agree(answer, candidate) for answer in row)
+                     for row in answers)]
+    kind = min(shared, key=lambda candidate: (
+        -sum(count for answer, count in counts.items()
+             if elicit.agree(answer, candidate)),
+        -counts[candidate], candidate), default=None)
     if kind is not None:
         memory.learn_kind(attribute, kind)
     return kind

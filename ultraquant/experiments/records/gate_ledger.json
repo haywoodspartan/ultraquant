@@ -328,6 +328,12 @@
    "class": "superseded by design",
    "cause": "4e66462 (bisected) added unit conversion; this gate's cross-unit-sum decoy is now answered by conversion. All 5 decoy falls in 8 worlds were cross-unit sums; every other decoy is refused."
   },
+  "kind_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 3 of 3 plants caught",
+   "commit": "11.160",
+   "seconds": 53.0
+  },
   "ladder_gate": {
    "verdict": "FAIL",
    "line": "FAIL - the ladder closes nothing (+0.000)",
@@ -636,10 +642,12 @@
    "seconds": 1.1
   },
   "roundtrip_gate": {
-   "verdict": "PASS",
-   "line": "PASS: 5 cases; 4 of 4 plants caught",
-   "commit": "11.159",
-   "seconds": 88.3
+   "verdict": "VOID",
+   "line": "VOID: plants not caught: ['P82 every decided reverse answer comes back', 'P83 an unheld subject comes back without being asked', 'P84 a source used up once it has answered a round', 'P85 a gap asked of any source is closed for all']",
+   "commit": "11.160",
+   "seconds": 78.0,
+   "class": "superseded by design",
+   "cause": "11.159 PASSED when written (644647b). 11.160 asks the kind one member at a time; this gate's recordings hold 11.158's three-member kind question, not the singular ones now asked, so its replay stops before it can score. Its criteria are carried by kind_gate (the round trip still guards, the loop closes)."
   },
   "same_fact_gate": {
    "verdict": "PASS",
