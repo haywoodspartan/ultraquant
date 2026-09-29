@@ -30,7 +30,7 @@ from ultraquant.memory.metering import charge_index, charge_lookup
 from ultraquant.memory.factshards import normalize_subject, subject_ngrams
 # §11.141: catalogue selection and question learning share token operations.
 from ultraquant.memory.factshards import (
-    _learn_asking, attribute_words, choose_subject, question_words,
+    FactShards, _learn_asking, attribute_words, choose_subject, question_words,
 )
 
 
@@ -247,16 +247,27 @@ class SystematicMemory:
         answer = self.catalogue_answer(text)
         return answer if answer is not None and answer["form"] == "exact" else None
 
+    def _asked_attributes(self, words: set) -> set:
+        """Every catalogued attribute that explains all the requested words."""
+        if not words:
+            return set()
+        return {attribute for attribute, item in self._attribute_vocabulary().items()
+                if words <= attribute_words(attribute, item)}
+
     # §11.142: only an indexed unstructured key can explain an unheld subject.
     def _unheld_subject(self, words: set, known: set) -> bool:
         """Whether remaining words name no held unstructured fact."""
-        others = words - known
+        from ultraquant.shards.router import _informative
+
+        others = {word for word in words - known if _informative(word)}
         if not others:
             return False
-        for key in self.find_facts(" ".join(sorted(others)), top_k=10):
+        keys = (self.shards.keys_covering(others) if self.shards is not None
+                else [key for key in self._facts
+                      if others <= set(FactShards.tokens(key))])
+        for key in keys:
             record = self.recall_fact(key)
-            if (record is not None and not record.get("subject")
-                    and others <= set(normalize_subject(key).split())):
+            if record is not None and not record.get("subject"):
                 return False
         return True
 
@@ -273,6 +284,9 @@ class SystematicMemory:
             else:
                 keys = [key for key, record in self._facts.items()
                         if normalize_subject(record.get("subject") or "") == chosen]
+            # §11.145: ambiguity is judged against the whole vocabulary, before
+            # the subject's held facts can hide a competing attribute.
+            asked = self._asked_attributes(words)
             best, winners = 0, []
             for key in keys:
                 record = self.recall_fact(key)
@@ -284,7 +298,8 @@ class SystematicMemory:
                 if score > best:
                     best, winners = score, []
                 if score == best and score >= 1:
-                    winners.append({"form": "exact" if words <= explained else "reading",
+                    exact = words <= explained and asked == {attribute}
+                    winners.append({"form": "exact" if exact else "reading",
                                     "key": key, "record": record})
             return winners[0] if len(winners) == 1 else None
         if subjects:
@@ -292,7 +307,10 @@ class SystematicMemory:
         known = set().union(*(attribute_words(attribute, item)
                               for attribute, item in vocabulary.items()))
         # §11.142: shared words in structured subjects do not establish identity.
-        if words & known and self._unheld_subject(words, known):
+        from ultraquant.interpreter.learning import _STOPWORDS
+
+        if words & known and self._unheld_subject(
+                set(FactShards.tokens(text)) - _STOPWORDS, known):
             return {"form": "unknown-subject"}
         return None
 

@@ -431,6 +431,19 @@ class FactShards:
                 total += len(facts)
         return total
 
+    def keys_covering(self, tokens: set[str]) -> list[str]:
+        """Exhaust indexed and staged buckets for keys covering every token."""
+        if not tokens:
+            return []
+        categories = set.intersection(*(
+            set(self.vault.association_scores({token})) for token in tokens))
+        buckets = {entry["shard_id"] for entry in self.vault.catalog()
+                   if entry.get("kind") == "fact-bucket"
+                   and entry["category"] in categories}
+        buckets.update(self._dirty)
+        return sorted({key for bucket in buckets for key in self._load(bucket)
+                       if tokens <= set(self.tokens(key))})
+
     def search(self, text: str, top_k: int = 5,
                max_buckets: int = 8) -> list[str]:
         """Fact keys related to ``text``, via the vault's keyword index.

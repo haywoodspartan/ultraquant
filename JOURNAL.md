@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.145](#11145-chat-that-mentions-ambiguity-judged-whole-absence-proven-by-the-index) | Chat that mentions, ambiguity judged whole, absence proven by the index |
 | [11.143](#11143-the-lupine-leases-retried-at-forty-dollars-a-month) | The lupine leases, retried at forty dollars a month |
 | [11.142](#11142-requests-and-unknown-subjects-through-the-catalogue) | Requests and unknown subjects, through the catalogue |
 | [11.141](#11141-answers-found-through-the-catalogue-failed-kept) | Answers found through the catalogue (failed, kept) |
@@ -831,6 +832,93 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.145 Chat that mentions, ambiguity judged whole, absence proven by the index
+
+**GPT-6 Astra's ninth adversarial review** (of §11.141-§11.143,
+needs-attention) found three faults. Claude reproduced each one on the
+committed code, in a session and on an in-RAM memory, before any fix:
+- **[high] A chat statement was answered as a question.** "I wrote
+  Dune." is chat, but every word was "explained": "I" is a stopword, and
+  "wrote" a learned way of asking for author. So chat asserted "author
+  of dune is Frank Herbert (confidence 0.96)." "I know the capital of
+  Kenya." got "capital of kenya is Nairobi (confidence 0.90)." §11.142
+  had taken coverage as evidence of a request.
+- **[high] Missing knowledge resolved an ambiguity.** With "wrote"
+  learned for both author and preface author, Dune holding only a
+  preface author answered "Who wrote Dune?" with "preface author of dune
+  is Guest Writer (confidence 0.80)."
+- **[medium] A bounded lookup was taken as proof of absence.** The
+  unknown-subject refusal trusted a top-10 search. Ten better-ranked
+  "freedonia dossier" keys, or an accented "café capital", hid a held
+  fact behind "I don't hold that". The key was indexed as "caf" while
+  the question's words said "cafe".
+
+**The fixes, fixed before any code** (pre-registration sha256
+ee8dfc16..., Amendment A d75c3f91...):
+- **Chat never answers as a question.** The catalogue's exact match now
+  only chooses which held fact chat's own template mentions: "That lands
+  near 'author of dune', which I hold as: Frank Herbert."
+- **An exact answer needs the whole vocabulary to agree.** The question's
+  words must point to exactly one attribute across every catalogued
+  attribute (`_asked_attributes`), and the subject's held facts only
+  confirm it. "Who wrote Dune?" is now a reading ("Reading that as
+  'preface author of dune': ..."). "Who wrote the preface of Dune?"
+  stays exact.
+- **Absence is proven by the index, or not claimed.**
+  - `FactShards.keys_covering` intersects the vault's inverted index
+    for every informative token, then pages every candidate bucket and
+    every staged one, with no ranking and no truncation.
+  - The question's tokens come from the index's own tokenizer, so
+    "Café" looks up "caf", as the key did.
+  - A question whose remaining tokens are all uninformative is
+    inconclusive and falls through to ordinary retrieval.
+  - `_unheld_subject(words, known)` kept its signature, because
+    §11.142's plant P44 replaces it with a two-argument function.
+
+**Claude's exam was wrong once, and said so before any fix** (Amendment
+C, sha256 e123848c..., recorded after the reproduction run):
+- Amendment A required, as a world check, that chat's own choice would
+  name Adelaide for "Tell me the capital of Australia.", so that
+  keeping the catalogue's choice would matter. The reproduction run
+  showed it never can. Recall offers the longest stored key contained
+  in the message ("capital of australia"), which is the fact the
+  catalogue matches.
+- The world check moved to "Tell me the capital of Cote d'Ivoire.",
+  with the capital held under the accented "Côte d'Ivoire". Only the
+  catalogue's accent folding finds it: with the catalogue disabled,
+  chat says "I have nothing on that yet."
+
+**PASSED**, on Claude's machine and in Astra's run: 4 of 4 cases, the
+world check live, and 3 of 3 plants caught. The plants are the
+committed §11.142 functions, copied verbatim: P50 the chat, P51 the
+answer, P52 the refusal.
+- **§11.142's gate still passes, with every form unchanged:**
+  - "Tell me the capital of X." 100%, now as a mention;
+  - 0 wrong answers;
+  - 0 unknown subjects named with another subject's fact;
+  - 68 hints, all on the ungated "X was written by whom?", equal to
+    §11.141's recorded 68.
+- **The native parity gates show zero differences**: 1,430 chat turns,
+  4,800 memory steps, 540 set-claims.
+- **Three existing tests asserted the behavior this unit removes.** Two
+  expected chat to assert "capital of kenya is Nairobi (confidence
+  0.90).", and one required the bounded `find_facts(..., top_k=10)`
+  call. Claude rewrote them to the new behavior: a mention that keeps
+  polarity, and an exhaustive lookup that never ranks and skips
+  missing records. Astra's six new tests cover both stores, reopened
+  libraries, paging past the old eight-bucket cap, and staged facts.
+- **Review:** `_asked_attributes` is computed once per question, not
+  once per candidate.
+
+**Left:** the review suggested answering real chat requests by indexing
+attested request forms. This unit chose the narrower fix, where chat
+mentions and never asserts. A request intent learned from indexed
+request forms remains open.
+
+Suite: 2,478 passed, 5 skipped, 0 failed (2,483). The count includes
+the 18 tests of §11.144's target selection, which is uncommitted and
+waiting for the GPU.
 
 ### 11.143 The lupine leases, retried at forty dollars a month
 

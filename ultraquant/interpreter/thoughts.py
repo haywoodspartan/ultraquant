@@ -2620,13 +2620,13 @@ class Reason(Thought):
         ctx.note(self.name, f"statement {parsed[0]!r} -> {parsed[1]!r}")
 
     def _chat(self, ctx: ThoughtContext) -> None:
-        # §11.142: exact catalogue requests share the chat intent's reply path.
+        # §11.145: the catalogue chooses a mention; chat never asserts an answer.
         answer = ctx.session.memory.catalogue_request(ctx.text)
         if answer is not None:
             key, record = answer["key"], answer["record"]
-            ctx.say(f"{key} is {_shown_value(record)} "
-                    f"(confidence {record['confidence']:.2f}).")
-            ctx.note(self.name, f"catalogue {answer['form']} answer {key!r}")
+            ctx.say(f"That lands near '{key}', which I hold as: "
+                    f"{_shown_value(record)}.")
+            ctx.note(self.name, f"catalogue mention {key!r}")
             return
         routes = ctx.data.get("routes", [])
         facts = ctx.data.get("facts", [])

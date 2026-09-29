@@ -353,10 +353,12 @@ class CatalogueRequestTests(_Scratch):
                     reply, trace = run_pipeline("Tell me the capital of Kenya.", session)
                 request.assert_called_once_with("Tell me the capital of Kenya.")
                 shown = "not Nairobi" if negated else "Nairobi"
-                self.assertEqual(reply, f"{key} is {shown} "
-                                 f"(confidence {record['confidence']:.2f}).")
+                # §11.145: chat mentions the catalogue's fact; it never asserts it.
+                self.assertEqual(reply, f"That lands near '{key}', which I hold as: "
+                                 f"{shown}.")
+                self.assertNotIn(f"{record['confidence']:.2f}", reply)
                 self.assertIn("intent=chat", str(trace))
-                self.assertIn("catalogue exact", str(trace))
+                self.assertIn("catalogue mention", str(trace))
                 self.assertEqual(session.curiosities, [])
 
     def test_nonexact_chat_keeps_reply_without_catalogue_trace(self) -> None:
@@ -409,15 +411,22 @@ class UnheldSubjectTests(_Scratch):
                 memory.remember_fact("north-freedonia seat", "Fredville")
                 self.assertFalse(memory._unheld_subject(words, known))
 
-    def test_bounded_index_lookup_normalizes_and_skips_missing_records(self) -> None:
-        memory = SystematicMemory()
-        with mock.patch.object(memory, "find_facts",
-                               return_value=["missing", "Fréedonia-Capital"]) as find, \
-                mock.patch.object(memory, "recall_fact",
-                                  side_effect=[None, {"value": "Fredville"}]), \
-                mock.patch.object(memory, "fact_keys", side_effect=AssertionError("scan")):
-            self.assertFalse(memory._unheld_subject({"capital", "freedonia"}, {"capital"}))
-        find.assert_called_once_with("freedonia", top_k=10)
+    # §11.145: absence comes from an exhaustive index lookup, never a ranked top 10.
+    def test_exhaustive_lookup_skips_missing_records_without_ranking(self) -> None:
+        for label, memory, _root in self.memories():
+            with self.subTest(memory=label):
+                memory.remember_fact("Fréedonia-Capital", "Fredville")
+                words = {"capital", "fr", "edonia"}   # the index's own tokens
+                real = memory.recall_fact
+                with mock.patch.object(memory, "find_facts",
+                                       side_effect=AssertionError("ranked")), \
+                        mock.patch.object(memory, "recall_fact",
+                                          side_effect=lambda key: None):
+                    self.assertTrue(memory._unheld_subject(words, {"capital"}))
+                with mock.patch.object(memory, "find_facts",
+                                       side_effect=AssertionError("ranked")), \
+                        mock.patch.object(memory, "recall_fact", side_effect=real):
+                    self.assertFalse(memory._unheld_subject(words, {"capital"}))
 
 
 # §11.142: covering candidates win in order before embeddings or nearest-held.
