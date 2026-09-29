@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import random
 
-from . import elicit, file, frontier, sources, targets
+from . import elicit, file, frontier, seeds, sources, targets
 from ultraquant.interpreter import autoapprove
 from ultraquant.interpreter.stash import _claim_provenance
 from ultraquant.memory.factshards import normalize_subject
@@ -403,11 +403,14 @@ class _ProbeLedger:
         self.rows.append((source, question_id))
 
 
-def pending(memory, stash, teacher, ledger, source) -> list:
+def pending(memory, stash, teacher, ledger, source, lexicon=None) -> list:
     """Return questions this source has not answered from the current frontier."""
     items = (targets.completion_targets(memory, stash)
              + frontier.reverse_targets(memory, stash, teacher)
              + frontier.growth_targets(memory, stash))
+    if lexicon is not None:
+        # §11.170: the dictionary's members of the held kinds come last.
+        items += seeds.dictionary_targets(memory, stash, lexicon)
     asked = ledger.asked(source)
     result = []
     for target in items:
@@ -419,14 +422,18 @@ def pending(memory, stash, teacher, ledger, source) -> list:
 
 
 def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
-                records_path, approver=None) -> dict:
+                records_path, approver=None, lexicon=None) -> dict:
     """Ask the unvisited frontier, file its answers, and record promotions."""
     from . import corroborate
 
     checks = corroborate.corroborate(
         memory, stash, teacher, ledger, source, records_path=records_path, run_id=run_id,
         confidence=confidence)
-    items = frontier.pending(memory, stash, teacher, ledger, source)
+    # Without a lexicon the call is today's, so a seam taking only the
+    # positional arguments still fits.
+    items = (frontier.pending(memory, stash, teacher, ledger, source)
+             if lexicon is None else
+             frontier.pending(memory, stash, teacher, ledger, source, lexicon=lexicon))
     growth = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
     probe_ledger = _ProbeLedger()
     before = len(stash.entries())
@@ -471,6 +478,8 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
     regenerated = (targets.completion_targets(memory, stash)
                    + frontier.reverse_targets(memory, stash, teacher)
                    + frontier.growth_targets(memory, stash))
+    if lexicon is not None:
+        regenerated += seeds.dictionary_targets(memory, stash, lexicon)
     exhausted = sources.used_up(
         ledger, source, [elicit.question_id(t) for t in regenerated])
     kinds = [item["kind"] for item in memory._attribute_vocabulary().values()

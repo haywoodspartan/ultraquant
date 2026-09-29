@@ -1,0 +1,47 @@
+{
+ "pending": [
+  "number:21",
+  "number:23",
+  "number:37",
+  "number:39",
+  "number:40"
+ ],
+ "round": {
+  "asked": 5,
+  "checked": 0,
+  "agreed": 0,
+  "contested": 0,
+  "revised": 0,
+  "filed": 5,
+  "queued": 0,
+  "proposed": [],
+  "adopted": [],
+  "refused": [],
+  "used_up": false
+ },
+ "ledger": {
+  "c4ai-command-r-08-2024": [
+   {
+    "question_id": "number:21",
+    "promoted": true
+   },
+   {
+    "question_id": "number:23",
+    "promoted": true
+   },
+   {
+    "question_id": "number:37",
+    "promoted": true
+   },
+   {
+    "question_id": "number:39",
+    "promoted": true
+   },
+   {
+    "question_id": "number:40",
+    "promoted": true
+   }
+  ]
+ },
+ "bound": 0.9123783975415363
+}

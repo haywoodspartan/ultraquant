@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.170](#11170-the-dictionary-tells-the-frontier-what-exists) | The dictionary tells the frontier what exists |
 | [11.169](#11169-the-session-unloads-only-what-it-loaded) | The session unloads only what it loaded |
 | [11.168](#11168-the-session-leaves-your-models-alone) | The session leaves your models alone |
 | [11.167](#11167-a-dictionary) | A dictionary |
@@ -857,6 +858,81 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.170 The dictionary tells the frontier what exists
+
+**Why:** "We need it to ask its own questions."
+- **Where the questions came from.** §11.158 to §11.166 drew the frontier's
+  questions only from gaps in what the library holds: completion, reverse
+  and growth targets. It knew 120 capitals, and nothing told it that there
+  are countries it had never heard of.
+- **What the dictionary adds.** The dictionary (§11.167) lists what exists.
+- **Why it needs care.** A word is not a sense.
+  - Naive expansion on the user's library proposed 441 "capitals", mostly
+    cities, through the city senses of held names such as Quebec and
+    Victoria.
+  - For the elements, it pulled in butane and afterdamp through hydrogen's
+    "gas".
+
+**The change** (pre-registration sha256 afa707f0..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository meanwhile.
+- **`distill/seeds.py`,** per attribute:
+  - **Coherence.** Some kind must cover at least half of the attribute's
+    subjects. Novel titles fail, because they are false friends.
+  - **Core kinds** come from the subjects with a single noun sense. An
+    ambiguous subject counts only through its first sense of a core kind:
+    Quebec is a province, not a city. A kind needs two subjects.
+  - **Proposals.** The named instances of core kinds that the library holds
+    under no name. A class leaf is proposed only where the dictionary itself
+    witnesses the attribute ("atomic number 21"), and not when its value is
+    one the library holds. Such a leaf is an alias: ununbium is copernicium.
+  - **The question** is the attribute's own learned form: "What is the
+    capital of {subject}?".
+- **Where they are asked.** `frontier.pending` and `study_round` add these
+  targets when given a lexicon, and the used-up judgement counts them.
+  Without a lexicon, nothing changes. The session passes the library's
+  lexicon.
+
+**PASSED** on the first run: 4 of 4 cases, 4 of 4 plants.
+- **Exactly these targets.** There are 125 on the pinned world, equal to
+  the exam's own reading of the design:
+  - 120 capitals;
+  - the 5 atomic numbers the pinned library lacks (rubidium, scandium,
+    vanadium, yttrium, zirconium). §11.158's reverse questions had found the
+    same five from the other side.
+- **No lexicon, no change.** The first source's pending ids, one study
+  round's dict, and the ledger it left all equal the golden record, which
+  was taken with §11.169's code before any code for this unit.
+- **The frontier asks them.**
+  - With the lexicon, the first source's round 1 asked 130 questions: 5
+    reverse and 125 dictionary.
+  - It was used up after round 4.
+  - Every expected target was asked exactly once, and no round was used up
+    with one unasked.
+- **The guards.**
+  - No author target: no kind covers half of the novels.
+  - No alias target: ununbium to ununhexium are old names of elements the
+    library holds.
+- **The plants:**
+  - P121 (coherence always true) breached 4: fictional characters were
+    asked about as novels.
+  - P122 (no disambiguation) breached 1.
+  - P123 (no alias check) breached 4.
+  - P124 (pending without the dictionary) breached 3.
+- **On the user's library,** there are 120 capital targets (Acadia,
+  Algeria, American Samoa, Andorra, Angola, ...), none for the elements, and
+  none for authors.
+  - Nunavut and Yukon bring in "district". That adds about 20 historical
+    regions (the Palatinate, the Papal States).
+  - Both Congos share the name "Congo".
+  - The sources' own refusals and cross-checks decide those.
+- **Process note.** The implementer's scratch directory was Claude's
+  session scratchpad. It reported listing the file names there, including
+  the held exams, and opening none.
+- **Nothing regresses.** A sweep of all 128 gates matches the ledger except the timing gate vram_gate (FAIL to PASS, as it has moved in earlier sweeps) and the new seeds_gate (PASS). Every frontier gate matches: none of their worlds has a lexicon.
+
+Suite: 2849 tests, OK (5 skipped).
 
 ### 11.169 The session unloads only what it loaded
 

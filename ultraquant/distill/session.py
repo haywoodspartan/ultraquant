@@ -16,6 +16,7 @@ import time
 from . import elicit, frontier, session, sources
 from ultraquant.interpreter.autoapprove import AutoApprover
 from ultraquant.interpreter.stash import ContemporaryStash
+from ultraquant.lexicon import Lexicon
 from ultraquant.memory.factshards import FactShards, normalize_subject
 from ultraquant.memory.systematic import SystematicMemory
 from ultraquant.shards.vault import ShardVault
@@ -182,6 +183,7 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
     try:
         snapshot = swapper.snapshot()
         memory, stash = _open_library(root)
+        lexicon = Lexicon.open(root)  # §11.170: None for a home without one
         approver = AutoApprover(stash, memory, root / "approvals.jsonl")
         ledger = sources.SourceLedger(root / "sources.json")
         pairs = list(pairs or sources.calibration_items(memory, stash, k=40, seed=155))
@@ -216,7 +218,7 @@ def run_session(root, plan, *, swapper, teacher_factory, backup_dir,
                             confidence=calibration["wilson_lower"],
                             run_id=f"session-{stamp}-{source.name}-{n}",
                             records_path=Path(scratch) / f"{index}-{n}.jsonl",
-                            approver=approver)
+                            approver=approver, lexicon=lexicon)
                         entry["rounds"].append(result)
                         for key in TOTALS:
                             entry["totals"][key] += result.get(key, 0)
