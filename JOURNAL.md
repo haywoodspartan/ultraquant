@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.172](#11172-everything-that-holds-the-session-follows-the-rebuild) | Everything that holds the session follows the rebuild |
 | [11.171](#11171-study-sessions-come-home-through-the-gui) | Study sessions come home through the GUI |
 | [11.170](#11170-the-dictionary-tells-the-frontier-what-exists) | The dictionary tells the frontier what exists |
 | [11.169](#11169-the-session-unloads-only-what-it-loaded) | The session unloads only what it loaded |
@@ -859,6 +860,52 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.172 Everything that holds the session follows the rebuild
+
+**Why:** §11.171's implementer reported two hazards before its exam ran, and
+neither was tested there.
+- **A stale learner.** A Learn-tab learner built before a take-in keeps the
+  old session. Its next answer saves, and would write pre-merge memory and
+  router state over the merged library.
+- **Writes beside a running job.** UI-thread actions such as promote and
+  reject write the library without looking at `busy`, so they would write
+  beside a take-in running on the worker.
+
+**The change** (pre-registration sha256 67975481..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository.
+- **`_rebuild_session` rebinds the learner** to the new session. Its pending
+  questions stay: a merge adds facts and removes none.
+- **Every GUI method that writes the library on the UI thread** now starts
+  with `_run_async`'s own guard: busy, so say so and return.
+
+**PASSED** on the first run: 2 of 2 cases, 2 of 2 plants.
+- **The learner follows.**
+  - A learner surveyed before the take-in, with 12 questions, held the GUI's
+    new session afterwards.
+  - After it answered one question, every staged fact was still in the live
+    library.
+- **Writers wait.**
+  - While a GUI job ran, `_promote` of a staged claim left the stash, memory
+    and facts unchanged, and `_reject` left the stash unchanged.
+  - After "done", the same promote promoted.
+- **The plants:** P128 (the learner not rebound) breached 1; P129 (`_promote`
+  without the guard) breached 2.
+- **The guarded methods** are `_promote`, `_reject`, `_analyze` and
+  `_attach`. The implementer read every UI-thread use of the session and
+  found no other library writer. The settings and budget actions change only
+  in-memory state or the settings file.
+- **Known limits, reported by the implementer:**
+  - "Open session here" and "Change session folder" set `self.home` before
+    `_run_async` checks `busy`. During a take-in, the take-in could rebuild
+    from, or file its entry into, the other folder.
+  - In the synthetic test library, a stale learner's damage was lost
+    `memory.json` episodes, not facts: the merged facts live in vault
+    buckets the stale session never rewrote.
+- **Nothing regresses.** A sweep of all 130 gates matches the ledger except the new follow_gate (PASS).
+
+Suite: 2873 tests, OK (5 skipped).
 
 ### 11.171 Study sessions come home through the GUI
 

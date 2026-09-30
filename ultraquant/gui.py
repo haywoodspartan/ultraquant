@@ -1324,6 +1324,9 @@ class UltraQuantGUI:
         Start-up builds through here, and so does taking in a study session
         (§11.171), so the session after a merge is the one start-up would
         build. Always a new object: the one it replaces is left untouched.
+        A Learn-tab learner moves to the new session with its questions as
+        they are (§11.172): left on the old one, its next answer would save
+        the library as it was over the one on disk.
         """
         from ultraquant.interpreter.chat import ChatCLI
         from ultraquant.interpreter.thoughts import build_session
@@ -1332,6 +1335,8 @@ class UltraQuantGUI:
         self.session = build_session(
             self.home, budget_bytes=1024 * 1024, seed=0, semantic=semantic,
             auto_approve=bool(self.settings.get("stash_auto_approve", False)))
+        if getattr(self, "learner", None) is not None:
+            self.learner.session = self.session
         self.cli = ChatCLI(self.session, out=_QueueStream(self.events, "out"))
 
     def _send(self) -> str:
@@ -2072,6 +2077,9 @@ class UltraQuantGUI:
 
     def _attach(self) -> None:
         """Attach an existing .uql library (index only)."""
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         if self.session is None:
             return
         path = filedialog.askopenfilename(title="Attach shard library",
@@ -2358,6 +2366,9 @@ class UltraQuantGUI:
 
     def _analyze(self) -> None:
         """Re-run stash classification."""
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         if self.session is None:
             return
         stats = self.session.stash.analyze(self.session.memory)
@@ -2366,6 +2377,9 @@ class UltraQuantGUI:
 
     def _promote(self, force: bool = False) -> None:
         """Promote the selected claim to a stored fact."""
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         from ultraquant.interpreter.stash import StashError
 
         entry_id = self._selected_stash_id()
@@ -2382,6 +2396,9 @@ class UltraQuantGUI:
 
     def _reject(self) -> None:
         """Reject the selected claim."""
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         entry_id = self._selected_stash_id()
         if entry_id is None or self.session is None:
             return

@@ -294,6 +294,12 @@
    "class": "failed when written",
    "cause": "Its docstring records FAILED criterion 2: entropy was the worst of the three measures."
   },
+  "follow_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 2 cases; 2 of 2 plants caught",
+   "commit": "11.172",
+   "seconds": 224.5
+  },
   "forms_gate": {
    "verdict": "FAIL",
    "line": "FAIL: ['1 same filing as before']",
