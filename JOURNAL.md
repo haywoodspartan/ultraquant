@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.175](#11175-a-kind-no-source-can-grow-is-settled-for-that-source) | A kind no source can grow is settled for that source |
 | [11.174](#11174-the-dictionary-names-a-kind-the-teachers-could-not-failed-as-frozen) | The dictionary names a kind the teachers could not (failed as frozen) |
 | [11.173](#11173-the-session-folder-stays-put-while-the-gui-works) | The session folder stays put while the GUI works |
 | [11.172](#11172-everything-that-holds-the-session-follows-the-rebuild) | Everything that holds the session follows the rebuild |
@@ -862,6 +863,73 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.175 A kind no source can grow is settled for that source
+
+**Why:** §11.174 failed as frozen, because its sweep flipped seeds_gate
+(§11.170) from PASS to FAIL.
+- **The trigger.** In seeds_gate's world, capital now has a dictionary kind,
+  "administrative district". The recorded teacher answers that kind's
+  property question UNKNOWN.
+- **What `propose` did.** When a source named no property, `propose` stored
+  nothing.
+- **Why the source never finished.** The used-up judgement needs a property
+  verdict for every learned kind. So from round 5 on, every round re-asked
+  that one question.
+- **Measured on 832695a with this unit's exam:**
+  - the first source asked it 9 times in 12 rounds, and was never used up;
+  - a second source asked it 11 times.
+- **The defect is older than §11.174.** Any kind whose property no teacher
+  can name is re-asked every round, bounded only by `max_rounds`. The
+  dictionary kinds make it likely.
+
+**The change** (pre-registration sha256 55ad9760..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository.
+- **`frontier.kind_settled(memory, ledger, source, kind)`** holds when:
+  - the kind has a property verdict, as before; or
+  - THIS source's ledger holds `property:{kind}`.
+- **`propose`** records `property:{kind}` when a property ask names nothing
+  new: an undecided answer, or an attribute already held. It then skips
+  kinds that are settled for the asking source.
+- **The study round's probe ledger** answers `asked` from the real ledger
+  plus its deferred rows.
+- **`study_round`'s used-up judgement** reads `kind_settled`.
+- **The next source still gets its own chance** at every kind: settling is
+  per source.
+
+**PASSED** on the first run: 4 of 4 cases, 2 of 2 plants.
+- **seeds_gate passes again.** Its four criteria hold on its own world, which
+  is the reproduction of §11.174's regression.
+- **One unanswered ask, then settled.** In seeds_gate's world, the first
+  source:
+  - asked "Name one measurable property that every administrative district
+    has." once;
+  - recorded `property:administrative district` in its ledger;
+  - was used up in round 4. On 832695a it had asked 9 times in 12 rounds
+    and was never used up.
+- **A later source is still asked.** A second source, answering UNKNOWN to
+  everything, asked the same question once and was used up in round 2. On
+  832695a it had asked 11 times.
+- **Growth where a property is named is unchanged.** dictkind_gate's four
+  criteria hold.
+- **The plants:**
+  - P134 (the unanswered ask not recorded) breached 2;
+  - P135 (any source's ask settling the kind for all) breached 3.
+- **Noted limits:**
+  - The ledger key is the exact kind string, while verdicts match kinds
+    loosely. Two spellings of one kind cost one ask each per source, which is
+    bounded.
+  - The new unpromoted rows count toward `used_up`'s window of the last 20
+    asks.
+- **Nothing regresses.** A sweep of all 133 gates matches the ledger except
+  for three gates:
+  - seeds_gate returns from FAIL to PASS, as registered here;
+  - the timing gate vram_gate goes from FAIL to PASS, as it has moved in
+    earlier sweeps;
+  - the new settled_gate passes.
+
+Suite: 2920 tests, OK (5 skipped).
 
 ### 11.174 The dictionary names a kind the teachers could not (failed as frozen)
 

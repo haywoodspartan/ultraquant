@@ -917,6 +917,147 @@ class MemoryFrontierTests(unittest.TestCase):
         self.assertEqual(ledger.history("source"), [{"question_id": "number:5", "promoted": False}])
         self.assertEqual(len(self.teacher.calls), 1)
 
+    # §11.175: a kind no source can grow is settled for that source.
+
+    def test_kind_settled_by_a_verdict_or_by_this_sources_own_ask(self):
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        self.memory.learn_kind("atomic number", "element")
+        self.assertFalse(frontier.kind_settled(self.memory, ledger, "source", "element"))
+        # Another source's ask, or this source's ask of another kind, is not this one.
+        ledger.record("other", "property:element", False)
+        ledger.record("source", "property:country", False)
+        self.assertFalse(frontier.kind_settled(self.memory, ledger, "source", "element"))
+        self.assertTrue(frontier.kind_settled(self.memory, ledger, "other", "element"))
+        ledger.record("source", "property:element", False)
+        self.assertTrue(frontier.kind_settled(self.memory, ledger, "source", "element"))
+        # A verdict settles the kind for every source, asked or not.
+        self.memory.learn_property("atomic number", "mass", "refused")
+        unasked = sources.SourceLedger(self.home / "unasked.json")
+        for source in ("source", "next"):
+            self.assertTrue(frontier.kind_settled(self.memory, unasked, source, "element"))
+        self.assertFalse(frontier.kind_settled(self.memory, unasked, "source", "country"))
+
+    def test_probe_ledger_asked_adds_its_deferred_rows_to_the_real_ledgers(self):
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        ledger.record("source", "number:5", False)
+        ledger.record("other", "number:6", True)
+        probe = frontier._ProbeLedger(ledger)
+        self.assertEqual(probe.asked("source"), {"number:5"})
+        probe.record("source", "property:element", False)
+        probe.record("other", "atomic mass:Member 1", True)
+        self.assertEqual(probe.asked("source"), {"number:5", "property:element"})
+        self.assertEqual(probe.asked("other"), {"number:6", "atomic mass:Member 1"})
+        self.assertEqual(probe.asked("next"), set())
+        self.assertTrue(frontier.kind_settled(self.memory, probe, "source", "element"))
+        self.assertFalse(frontier.kind_settled(self.memory, probe, "other", "element"))
+        # The rows stay deferred, and the real ledger is read afresh each time.
+        self.assertEqual(probe.rows, [("source", "property:element"),
+                                      ("other", "atomic mass:Member 1")])
+        self.assertEqual(ledger.history("source"), [{"question_id": "number:5", "promoted": False}])
+        ledger.record("source", "number:7", False)
+        self.assertEqual(probe.asked("source"), {"number:5", "number:7", "property:element"})
+        # The real ledger's own answer is never changed in place.
+        held = {"number:5"}
+        real = mock.Mock()
+        real.asked.return_value = held
+        probe = frontier._ProbeLedger(real)
+        probe.record("source", "property:element", False)
+        self.assertEqual(probe.asked("source"), {"number:5", "property:element"})
+        real.asked.assert_called_once_with("source")
+        real.record.assert_not_called()
+        self.assertEqual(held, {"number:5"})
+
+    def test_propose_records_an_ask_naming_nothing_new_then_skips_that_kind(self):
+        question, _ = self.property_world()
+        nothing = {"proposed": [], "adopted": [], "refused": []}
+        row = {"question_id": "property:element", "promoted": False}
+        order = ("source", "source", "next", "next")
+        # Undecided, or naming the attribute already held: nothing new either way.
+        for index, reply in enumerate(("UNKNOWN", "The Atomic Number.")):
+            with self.subTest(reply=reply):
+                self.teacher.calls.clear()
+                self.teacher.replies[question] = [reply] * 5
+                ledger = sources.SourceLedger(self.home / f"nothing-{index}.json")
+                with mock.patch.object(frontier, "kind_settled",
+                                       wraps=frontier.kind_settled) as settled:
+                    results = [frontier.propose(
+                        self.memory, self.stash, self.teacher, ledger, source,
+                        confidence=0.99, run_id=f"nothing-{index}",
+                        records_path=self.home / f"nothing-{index}.jsonl") for source in order]
+                # Each source is asked once; its next proposal skips the kind.
+                self.assertEqual(results, [{**nothing, "asked": asked} for asked in (1, 0, 1, 0)])
+                self.assertEqual(settled.call_args_list, [
+                    mock.call(self.memory, ledger, source, "element") for source in order])
+                self.assertEqual([qs for qs, _ in self.teacher.calls], [[question]] * 2)
+                self.assertEqual(ledger.history("source"), [row])
+                self.assertEqual(ledger.history("next"), [row])
+                self.assertNotIn("properties", self.memory._attribute_vocabulary()["atomic number"])
+                self.assertEqual(self.stash.entries(), [])
+
+    def test_study_source_naming_no_property_is_used_up_and_the_next_asks_once(self):
+        # Before, the kind never settled: the same question came back every
+        # round, and only max_rounds ended the source.
+        question, _ = self.property_world()
+        self.teacher.replies[question] = ["UNKNOWN"] * 5
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        row = {"question_id": "property:element", "promoted": False}
+        approver = mock.Mock()
+        waiting = []
+        approver.approve_all.side_effect = lambda: waiting.append(
+            [ledger.history(source) for source in ("first", "second")])
+        order = [("first", 0), ("first", 1), ("second", 0), ("second", 1)]
+        with mock.patch.object(frontier, "kind_settled", wraps=frontier.kind_settled) as settled:
+            outcomes = [frontier.study_round(
+                self.memory, self.stash, self.teacher, ledger, source, confidence=0.99,
+                run_id=f"{source}-{n}", records_path=self.home / f"{source}-{n}.jsonl",
+                approver=approver) for source, n in order]
+        self.assertEqual(outcomes[0], {
+            "asked": 1, "checked": 0, "agreed": 0, "contested": 0, "revised": 0,
+            "filed": 0, "queued": 0, "proposed": [], "adopted": [], "refused": [],
+            "used_up": True})
+        self.assertEqual([r["asked"] for r in outcomes], [1, 0, 1, 0])
+        self.assertEqual([r["used_up"] for r in outcomes], [True] * 4)
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [[question]] * 2)
+        self.assertEqual(ledger.history("first"), [row])
+        self.assertEqual(ledger.history("second"), [row])
+        # The ask's row waits for the approver, as the probes' rows do.
+        self.assertEqual(waiting, [[[], []], [[row], []], [[row], []], [[row], [row]]])
+        # Each round, propose asks the probe ledger over the real one; the
+        # used-up judgement then asks the real ledger, after the round's writes.
+        calls = settled.call_args_list
+        self.assertEqual([call.args[2:] for call in calls],
+                         [("first", "element")] * 4 + [("second", "element")] * 4)
+        self.assertTrue(all(call.args[0] is self.memory for call in calls))
+        self.assertTrue(all(isinstance(call.args[1], frontier._ProbeLedger)
+                            and call.args[1].ledger is ledger for call in calls[::2]))
+        self.assertTrue(all(call.args[1] is ledger for call in calls[1::2]))
+
+    def test_study_adopted_property_is_as_before_and_settles_its_kind_for_any_source(self):
+        question, members = self.property_world()
+        ledger = sources.SourceLedger(self.home / "ledger.json")
+        result = frontier.study_round(
+            self.memory, self.stash, self.teacher, ledger, "first", confidence=0.99,
+            run_id="first", records_path=self.home / "first.jsonl")
+        self.assertEqual(result, {
+            "asked": 6, "checked": 0, "agreed": 0, "contested": 0, "revised": 0,
+            "filed": 5, "queued": 0, "proposed": ["atomic mass"],
+            "adopted": ["atomic mass"], "refused": [], "used_up": False})
+        # Only the probes are recorded; no ask row is written for a named property.
+        self.assertEqual(ledger.history("first"), [
+            {"question_id": f"atomic mass:{member}", "promoted": True} for member in members])
+        self.assertEqual(self.memory._attribute_vocabulary()["atomic number"]["properties"],
+                         {"atomic mass": "adopted"})
+        self.assertEqual(self.teacher.calls[0][0], [question])
+        # The verdict settles the kind for every source, the asked one or not.
+        for source in ("first", "second"):
+            self.assertTrue(frontier.kind_settled(self.memory, ledger, source, "element"))
+            self.assertEqual(frontier.propose(
+                self.memory, self.stash, self.teacher, ledger, source, confidence=0.99,
+                run_id=source, records_path=self.home / f"{source}.jsonl"),
+                {"proposed": [], "adopted": [], "refused": [], "asked": 0})
+        self.assertEqual(len(self.teacher.calls), 2)
+        self.assertEqual(ledger.history("second"), [])
+
 
 class ShardedFrontierTests(MemoryFrontierTests):
     sharded = True

@@ -321,6 +321,16 @@ def _has_property_verdict(memory, kind) -> bool:
                for item in memory._attribute_vocabulary().values())
 
 
+def kind_settled(memory, ledger, source, kind) -> bool:
+    """A verdict settles the kind for every source; an ask, for the source asked.
+
+    §11.175: a source that named no property of the kind has had its chance,
+    and the next source still gets its own.
+    """
+    return (_has_property_verdict(memory, kind)
+            or f"property:{kind}" in ledger.asked(source))
+
+
 def _property_target(stash, candidate, subject):
     asking = targets.question_form(stash, candidate)
     form = asking[1] if asking is not None else _seed_questions().get("forward")
@@ -357,7 +367,7 @@ def propose(memory, stash, teacher, ledger, source, *, confidence, run_id,
     kind_teacher = _CountingTeacher(teacher)
     for attribute in attributes:
         kind = frontier.kind_of(memory, attribute, kind_teacher, lexicon=lexicon)
-        if (kind is None or _has_property_verdict(memory, kind)
+        if (kind is None or frontier.kind_settled(memory, ledger, source, kind)
                 or any(elicit.agree(kind, previous) for previous in asked_kinds)):
             continue
         asked_kinds.append(kind)
@@ -372,6 +382,8 @@ def propose(memory, stash, teacher, ledger, source, *, confidence, run_id,
         if candidate is None or any(
                 elicit.agree(candidate, normalize_subject(item.get("name", name)))
                 for name, item in memory._attribute_vocabulary().items()):
+            # §11.175: an ask naming nothing new settles the kind for this source.
+            ledger.record(source, f"property:{kind}", False)
             continue
         result["proposed"].append(candidate)
         members = sorted(frontier.cluster(memory, attribute))
@@ -418,11 +430,17 @@ def growth_targets(memory, stash) -> list[targets.Target]:
 class _ProbeLedger:
     """Defer probe ledger writes until the round's approver has run."""
 
-    def __init__(self):
+    def __init__(self, ledger):
+        self.ledger = ledger
         self.rows = []
 
     def record(self, source, question_id, promoted):
         self.rows.append((source, question_id))
+
+    def asked(self, source) -> set[str]:
+        """The real ledger's asks of the source, and this round's deferred ones."""
+        return set(self.ledger.asked(source)) | {
+            question_id for row_source, question_id in self.rows if row_source == source}
 
 
 def pending(memory, stash, teacher, ledger, source, lexicon=None) -> list:
@@ -457,7 +475,7 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
              if lexicon is None else
              frontier.pending(memory, stash, teacher, ledger, source, lexicon=lexicon))
     growth = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
-    probe_ledger = _ProbeLedger()
+    probe_ledger = _ProbeLedger(ledger)
     before = len(stash.entries())
     if not items:
         # §11.174: as with pending, without a lexicon the call is today's.
@@ -506,6 +524,8 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
         regenerated += seeds.dictionary_targets(memory, stash, lexicon)
     exhausted = sources.used_up(
         ledger, source, [elicit.question_id(t) for t in regenerated])
+    # §11.175: a kind is settled by its verdict, or for this source by its ask,
+    # judged on the real ledger after the round's writes.
     kinds = [item["kind"] for item in memory._attribute_vocabulary().values()
              if item.get("kind")]
     return {"asked": len(items) + growth["asked"] + checks["asked"],
@@ -515,4 +535,4 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
             "proposed": growth["proposed"], "adopted": growth["adopted"],
             "refused": growth["refused"],
             "used_up": bool(exhausted and all(
-                _has_property_verdict(memory, kind) for kind in kinds))}
+                frontier.kind_settled(memory, ledger, source, kind) for kind in kinds))}

@@ -722,12 +722,10 @@
    "seconds": 171.2
   },
   "seeds_gate": {
-   "verdict": "FAIL",
-   "line": "FAIL: ['3 asks them']",
-   "commit": "11.174",
-   "seconds": 437.1,
-   "class": "open",
-   "cause": "11.174 gives capital a dictionary kind in seeds_gate's world; the recorded teacher names no property for it, no verdict is stored, and the used-up judgement (a verdict for every learned kind) never passes: the property question is re-asked every round. Fixed in 11.175."
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 4 of 4 plants caught",
+   "commit": "11.175",
+   "seconds": 378.4
   },
   "semantic_gate": {
    "verdict": "PASS",
@@ -740,6 +738,12 @@
    "line": "PASS: 5 cases; 3 of 3 plants caught",
    "commit": "11.166",
    "seconds": 322.6
+  },
+  "settled_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 2 of 2 plants caught",
+   "commit": "11.175",
+   "seconds": 688.5
   },
   "shape_gate": {
    "verdict": "VOID",
