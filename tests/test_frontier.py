@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ultraquant.distill import elicit, file, frontier, sources, targets
+from ultraquant.distill import elicit, file, frontier, seeds, sources, targets
 from ultraquant.distill.teachers import TeacherSpec
 from ultraquant.interpreter.stash import ContemporaryStash
 from ultraquant.memory.factshards import FactShards
@@ -135,12 +135,12 @@ class MemoryFrontierTests(unittest.TestCase):
                 attribute=candidate, subject=member)] = ["12.5" if index < decided else "UNKNOWN"] * 5
         return question, members
 
-    def propose(self, ledger=None, run_id="proposal"):
+    def propose(self, ledger=None, run_id="proposal", **kwargs):
         if ledger is None:
             ledger = sources.SourceLedger(self.home / "ledger.json")
         return frontier.propose(
             self.memory, self.stash, self.teacher, ledger, "source", confidence=0.99,
-            run_id=run_id, records_path=self.home / f"{run_id}.jsonl")
+            run_id=run_id, records_path=self.home / f"{run_id}.jsonl", **kwargs)
 
     def test_cluster_normalizes_attributes_and_keeps_recorded_subjects(self):
         self.memory.remember_fact("one", "1", subject="The Íron", attribute="Atomic Number")
@@ -739,6 +739,73 @@ class MemoryFrontierTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "incomplete sample matrix"):
                     frontier.kind_of(self.memory, "atomic number", self.teacher)
                 learn.assert_not_called()
+
+    def test_kind_falls_back_to_the_dictionary_through_the_module(self):
+        # §11.174: the teachers share no kind, so a given lexicon names it.
+        for number in range(1, 4):
+            self.fact(number)
+        questions = self.kind_reply(rows=[["person"] * 5, ["book"] * 5, ["novel"] * 5])
+        lexicon = mock.sentinel.lexicon
+        with mock.patch.object(seeds, "dictionary_kind", return_value="named kind") as named:
+            self.assertEqual(frontier.kind_of(
+                self.memory, " ATOMIC NUMBER ", self.teacher, lexicon=lexicon), "named kind")
+            self.assertEqual(frontier.kind_of(
+                self.memory, "atomic number", self.teacher, lexicon=lexicon), "named kind")
+        named.assert_called_once_with(lexicon, {"Member 1", "Member 2", "Member 3"})
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+        self.memory.save()
+        reopened = self.open_memory()
+        self.assertEqual(frontier.kind_of(reopened, "atomic number", self.teacher), "named kind")
+        if self.sharded:
+            self.assertEqual(reopened.shards.vault.get("index:attributes")
+                             ["attributes"]["atomic number"]["kind"], "named kind")
+        self.assertEqual(len(self.teacher.calls), 1)
+
+    def test_stored_none_kind_asks_the_dictionary_only_when_given_one(self):
+        for number in range(1, 4):
+            self.fact(number)
+        self.memory.learn_kind("atomic number", None)
+        lexicon = mock.sentinel.lexicon
+        with mock.patch.object(seeds, "dictionary_kind", return_value=None) as named:
+            self.assertIsNone(frontier.kind_of(self.memory, "atomic number", self.teacher))
+            named.assert_not_called()
+            self.assertIsNone(frontier.kind_of(
+                self.memory, "atomic number", self.teacher, lexicon=lexicon))
+        named.assert_called_once_with(lexicon, {"Member 1", "Member 2", "Member 3"})
+        self.assertIsNone(self.memory._attribute_vocabulary()["atomic number"]["kind"])
+        with mock.patch.object(seeds, "dictionary_kind", return_value="named kind"):
+            self.assertEqual(frontier.kind_of(
+                self.memory, "atomic number", self.teacher, lexicon=lexicon), "named kind")
+        self.assertEqual(self.memory._attribute_vocabulary()["atomic number"]["kind"],
+                         "named kind")
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_propose_passes_its_lexicon_to_kind_of_through_the_module(self):
+        self.fact(1)
+        self.fact(1, "chemical symbol", "M1")
+        lexicon = mock.sentinel.lexicon
+        with mock.patch.object(frontier, "kind_of", return_value=None) as kinds:
+            self.assertEqual(self.propose()["asked"], 0)
+            self.assertEqual(self.propose(lexicon=lexicon)["asked"], 0)
+        self.assertEqual([(call.args[1], call.kwargs) for call in kinds.call_args_list], [
+            ("atomic number", {"lexicon": None}), ("chemical symbol", {"lexicon": None}),
+            ("atomic number", {"lexicon": lexicon}), ("chemical symbol", {"lexicon": lexicon})])
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_propose_asks_the_property_of_a_kind_only_the_dictionary_names(self):
+        question, _ = self.property_world(kind="named kind", decided=5)
+        self.memory.learn_kind("atomic number", None)
+        self.assertEqual(self.propose()["asked"], 0)
+        with mock.patch.object(seeds, "dictionary_kind", return_value="named kind") as named:
+            result = self.propose(lexicon=mock.sentinel.lexicon)
+        named.assert_called_once_with(
+            mock.sentinel.lexicon, {f"Member {number}" for number in range(1, 9)})
+        self.assertEqual(result, {"proposed": ["atomic mass"], "adopted": ["atomic mass"],
+                                  "refused": [], "asked": 6})
+        self.assertEqual(self.teacher.calls[0][0], [question])
+        vocabulary = self.memory._attribute_vocabulary()
+        self.assertEqual(vocabulary["atomic number"]["kind"], "named kind")
+        self.assertEqual(vocabulary["atomic mass"]["kind"], "named kind")
 
     def test_reverse_questions_use_only_seed_kind_and_question_category(self):
         for number in (1, 2, 3, 4, 6):

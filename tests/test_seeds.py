@@ -6,6 +6,7 @@ WordNet release: senses, and synset records carrying the inverse links
 """
 
 from copy import deepcopy
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -214,6 +215,77 @@ class SenseTests(unittest.TestCase):
         self.assertTrue(seeds.is_alias(" COPERNICIUM. ", held))
         self.assertFalse(seeds.is_alias("113", held))
         self.assertFalse(seeds.is_alias("112", set()))
+
+
+class DictionaryKindTests(unittest.TestCase):
+    """§11.174: the nearest ancestor half the subjects reach names their kind."""
+
+    def setUp(self):
+        self.lexicon = FakeLexicon()
+
+    def kind(self, subjects, lexicon=None):
+        return seeds.dictionary_kind(lexicon or self.lexicon, subjects)
+
+    def test_half_the_subjects_must_reach_the_kind(self):
+        # Two of four is half: the Commonwealth, one link from Nigeria and Jamaica.
+        self.assertEqual(self.kind(["Nigeria", "Jamaica", "zinc", "Persuasion"]),
+                         "Commonwealth country")
+        # Two of five is not, and nothing else is shared.
+        self.assertIsNone(self.kind(["Nigeria", "Jamaica", "zinc", "Persuasion",
+                                     "Sherlock Holmes"]))
+        # Subjects are counted, not senses: Quebec reaches the root twice.
+        self.assertIsNone(self.kind(["Quebec", "zinc", "Persuasion", "Sherlock Holmes"]))
+        self.assertEqual(self.kind(["Quebec", "Lagos", "zinc", "Persuasion"]), "city")
+
+    def test_the_smallest_mean_level_wins_over_more_subjects(self):
+        # Provinces are one link from two subjects; the root is reached by all
+        # four, at 2.25 links on average.
+        self.assertEqual(self.kind(["Ontario", "Alberta", "Lagos", "Nigeria"]), "province")
+        # Two subjects reach "country" at two links; all four reach the root, at 2.5.
+        self.assertEqual(self.kind(["Jamaica", "Ivory Coast", "Lagos", "Ontario"]), "country")
+        # Gold is two links below the metals and the rest one (iron by its
+        # metal sense); the metals' first member names them.
+        self.assertEqual(self.kind(["iron", "copper", "zinc", "gold"]), "metallic element")
+
+    def test_ties_go_to_more_subjects_then_to_the_smaller_synset_id(self):
+        # Both one link away: three Commonwealth countries beat two African ones.
+        self.assertEqual(self.kind(["Nigeria", "Kenya", "Jamaica"]), "Commonwealth country")
+        self.assertEqual(self.kind(["Nigeria", "Kenya", "Ivory Coast"]), "African country")
+        # Same level, same subjects: the smaller id, whichever link comes first.
+        self.assertEqual(self.kind(["Nigeria", "Kenya"]), "African country")
+        tied = FakeLexicon({
+            "b_kind.n": synset(["later kind"]), "a_kind.n": synset(["earlier kind"]),
+            "one.n": synset(["one"], instance_of=["b_kind.n", "a_kind.n"]),
+            "two.n": synset(["two"], instance_of=["b_kind.n", "a_kind.n"])})
+        self.assertEqual(self.kind(["one", "two"], tied), "earlier kind")
+
+    def test_each_subject_reaches_an_ancestor_at_its_nearest_sense(self):
+        lexicon = FakeLexicon({
+            "group.n": synset(["group"]),
+            "middle.n": synset(["middle"], kind=["group.n"]),
+            "far.n": synset(["dual"], instance_of=["middle.n"]),
+            "near.n": synset(["dual"], instance_of=["group.n"]),
+            "both.n": synset(["both"], instance_of=["middle.n", "group.n"]),
+            "one.n": synset(["one"], instance_of=["group.n"])})
+        # "dual" is two links below the group by its first sense and one by its
+        # second; "both" is one link below it however else it climbs. At one
+        # link from all three, the group ties the middle and has more subjects.
+        self.assertEqual(self.kind(["dual", "both", "one"], lexicon), "group")
+        self.assertEqual(self.kind(["dual", "both"], lexicon), "group")
+        self.assertEqual(self.kind(["both"], lexicon), "group")
+
+    def test_no_kind_without_subjects_or_an_ancestor_half_of_them_share(self):
+        for subjects in ([], set(), ["Atlantis", "Lemuria"], ["smooth", "press"],
+                         ["location", "substance"],
+                         ["Nigeria", "Kenya", "Persuasion", "zinc", "Sherlock Holmes"]):
+            with self.subTest(subjects=subjects):
+                self.assertIsNone(self.kind(subjects))
+
+    def test_senses_are_read_through_the_module(self):
+        with mock.patch.object(seeds, "noun_senses", return_value=["zinc.n"]) as senses:
+            self.assertEqual(self.kind(["Atlantis", "Lemuria"]), "metallic element")
+        self.assertEqual(senses.call_args_list, [mock.call(self.lexicon, "Atlantis"),
+                                                 mock.call(self.lexicon, "Lemuria")])
 
 
 class LibraryCase(unittest.TestCase):
@@ -467,6 +539,180 @@ class FrontierLexiconTests(LibraryCase):
         self.assertEqual(self.study("lexicon", lexicon=self.lexicon), today)
         self.assertEqual(self.ledger.history("source"), rows)
         self.assertEqual([qs for qs, _ in self.teacher.calls], [[question]] * 3)
+
+    # §11.174: the dictionary names a kind the teachers could not.
+
+    #: African countries all, and Commonwealth ones two of them: the nearest
+    #: kind half of them share is the African country.
+    AFRICA = {"Nigeria": "Abuja", "Kenya": "Nairobi", "Ivory Coast": "Yamoussoukro",
+              "The Gambia": "Banjul"}
+
+    def kind_replies(self, *rows):
+        """The teacher's replies to the kind question for kind_of's three capitals."""
+        members = random.Random(158).sample(sorted(frontier.cluster(self.memory, "capital")), 3)
+        questions = [frontier._seed_questions()["kind"].format(a=member) for member in members]
+        self.teacher.replies.update(zip(questions, rows))
+        return questions
+
+    def kind(self, **kwargs):
+        return frontier.kind_of(self.memory, "capital", self.teacher, **kwargs)
+
+    def stored(self):
+        return self.memory._attribute_vocabulary()["capital"]
+
+    def test_a_stored_kind_is_returned_without_asking_anyone(self):
+        self.hold("capital", self.AFRICA)
+        self.memory.learn_kind("capital", "nation")
+        with mock.patch.object(seeds, "dictionary_kind",
+                               side_effect=AssertionError("The dictionary was asked")), \
+                mock.patch.object(frontier, "_seed_questions",
+                                  side_effect=AssertionError("The teacher was asked")):
+            self.assertEqual(self.kind(lexicon=self.lexicon), "nation")
+            self.assertEqual(self.kind(), "nation")
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_an_absent_kind_is_asked_of_the_teacher_first(self):
+        self.hold("capital", self.AFRICA)
+        questions = self.kind_replies(["country"] * 5, ["Country."] * 5, ["country"] * 5)
+        with mock.patch.object(seeds, "dictionary_kind",
+                               side_effect=AssertionError("The teacher named the kind")):
+            self.assertEqual(self.kind(lexicon=self.lexicon), "country")
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+        self.assertEqual(self.stored()["kind"], "country")
+
+    def test_the_teachers_none_is_stored_then_the_dictionary_names_the_kind(self):
+        self.hold("capital", self.AFRICA)
+        questions = self.kind_replies(["country"] * 5, ["nation"] * 5, ["state"] * 5)
+        with mock.patch.object(seeds, "dictionary_kind", wraps=seeds.dictionary_kind) as named, \
+                mock.patch.object(self.memory, "learn_kind", wraps=self.memory.learn_kind) as learn:
+            self.assertEqual(self.kind(lexicon=self.lexicon), "African country")
+        named.assert_called_once_with(self.lexicon, set(self.AFRICA))
+        self.assertEqual(learn.call_args_list, [mock.call("capital", None),
+                                                mock.call("capital", "African country")])
+        self.assertEqual(self.stored()["kind"], "African country")
+        # Learned, the kind is reused: nobody is asked again, lexicon or not.
+        with mock.patch.object(seeds, "dictionary_kind",
+                               side_effect=AssertionError("The dictionary was asked again")):
+            self.assertEqual(self.kind(lexicon=self.lexicon), "African country")
+            self.assertEqual(self.kind(), "African country")
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+
+    def test_a_stored_none_is_named_by_the_dictionary_without_a_teacher(self):
+        self.hold("capital", self.AFRICA)
+        self.memory.learn_kind("capital", None)
+        with mock.patch.object(frontier, "_seed_questions",
+                               side_effect=AssertionError("The teacher was asked")), \
+                mock.patch.object(seeds, "dictionary_kind", wraps=seeds.dictionary_kind) as named:
+            self.assertEqual(self.kind(lexicon=self.lexicon), "African country")
+        named.assert_called_once_with(self.lexicon, set(self.AFRICA))
+        self.assertEqual(self.stored()["kind"], "African country")
+        self.assertEqual(self.teacher.calls, [])
+
+    def test_without_a_lexicon_none_stays_none(self):
+        self.hold("capital", self.AFRICA)
+        questions = self.kind_replies(["country"] * 5, ["nation"] * 5, ["state"] * 5)
+        with mock.patch.object(seeds, "dictionary_kind",
+                               side_effect=AssertionError("No lexicon was given")):
+            # The teacher's None, then the stored None.
+            for extra in ({}, {"lexicon": None}):
+                self.assertIsNone(self.kind(**extra))
+                self.assertIsNone(self.stored()["kind"])
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+
+    def test_a_dictionary_naming_no_kind_leaves_the_stored_none(self):
+        self.hold("capital", {"Atlantis": "Poseidonis", "Lemuria": "Unknown", "Mu": "Unknown"})
+        questions = self.kind_replies(["island"] * 5, ["continent"] * 5, ["myth"] * 5)
+        with mock.patch.object(self.memory, "learn_kind", wraps=self.memory.learn_kind) as learn:
+            # The teacher's None, then the stored None: the dictionary names neither.
+            self.assertIsNone(self.kind(lexicon=self.lexicon))
+            self.assertIsNone(self.kind(lexicon=self.lexicon))
+        learn.assert_called_once_with("capital", None)
+        self.assertIsNone(self.stored()["kind"])
+        self.assertEqual([qs for qs, _ in self.teacher.calls], [questions])
+
+    def test_the_dictionary_waits_for_a_none_the_teacher_path_stored(self):
+        # Fewer than three subjects, or no kind question: no teacher is asked,
+        # nothing is stored, and so the dictionary is not asked either.
+        self.hold("capital", {"Nigeria": "Abuja", "Kenya": "Nairobi"})
+        with mock.patch.object(seeds, "dictionary_kind",
+                               side_effect=AssertionError("The dictionary was asked")):
+            self.assertIsNone(self.kind(lexicon=self.lexicon))
+            self.hold("capital", {"Ivory Coast": "Yamoussoukro"})
+            with mock.patch.object(frontier, "_seed_questions", return_value={}):
+                self.assertIsNone(self.kind(lexicon=self.lexicon))
+        self.assertNotIn("kind", self.stored())
+        self.assertEqual(self.teacher.calls, [])
+
+    def growth_world(self):
+        """Five capitals the teachers named no kind for, and their populations."""
+        self.hold("capital", {**self.AFRICA, "Ghana": "Accra"})
+        self.memory.learn_kind("capital", None)
+        question = frontier._seed_questions()["property"].format(kind="African country")
+        self.teacher.replies[question] = ["population"] * 5
+        for subject in (*self.AFRICA, "Ghana"):
+            self.teacher.replies[f"What is the population of {subject}?"] = ["1000"] * 5
+        return question
+
+    def propose(self, **kwargs):
+        return frontier.propose(
+            self.memory, self.stash, self.teacher, self.ledger, "source", confidence=0.99,
+            run_id="grow", records_path=self.home / "grow.jsonl", **kwargs)
+
+    def test_propose_asks_the_property_of_the_kind_the_dictionary_names(self):
+        question = self.growth_world()
+        # Without the dictionary there is no kind, so nothing to ask.
+        for extra in ({}, {"lexicon": None}):
+            self.assertEqual(self.propose(**extra), {
+                "proposed": [], "adopted": [], "refused": [], "asked": 0})
+        self.assertEqual(self.teacher.calls, [])
+        with mock.patch.object(frontier, "kind_of", wraps=frontier.kind_of) as kinds:
+            result = self.propose(lexicon=self.lexicon)
+        self.assertEqual([(call.args[1], call.kwargs) for call in kinds.call_args_list],
+                         [("capital", {"lexicon": self.lexicon})])
+        self.assertEqual(result, {"proposed": ["population"], "adopted": ["population"],
+                                  "refused": [], "asked": 6})
+        self.assertEqual(self.teacher.calls[0][0], [question])
+        self.assertEqual(len(self.teacher.calls), 2)
+        vocabulary = self.memory._attribute_vocabulary()
+        self.assertEqual(vocabulary["capital"]["kind"], "African country")
+        self.assertEqual(vocabulary["capital"]["properties"], {"population": "adopted"})
+        self.assertEqual(vocabulary["population"]["kind"], "African country")
+
+    def test_study_passes_its_lexicon_to_propose_and_omits_it_without_one(self):
+        real = frontier.propose
+
+        def todays(memory, stash, teacher, ledger, source, *, confidence, run_id,
+                   records_path):
+            # Today's signature: a seam without the keyword still fits.
+            return real(memory, stash, teacher, ledger, source, confidence=confidence,
+                        run_id=run_id, records_path=records_path)
+
+        with mock.patch.object(frontier, "pending", return_value=[]):
+            with mock.patch.object(frontier, "propose", side_effect=todays) as plain:
+                self.study("omitted")
+                self.study("none", lexicon=None)
+            with mock.patch.object(frontier, "propose", wraps=real) as given:
+                self.study("given", lexicon=self.lexicon)
+        self.assertEqual([call.kwargs for call in plain.call_args_list], [
+            {"confidence": 0.99, "run_id": run_id, "records_path": self.home / f"{run_id}.jsonl"}
+            for run_id in ("omitted", "none")])
+        given.assert_called_once()
+        self.assertEqual(given.call_args.args[:3], (self.memory, self.stash, self.teacher))
+        self.assertEqual(given.call_args.args[4], "source")
+        self.assertEqual(given.call_args.kwargs, {
+            "confidence": 0.99, "run_id": "given", "records_path": self.home / "given.jsonl",
+            "lexicon": self.lexicon})
+
+    def test_study_grows_a_property_of_a_kind_only_the_dictionary_names(self):
+        question = self.growth_world()
+        plain = self.study("plain")
+        self.assertEqual((plain["asked"], plain["proposed"]), (0, []))
+        self.assertEqual(self.teacher.calls, [])
+        grown = self.study("grown", lexicon=self.lexicon)
+        self.assertEqual((grown["asked"], grown["proposed"], grown["adopted"], grown["filed"]),
+                         (6, ["population"], ["population"], 5))
+        self.assertEqual(self.teacher.calls[0][0], [question])
+        self.assertEqual(self.memory.held_value("Ghana", "population"), "1000")
 
 
 class ShardedDictionaryTargetTests(DictionaryTargetTests):

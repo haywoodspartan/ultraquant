@@ -247,6 +247,12 @@
    "commit": "11.167",
    "seconds": 681.0
   },
+  "dictkind_gate": {
+   "verdict": "PASS",
+   "line": "PASS: 4 cases; 2 of 2 plants caught",
+   "commit": "11.174",
+   "seconds": 334.9
+  },
   "disconfirm_gate": {
    "verdict": "PASS",
    "line": "PASS - contests land at 1.000 against the mush arm's 0.278 (+0.722, 3.33x seed sd), nothing deleted, strays inert, and confirmations untouched",
@@ -716,10 +722,12 @@
    "seconds": 171.2
   },
   "seeds_gate": {
-   "verdict": "PASS",
-   "line": "PASS: 4 cases; 4 of 4 plants caught",
-   "commit": "11.170",
-   "seconds": 340.2
+   "verdict": "FAIL",
+   "line": "FAIL: ['3 asks them']",
+   "commit": "11.174",
+   "seconds": 437.1,
+   "class": "open",
+   "cause": "11.174 gives capital a dictionary kind in seeds_gate's world; the recorded teacher names no property for it, no verdict is stored, and the used-up judgement (a verdict for every learned kind) never passes: the property question is re-asked every round. Fixed in 11.175."
   },
   "semantic_gate": {
    "verdict": "PASS",

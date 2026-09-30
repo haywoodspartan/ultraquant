@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.174](#11174-the-dictionary-names-a-kind-the-teachers-could-not-failed-as-frozen) | The dictionary names a kind the teachers could not (failed as frozen) |
 | [11.173](#11173-the-session-folder-stays-put-while-the-gui-works) | The session folder stays put while the GUI works |
 | [11.172](#11172-everything-that-holds-the-session-follows-the-rebuild) | Everything that holds the session follows the rebuild |
 | [11.171](#11171-study-sessions-come-home-through-the-gui) | Study sessions come home through the GUI |
@@ -861,6 +862,72 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.174 The dictionary names a kind the teachers could not (failed as frozen)
+
+**Why:** "We need it to ask its own questions."
+- **How growth works.** The frontier grows new properties per kind (§11.161):
+  "Name one measurable property that every {kind} has.", probed on five
+  members.
+- **Where the kind comes from.** The teachers name it, as a label three
+  sampled subjects share.
+- **Where that fails.** On the user's library `capital` holds 283 subjects:
+  countries, "the US state of X", provinces and historical regions. No
+  sampled three shared a label, so its kind was stored as None, and none of
+  those subjects ever grew a property.
+- **Nothing left to ask.** After §11.170's live session the frontier was
+  used up: a new session would ask nothing.
+
+**Measured first.** The dictionary's most specific concept reached by at
+least half of an attribute's subjects is:
+- "country" for the user's capitals (186 of 283);
+- nothing for the authors (the novels are false friends);
+- "administrative district" in the pinned exam world;
+- "metallic element" for the elements, which is narrower than the teachers'
+  "element". So the dictionary is only a fallback.
+
+**The change** (pre-registration sha256 35324eef..., frozen before any
+code). A Claude subagent implemented it, because Codex is paused. Claude
+wrote the exam and held it outside the repository.
+- **`seeds.dictionary_kind`** returns the most specific ancestor reached by
+  at least half of the subjects' noun senses: smallest mean level, then more
+  subjects, then the synset id.
+- **`frontier.kind_of` falls back to it** only when the stored kind or the
+  teachers' answer is None, and a lexicon is given. A kind the teachers
+  agree on stands.
+- **`propose`** passes the lexicon to `kind_of`, and **`study_round`**
+  passes its lexicon to `propose`.
+
+**FAILED as frozen, on criterion 6.** Its own exam PASSED on the first run (4 of 4 cases, 2 of 2 plants), but the sweep found a regression.
+- **The kind the teachers could not name.** In the pinned world, with a
+  scripted first source whose kind answers for capital subjects shared no
+  label:
+  - capital learned the dictionary's kind, "administrative district" (the
+    exam's own reading gave the same);
+  - the frontier asked "Name one measurable property that every
+    administrative district has.", and adopted "area";
+  - growth then asked 223, 120 and 50 questions in the next rounds, before
+    the source was used up.
+- **The teachers' kind stands.** Atomic number's kind stayed the teachers'
+  "element", and "melting point" was adopted.
+- **None stays none.** Author, which no kind covers, stored None and grew no
+  property.
+- **No lexicon, no change.** Without a lexicon, capital's kind stayed None,
+  no property question named the dictionary's kind, and the elements were as
+  before.
+- **The plants:** P132 (kind_of ignoring the lexicon) breached 1; P133 (the
+  most general ancestor) breached 1.
+- **On the user's library** the dictionary names "country" for the 283
+  capital subjects (186 reach it, at mean level 1.77) and nothing for the
+  authors. The next session will ask what every country has.
+- **Nothing regresses.** A sweep of all 132 gates FAILED criterion 6. seeds_gate (§11.170) went from PASS to FAIL on its criterion 3:
+  - In its world the dictionary now gives capital a kind, "administrative district".
+  - The recorded teacher answers that kind's property question UNKNOWN, so no property verdict is ever stored.
+  - The used-up judgement requires one for every learned kind. From round 5 on, every round re-asked the same property question, and the source was never used up (12 rounds).
+  - The defect is older than this unit. A kind whose property no teacher can name is asked again every round, bounded only by max_rounds. This unit makes such kinds likely. §11.175 takes it up.
+  - The rest matches the ledger, except the timing gate vram_gate (FAIL to PASS). kind_gate stays VOID, as recorded.
+
+Suite: 2910 tests, OK (5 skipped).
 
 ### 11.173 The session folder stays put while the GUI works
 

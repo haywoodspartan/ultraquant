@@ -14,6 +14,9 @@ Words have senses, so each step is guarded against reading the wrong one:
 * **Aliases.** A leaf is asked about only when the dictionary spells the
   attribute's value into its members ("atomic number 30" for zinc), and never
   when a held subject already has that value: "ununbium" is copernicium.
+
+The same walk names a kind the teachers could not (§11.174): the ancestor half
+the subjects reach, nearest on average.
 """
 
 from collections import Counter, defaultdict, deque
@@ -50,6 +53,22 @@ def _ancestors(lexicon, synset_id) -> list[str]:
     return found
 
 
+def _levels(lexicon, synset_id) -> dict[str, int]:
+    """The level of each ancestor on _ancestors' walk; direct parents are 1."""
+    seen, levels = {synset_id}, {}
+    queue = deque([(synset_id, 0)])
+    while queue:
+        current, level = queue.popleft()
+        record = lexicon.synset(current) or {}
+        for parent in (*record.get("instance_hypernym", ()),
+                       *record.get("hypernym", ())):
+            if parent not in seen:
+                seen.add(parent)
+                levels[parent] = level + 1
+                queue.append((parent, level + 1))
+    return levels
+
+
 def coherent(lexicon, subjects) -> bool:
     """Whether one ancestor of their noun senses is reached by half the subjects."""
     # Lexicon.kinds climbs every part of speech; only nouns name kinds here.
@@ -62,6 +81,32 @@ def coherent(lexicon, subjects) -> bool:
     if not subjects or not reached:
         return False
     return 2 * max(map(len, reached.values())) >= len(subjects)
+
+
+def dictionary_kind(lexicon, subjects) -> str | None:
+    """Name the kind the teachers could not: the nearest shared ancestor (§11.174).
+
+    A subject reaches an ancestor at the smallest level any of its noun senses
+    does. Of the ancestors half the subjects reach, the smallest mean level
+    wins, then more subjects, then the smaller synset id; its first member
+    names the kind.
+    """
+    subjects = list(subjects)
+    reached = defaultdict(dict)
+    for subject in subjects:
+        for sense in seeds.noun_senses(lexicon, subject):
+            for ancestor, level in _levels(lexicon, sense).items():
+                levels = reached[ancestor]
+                levels[subject] = min(level, levels.get(subject, level))
+    shared = [ancestor for ancestor, levels in reached.items()
+              if 2 * len(levels) >= len(subjects)]
+    if not subjects or not shared:
+        return None
+    kind = min(shared, key=lambda ancestor: (
+        sum(reached[ancestor].values()) / len(reached[ancestor]),
+        -len(reached[ancestor]), ancestor))
+    members = _members(lexicon, kind)
+    return members[0] if members else None
 
 
 def core_kinds(lexicon, subjects) -> dict[str, int]:

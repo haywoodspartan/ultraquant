@@ -87,21 +87,41 @@ class ReverseTarget:
     value: str
 
 
-def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
-    """Reuse a learned kind, or choose a label shared by three subjects."""
-    normalized = normalize_subject(attribute)
-    item = memory._attribute_vocabulary().get(normalized, {})
-    if "kind" in item:
-        return item["kind"]
-    form = _seed_questions().get("kind")
-    if not form:
-        return None
+def _kind_subjects(memory, normalized) -> set[str]:
+    """Recorded subject spellings of the normalized attribute, as kind_of asks."""
     subjects = set()
     for key in memory.fact_keys():
         record = memory.recall_fact(key) or {}
         if (normalize_subject(record.get("attribute") or "") == normalized
                 and record.get("subject")):
             subjects.add(record["subject"])
+    return subjects
+
+
+def _dictionary_kind(memory, attribute, lexicon, subjects) -> str | None:
+    """Learn the dictionary's kind, or leave the stored None in place."""
+    name = seeds.dictionary_kind(lexicon, subjects)
+    if name is not None:
+        memory.learn_kind(attribute, name)
+    return name
+
+
+def kind_of(memory, attribute, teacher, *, seed=158, lexicon=None) -> str | None:
+    """Reuse a learned kind, or choose a label shared by three subjects.
+
+    §11.174: where the teachers named none, a given lexicon names the kind.
+    """
+    normalized = normalize_subject(attribute)
+    item = memory._attribute_vocabulary().get(normalized, {})
+    if "kind" in item:
+        if item["kind"] is None and lexicon is not None:
+            return _dictionary_kind(memory, attribute, lexicon,
+                                    _kind_subjects(memory, normalized))
+        return item["kind"]
+    form = _seed_questions().get("kind")
+    if not form:
+        return None
+    subjects = _kind_subjects(memory, normalized)
     if len(subjects) < 3:
         return None
     members = random.Random(seed).sample(sorted(subjects), 3)
@@ -123,6 +143,8 @@ def kind_of(memory, attribute, teacher, *, seed=158) -> str | None:
              if elicit.agree(answer, candidate)),
         -counts[candidate], candidate), default=None)
     memory.learn_kind(attribute, kind)
+    if kind is None and lexicon is not None:
+        return _dictionary_kind(memory, attribute, lexicon, subjects)
     return kind
 
 
@@ -322,7 +344,7 @@ class _CountingTeacher:
 
 
 def propose(memory, stash, teacher, ledger, source, *, confidence, run_id,
-            records_path) -> dict:
+            records_path, lexicon=None) -> dict:
     """Probe new properties once per kind and retain only answerable ones."""
     result = {"proposed": [], "adopted": [], "refused": [], "asked": 0}
     form = _seed_questions().get("property")
@@ -334,7 +356,7 @@ def propose(memory, stash, teacher, ledger, source, *, confidence, run_id,
     asked_kinds = []
     kind_teacher = _CountingTeacher(teacher)
     for attribute in attributes:
-        kind = frontier.kind_of(memory, attribute, kind_teacher)
+        kind = frontier.kind_of(memory, attribute, kind_teacher, lexicon=lexicon)
         if (kind is None or _has_property_verdict(memory, kind)
                 or any(elicit.agree(kind, previous) for previous in asked_kinds)):
             continue
@@ -438,9 +460,11 @@ def study_round(memory, stash, teacher, ledger, source, *, confidence, run_id,
     probe_ledger = _ProbeLedger()
     before = len(stash.entries())
     if not items:
+        # §11.174: as with pending, without a lexicon the call is today's.
+        extra = {} if lexicon is None else {"lexicon": lexicon}
         growth = frontier.propose(
             memory, stash, teacher, probe_ledger, source, confidence=confidence,
-            run_id=run_id, records_path=records_path)
+            run_id=run_id, records_path=records_path, **extra)
     probe_filed = len(stash.entries()) - before
     forward = [t for t in items if not isinstance(t, ReverseTarget)]
     reverse = [t for t in items if isinstance(t, ReverseTarget)]
