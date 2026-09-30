@@ -1894,6 +1894,9 @@ class UltraQuantGUI:
         also holds memory, the stash and the archive, so the session moves as a
         whole rather than leaving its knowledge behind.
         """
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         library = Path(self.library_root.get().strip() or (self.home / "vault"))
         home = library.parent if library.name == "vault" else library
         self.home = home
@@ -2542,6 +2545,9 @@ class UltraQuantGUI:
 
     def _choose_home(self) -> None:
         """Switch to a different session folder."""
+        if self.busy:
+            self._notify("Busy - wait for the current task to finish.")
+            return
         path = filedialog.askdirectory(title="Choose session folder")
         if not path:
             return

@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.173](#11173-the-session-folder-stays-put-while-the-gui-works) | The session folder stays put while the GUI works |
 | [11.172](#11172-everything-that-holds-the-session-follows-the-rebuild) | Everything that holds the session follows the rebuild |
 | [11.171](#11171-study-sessions-come-home-through-the-gui) | Study sessions come home through the GUI |
 | [11.170](#11170-the-dictionary-tells-the-frontier-what-exists) | The dictionary tells the frontier what exists |
@@ -860,6 +861,44 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.173 The session folder stays put while the GUI works
+
+**Why:** §11.172's implementer reported a hazard before its exam ran.
+- **What the methods did.** "Open session here" (`_reopen_session`) and
+  "Change session folder..." (`_choose_home`) set `self.home` before
+  `_run_async` refuses a busy window.
+- **Why it mattered.** A take-in (§11.171) reads `self.home` again after its
+  merge. It could rebuild from the other folder and file the entry in the
+  other folder's inbox, leaving the merged library behind a session of
+  another home.
+- **A refused switch misled.** Even refused, it left the window naming a
+  folder it was not using.
+
+**The change** (pre-registration sha256 1df952ab..., frozen before any code).
+A Claude subagent implemented it, because Codex is paused. Claude wrote the
+exam and held it outside the repository.
+- Both methods start with `_run_async`'s busy guard, before any change or
+  dialog.
+
+**PASSED** on the first run: 3 of 3 cases, 2 of 2 plants.
+- **No switch while busy.** While a GUI job ran, "Open session here" (the
+  library field naming another folder's vault) and "Change session folder"
+  (a dialog answering another folder) left the home and the session as they
+  were. The dialog never opened.
+- **The switch still works when idle.** After "done", the same "Open session
+  here" moved the window to the other folder and started a session there.
+- **A take-in files where it merged.** With both switches attempted during a
+  take-in, the entry was filed under the original home's `inbox/applied/`.
+  Nothing strayed into the other folder, the home stayed the original, and
+  the session held the staged facts.
+- **The plants:** P130 (`_reopen_session` unguarded) breached 1; P131
+  (`_choose_home` unguarded) breached 1.
+- **Nothing regresses.** A sweep of all 131 gates matches the ledger, except
+  the timing gates recallskip_gate and vram_gate (FAIL to PASS, as they have
+  moved in earlier sweeps) and the new home_gate (PASS).
+
+Suite: 2876 tests, OK (5 skipped).
 
 ### 11.172 Everything that holds the session follows the rebuild
 
