@@ -176,13 +176,14 @@ class DispatchExperience:
         """Persist, when a path was given."""
         if self.path is None:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"records": self.records, "verdicts": self.verdicts,
-                        "version": FEATURES_VERSION},
-                       sort_keys=True),
-            encoding="utf-8",
-        )
+        from ultraquant import atomic
+
+        # §11.176: replaced whole, so an interrupted save keeps the last
+        # complete experience file instead of a truncated one.
+        atomic.write_json(self.path, {"records": self.records,
+                                      "verdicts": self.verdicts,
+                                      "version": FEATURES_VERSION},
+                          sort_keys=True)
 
 
 class _ClassicalPolicy:

@@ -76,16 +76,32 @@ Exports (same C ABI):
 
 - `int uqg_available(void)` — CUDA device count; 0 on any error (must never crash).
 - `int uqg_device_name(char* buf, int buflen)` — 0 on success.
-- `void uqg_feature_map_batch(const double* features, int n_samples, int n_features, int num_qubits, double* out)`
+- `int uqg_abi_version(void)` — 2. A DLL without this export speaks ABI 1, whose
+  compute exports returned `void` and could not say they failed; the loader refuses it
+  (§11.176).
+- `const char* uqg_status_string(int status)` — the text for a status below.
+- `int uqg_feature_map_batch(const double* features, int n_samples, int n_features, int num_qubits, double* out)`
   — one thread block per sample; the per-sample statevector (`2**num_qubits`
   complex doubles, num_qubits <= 10) lives in shared memory; threads in the block
   cooperate on gate application; H2D/D2H transfers inside the call.
-- `void uqg_run_circuit(double* amp_host, int num_qubits, const int* opcodes, const int* qubits, const double* params, int n_ops)`
+- `int uqg_run_circuit(double* amp_host, int num_qubits, const int* opcodes, const int* qubits, const double* params, int n_ops)`
   — single large statevector in global memory (grid-stride over amplitude pairs,
-  one kernel launch per gate is fine); supports num_qubits up to ~28.
-- `void uqg_expectations_z_from(const double* amp_host, int num_qubits, double* out)` —
+  one kernel launch per gate is fine); supports num_qubits up to ~28. Every operand
+  is checked before the device is touched.
+- `int uqg_expectations_z_from(const double* amp_host, int num_qubits, double* out)` —
   may be computed host-side after copy-back; exactness matters, speed does not.
-- `void uqg_ternary_forward_batch(const signed char* qw, double alpha, const double* bias, const double* xs, int n_samples, int in_dim, int out_dim, double* out)`
+- `int uqg_ternary_forward_batch(const signed char* qw, double alpha, const double* bias, const double* xs, int n_samples, int in_dim, int out_dim, double* out)`
+- `int uqg_layer_forward(int slot, const double* xs, int n_samples, double* out)`
+
+**Status codes (§11.176).** Every compute export returns an `int`: `0` on success; the
+`cudaError_t` value (positive) when CUDA failed, with the sticky error cleared; `-1` for
+a rejected argument; `-2` for a gate operand outside the register (or an unknown
+opcode); `-3` for a resident slot not in use. On any nonzero status the output buffer is
+left exactly as the caller passed it, and the Python wrapper raises `GPUError` instead
+of returning. `uqg_layer_upload` returns a slot or -1 as before; `uqg_layer_free`
+returns nothing. The loader (section 3) runs a one-qubit probe circuit at load and
+reports the tier absent, with the reason, when the probe fails - a DLL built for a
+newer architecture than the device is caught there instead of answering wrongly.
 
 Build check: `powershell -ExecutionPolicy Bypass -File native\build.ps1 -Target cuda`.
 (build.ps1 already pins `-ccbin` to MSVC 14.38 for nvcc.)

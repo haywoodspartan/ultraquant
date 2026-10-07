@@ -1073,7 +1073,13 @@ class ShardVault:
             )
 
         index, index_bytes = self._build_index(records)
-        with open(lib_path, "wb") as fh:
+        # §11.176: streamed into a temporary file beside the target and
+        # renamed over it. Compaction packs onto the library the shards
+        # already live in, and writing that file in place meant a crash
+        # after the index left every packed shard unrecoverable.
+        from ultraquant import atomic
+
+        with atomic.replacing(lib_path, "wb") as fh:
             fh.write(_MAGIC)
             fh.write(len(index_bytes).to_bytes(8, "big"))
             fh.write(index_bytes)

@@ -166,6 +166,38 @@ class CudaSimulatorBackend(_AcceleratedSimulatorBackend):
                 "(build with native\\build.ps1 -Target cuda)"
             )
         super().__init__(seed)
+        #: Why this backend stopped using the GPU; None while it still does.
+        self.fell_back: str | None = None
+        self._fallback: Backend | None = None
+
+    def run(self, circuit: Circuit, shots: int | None = None) -> BackendResult:
+        """Execute on the GPU, or on the tier below once the GPU has failed.
+
+        §11.176: the CUDA exports report a status, and a nonzero one reaches
+        this class as :class:`~ultraquant.native.accel.GPUError`. The first
+        failure retires the GPU for this backend - a launch failure is
+        sticky at the driver more often than not - and every later answer
+        comes from the native CPU tier, or the pure-Python simulator when
+        that is absent. The values are the same either way; what changes is
+        that a launch that never ran can no longer be read as ``<Z> = +1``
+        on every qubit.
+        """
+        if self._fallback is not None:
+            return self._fallback.run(circuit, shots)
+        try:
+            return super().run(circuit, shots)
+        except accel.GPUError as exc:
+            self.fell_back = str(exc)
+            self._fallback = self._tier_below()
+            return self._fallback.run(circuit, shots)
+
+    def _tier_below(self) -> Backend:
+        try:
+            return NativeSimulatorBackend(seed=self._base_seed)
+        except BackendUnavailable:
+            from ultraquant.quantum.backend import SimulatorBackend
+
+            return SimulatorBackend(self._base_seed)
 
     def _evolve(self, circuit: Circuit) -> array:
         return accel.run_circuit_gpu(circuit)

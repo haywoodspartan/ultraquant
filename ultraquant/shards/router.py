@@ -489,10 +489,12 @@ class CategoryRouter:
             self.path = Path(path)
         if self.path is None:
             raise ValueError("CategoryRouter.save() requires a path")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(self.state(), sort_keys=True, separators=(",", ":"))
-        with open(self.path, "w", encoding="utf-8") as fh:
-            fh.write(text)
+        # §11.176: replaced whole, never truncated in place - the router
+        # loads in its constructor, so a torn write stopped session start.
+        from ultraquant import atomic
+
+        atomic.write_json(self.path, self.state(), sort_keys=True,
+                          separators=(",", ":"))
 
     def load(self, path: str | os.PathLike | None = None) -> None:
         """Restore router state from ``router.json``.

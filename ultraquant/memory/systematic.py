@@ -800,9 +800,12 @@ class SystematicMemory:
             "next_id": self._next_id,
             "working_capacity": self.working_capacity,
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, sort_keys=True)
+        # §11.176: through a temporary file and a rename, so a save that dies
+        # mid-write leaves the previous store rather than a truncated one
+        # that stops the next session from opening at all.
+        from ultraquant import atomic
+
+        atomic.write_json(self.path, payload, sort_keys=True)
         if self.shards is not None:
             self.shards.flush()
 

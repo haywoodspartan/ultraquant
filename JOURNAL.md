@@ -26,6 +26,7 @@ which is not numeric — the index is sorted newest first, so use it.**
 
 | § | unit |
 |---|---|
+| [11.176](#11176-a-store-survives-the-crash-that-interrupts-it-and-the-gpu-says-when-it-fails) | A store survives the crash that interrupts it, and the GPU says when it fails |
 | [11.175](#11175-a-kind-no-source-can-grow-is-settled-for-that-source) | A kind no source can grow is settled for that source |
 | [11.174](#11174-the-dictionary-names-a-kind-the-teachers-could-not-failed-as-frozen) | The dictionary names a kind the teachers could not (failed as frozen) |
 | [11.173](#11173-the-session-folder-stays-put-while-the-gui-works) | The session folder stays put while the GUI works |
@@ -863,6 +864,102 @@ with the budget back at 10 of 12 per category. `command-r` stays recorded as
 used — re-running it would produce the same junk — so the voice queue is
 exhausted: four voices taught, one rolled back, largest last, exactly the
 sequence asked for.
+
+### 11.176 A store survives the crash that interrupts it, and the GPU says when it fails
+
+**Why:** the 2026-10-06 review of the whole codebase reproduced two defect
+families with experiments rather than argument.
+- **Stores written in place.** `SystematicMemory.save`, `CategoryRouter.save`,
+  the Ar(T)chive manifest and its snapshots, `ShardVault.pack` onto an existing
+  library, `DispatchExperience.save` and the distillation ledger all opened
+  their file with `"w"` or `"wb"`, which truncates first. A write interrupted
+  mid-file left a truncated store: `build_session` and `ArTchive(root)` then
+  raised JSONDecodeError and neither the GUI, the TUI nor the chat could start.
+  A crash after the index during the second compaction of a library left
+  every packed shard unrecoverable, the loose copies already pruned. The
+  settings file, the stash, the vault catalog and the approver journal had
+  each solved this on their own.
+- **CUDA exports that return void.** `uqg_run_circuit`,
+  `uqg_expectations_z_from`, `uqg_feature_map_batch`, `uqg_layer_forward` and
+  `uqg_ternary_forward_batch` could not say they failed: `uq_ok` cleared the
+  error and the buffer the Python wrapper had zeroed came back as the answer,
+  `<Z> = +1` on every qubit or an all-zero feature row. `uqg_available()`
+  counts devices only and the build targets one architecture (`-arch=sm_89`),
+  so a GPU the build cannot run on was selected and wrong on every call - the
+  "present and wrong" tier the native README forbids.
+
+**The change** (pre-registration sha256 025a4c43..., frozen before any code;
+exam d46f0020..., held outside the repository; implemented by Claude, as
+Codex is paused).
+- `ultraquant/atomic.py`: one writer - a temporary file in the same directory,
+  flush, fsync, `os.replace` - as `replacing`, `write_bytes`, `write_text` and
+  `write_json`, which serialises before touching disk. The six writers above
+  go through it; the bytes they write are unchanged.
+- `native/uq_cuda.cu` at ABI 2: the five compute exports return `int` - 0,
+  the `cudaError_t` (positive), -1 argument rejected, -2 gate operand outside
+  the register, -3 resident slot not in use - and leave the output buffer
+  untouched on any nonzero status. New exports `uqg_abi_version()` and
+  `uqg_status_string(int)`. Every operand is checked before the device is
+  touched; a bad gate used to be skipped silently.
+- `ultraquant/native/accel.py`: `GPUError`, raised by every wrapper on a
+  nonzero status. `load_gpu()` refuses an ABI 1 DLL with a rebuild hint and
+  runs a one-qubit probe circuit at load, so a DLL this GPU cannot execute is
+  reported absent with a reason (`gpu_unavailable_reason()`), never selected.
+  `layer_forward` rejects a batch whose width is not the slot's.
+- `CudaSimulatorBackend.run` answers through the native CPU tier, or the
+  pure-Python simulator, after the first `GPUError` and records why in
+  `fell_back`. `VramLayerCache.forward` returns None and releases the slot
+  when a forward fails, so the caller runs the tier below.
+- `ultraquant_cuda.dll` rebuilt from the new source (nvcc 12.6, MSVC 14.38).
+  SPEC-NATIVE.md section 2 carries the status contract.
+
+**Run 1: 19 of 20.** The one error was the exam's own: it named the cache's
+constructor keyword `accel_module` where the parameter is `accel`.
+**Amendment A** (post-run) corrected the keyword and nothing else (exam
+2b25b45c...). **Run 2: PASSED, 20 of 20**, the four hardware cases against
+the rebuilt DLL on the RTX 4090 included: ABI 2, a rejected argument and a
+gate outside the register each report and leave the buffer, and a Bell
+circuit reports 0 with the right amplitudes.
+- **The plants:** P136 (`SystematicMemory.save` in place again) breached
+  criterion 1; P137 (`run_ops_gpu` ignoring the status) breached criteria 5
+  and 6. Both reverted; run 3 green.
+- **Criterion 8:** tests/test_native_cuda.py, test_native_dispatch.py and
+  test_vram.py, 59 tests, pass against the rebuilt DLL.
+- The exam lives on as tests/test_atomic.py and tests/test_gpu_status.py.
+
+**Criterion 9: the sweep found the environment moved, not the code.** A sweep
+of the 133 gates outside the ledger's 20 environment skips, on the change:
+115 match the ledger, 18 differ. One is the timing gate recallskip_gate,
+FAIL -> PASS (+9.02 ms at 7.75 sd). The other seventeen are the §11.16x
+session-and-sources gates - alongside, andnames, dictkind, follow, home,
+inbox, own, ownquestions, review8, said, second, seeds, session, settled,
+third, values, weights - and all but andnames fail or VOID on one error: the recorded
+teacher answers (`distill_11155.jsonl`, `distill_11161.jsonl`; element
+questions) do not cover what a session now asks (capital questions: "not
+recorded: ['What is the capital of the US state of Oregon?', ...] (+22)").
+**Run at HEAD (94289a3) in a clean worktree with a copy of uq_home, every
+one re-run so far gives the identical verdict**: andnames FAIL, ownquestions
+FAIL, values FAIL, weights FAIL, said VOID, second VOID, third VOID, session
+VOID, review8 FAIL; dictkind, seeds and settled were still running when this
+was written. The flips are
+drift since 2026-09-30 in what those sessions read - the live library, the
+recordings, the LM Studio catalogue - and not this change, which touches
+nothing they measure. They are not re-registered here; what they need is a
+unit that re-records the teachers' answers for the questions a session asks
+today.
+- Three long gates (dictionary, settled, transfer) ran while a `git stash`
+  meant for the HEAD comparison half-reverted the tree under them; it failed
+  on the DLL the dictionary gate held. dictionary_gate PASSED in the sweep
+  (985 s) and transfer_gate kept its FAIL; settled_gate FAILED on "1
+  seeds_gate again", the same recordings; all three are being re-run on the
+  restored tree.
+- The sweep left nomic-embed loaded idle in the user's LM Studio with a 1 h
+  TTL: the GUI gates (follow, home, inbox) open a surface whose
+  `semantic_suggest` default asks LM Studio for embeddings, and alongside and
+  own run a live part through the real `lms`. None is in the ledger's skip
+  list.
+
+Suite: 2940 tests, OK (5 skipped).
 
 ### 11.175 A kind no source can grow is settled for that source
 

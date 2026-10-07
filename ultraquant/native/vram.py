@@ -20,6 +20,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any
 
+from ultraquant.native.accel import GPUError
+
 __all__ = ["VramLayerCache"]
 
 
@@ -46,6 +48,9 @@ class VramLayerCache:
         self.hits = 0
         self.misses = 0
         self.evictions = 0
+        #: §11.176: forwards the device refused, and the last reason.
+        self.failures = 0
+        self.last_error: str | None = None
 
     # ------------------------------------------------------------- plumbing
 
@@ -108,7 +113,29 @@ class VramLayerCache:
             if slot < 0:
                 return None
             self._slots[key] = (slot, nbytes, in_dim, out_dim)
-        return self.accel.layer_forward(slot, xs, in_dim, out_dim)
+        return self._forward_guarded(key, slot, xs, in_dim, out_dim)
+
+    def _forward_guarded(self, key: str, slot: int, xs, in_dim: int,
+                         out_dim: int) -> list | None:
+        """§11.176: a forward the device refuses yields to the tier below.
+
+        The export reports its status now, and a nonzero one arrives here
+        as :class:`GPUError`. The slot is released - the device state behind
+        it is suspect - and None sends the caller down a tier, which is
+        bit-identical. Before this, the failed launch's zeroed buffer was
+        returned as the layer's output.
+        """
+        try:
+            return self.accel.layer_forward(slot, xs, in_dim, out_dim)
+        except GPUError as exc:
+            self.failures += 1
+            self.last_error = str(exc)
+            self._slots.pop(key, None)
+            try:
+                self.accel.layer_free(slot)
+            except Exception:  # noqa: BLE001 - the slot may already be gone
+                pass
+            return None
 
     def forward_lazy(self, key: str, provider, xs) -> list | None:
         """Like :meth:`forward`, materialising weights only on a miss.
@@ -129,7 +156,7 @@ class VramLayerCache:
             self._slots.move_to_end(key)
             self.hits += 1
             slot, _nbytes, in_dim, out_dim = entry
-            return self.accel.layer_forward(slot, xs, in_dim, out_dim)
+            return self._forward_guarded(key, slot, xs, in_dim, out_dim)
         qw, alpha, bias = provider()
         return self.forward(key, qw, alpha, bias, xs)
 
