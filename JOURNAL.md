@@ -940,8 +940,8 @@ recorded: ['What is the capital of the US state of Oregon?', ...] (+22)").
 **Run at HEAD (94289a3) in a clean worktree with a copy of uq_home, every
 one re-run so far gives the identical verdict**: andnames FAIL, ownquestions
 FAIL, values FAIL, weights FAIL, said VOID, second VOID, third VOID, session
-VOID, review8 FAIL; dictkind, seeds and settled were still running when this
-was written. The flips are
+VOID, review8 FAIL, dictkind FAIL, seeds VOID; settled was still running
+when this was written. The flips are
 drift since 2026-09-30 in what those sessions read - the live library, the
 recordings, the LM Studio catalogue - and not this change, which touches
 nothing they measure. They are not re-registered here; what they need is a
@@ -951,8 +951,9 @@ today.
   meant for the HEAD comparison half-reverted the tree under them; it failed
   on the DLL the dictionary gate held. dictionary_gate PASSED in the sweep
   (985 s) and transfer_gate kept its FAIL; settled_gate FAILED on "1
-  seeds_gate again", the same recordings; all three are being re-run on the
-  restored tree.
+  seeds_gate again", the same recordings, and fails the same way re-run on
+  the restored tree; the dictionary and transfer re-runs were still running
+  when this was written.
 - The sweep left nomic-embed loaded idle in the user's LM Studio with a 1 h
   TTL: the GUI gates (follow, home, inbox) open a surface whose
   `semantic_suggest` default asks LM Studio for embeddings, and alongside and
