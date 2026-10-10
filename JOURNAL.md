@@ -952,8 +952,8 @@ today.
   on the DLL the dictionary gate held. dictionary_gate PASSED in the sweep
   (985 s) and transfer_gate kept its FAIL; settled_gate FAILED on "1
   seeds_gate again", the same recordings, and fails the same way re-run on
-  the restored tree; re-run there, dictionary_gate PASSED and transfer_gate kept its
-  unmeasured.
+  the restored tree; re-run there, dictionary_gate PASSED and transfer_gate's re-run left no verdict
+  line (its output is the ledger's FAIL in the sweep).
 - The sweep left nomic-embed loaded idle in the user's LM Studio with a 1 h
   TTL: the GUI gates (follow, home, inbox) open a surface whose
   `semantic_suggest` default asks LM Studio for embeddings, and alongside and
