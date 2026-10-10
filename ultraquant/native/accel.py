@@ -18,6 +18,15 @@ This module is the FFI boundary of the native acceleration tier
 Importing this module never imports the rest of the ultraquant package and
 never raises because a DLL is missing; the wrappers raise ``RuntimeError``
 only when called while their tier is unavailable.
+
+§11.176: the CUDA compute exports return a status. ``0`` is success; anything
+else is raised here as :class:`GPUError`, naming the export and the device's
+own text for the failure, so a launch that did not happen can never be read
+as the zeroed buffer it left behind (``<Z> = +1`` on every qubit, an all-zero
+feature row). ``load_gpu()`` refuses a DLL built before that ABI and runs a
+one-qubit probe circuit at load, so a DLL this GPU cannot execute - an older
+architecture than the build targeted, a sticky driver error - is reported
+absent with a reason (:func:`gpu_unavailable_reason`) instead of selected.
 """
 
 from __future__ import annotations
@@ -53,6 +62,9 @@ __all__ = [
     "kq_matvec_cpu",
     "kq_matvec_batch_cpu",
     "kq_dequant_cpu",
+    "GPU_ABI_VERSION",
+    "GPUError",
+    "gpu_unavailable_reason",
     "gpu_available",
     "gpu_device_name",
     "run_ops_gpu",
@@ -113,6 +125,21 @@ GPU_DLL_PATH: str = os.path.join(_BIN_DIR, _library_name("ultraquant_cuda"))
 _GPU_FEATURE_MAP_MAX_QUBITS = 10
 # Both run_circuit implementations guard num_qubits at 30.
 _MAX_QUBITS = 30
+
+#: §11.176: the CUDA ABI this loader speaks. An ABI 1 DLL returns void from
+#: its compute exports and cannot say it failed; the loader refuses it.
+GPU_ABI_VERSION = 2
+#: Why the GPU tier is absent, set by the last load attempt; None when it is up.
+_gpu_reason: str | None = None
+
+
+class GPUError(RuntimeError):
+    """A CUDA export reported a nonzero status.
+
+    Raised by every GPU wrapper instead of returning the buffer the failed
+    call left behind. The message names the export, the device's text for
+    the failure and the numeric status (``cudaError_t`` when positive).
+    """
 
 _UNSET = object()  # sentinel: "load not attempted yet" (None = attempted, failed)
 _cpu_dll: object = _UNSET
@@ -261,23 +288,30 @@ def _declare_gpu(dll: ctypes.CDLL) -> None:
     dll.uqg_device_name.argtypes = [ctypes.c_char_p, c_int]
     dll.uqg_device_name.restype = c_int
     dll.uqg_run_circuit.argtypes = [p_dbl, c_int, p_int, p_int, p_dbl, c_int]
-    dll.uqg_run_circuit.restype = None
+    dll.uqg_run_circuit.restype = c_int
     dll.uqg_expectations_z_from.argtypes = [p_dbl, c_int, p_dbl]
-    dll.uqg_expectations_z_from.restype = None
+    dll.uqg_expectations_z_from.restype = c_int
     dll.uqg_feature_map_batch.argtypes = [p_dbl, c_int, c_int, c_int, p_dbl]
-    dll.uqg_feature_map_batch.restype = None
+    dll.uqg_feature_map_batch.restype = c_int
     dll.uqg_ternary_forward_batch.argtypes = [
         p_i8, c_dbl, p_dbl, p_dbl, c_int, c_int, c_int, p_dbl,
     ]
-    dll.uqg_ternary_forward_batch.restype = None
+    dll.uqg_ternary_forward_batch.restype = c_int
     dll.uqg_layer_upload.argtypes = [p_i8, c_dbl, p_dbl, c_int, c_int]
     dll.uqg_layer_upload.restype = c_int
     dll.uqg_layer_forward.argtypes = [c_int, p_dbl, c_int, p_dbl]
-    dll.uqg_layer_forward.restype = None
+    dll.uqg_layer_forward.restype = c_int
     dll.uqg_layer_free.argtypes = [c_int]
     dll.uqg_layer_free.restype = None
     dll.uqg_layer_resident_bytes.argtypes = []
     dll.uqg_layer_resident_bytes.restype = ctypes.c_longlong
+    # ABI 2 exports; an ABI 1 DLL lacks them and _try_load_gpu refuses it.
+    if hasattr(dll, "uqg_abi_version"):
+        dll.uqg_abi_version.argtypes = []
+        dll.uqg_abi_version.restype = c_int
+    if hasattr(dll, "uqg_status_string"):
+        dll.uqg_status_string.argtypes = [c_int]
+        dll.uqg_status_string.restype = ctypes.c_char_p
 
 
 def _try_load_cpu() -> ctypes.CDLL | None:
@@ -294,15 +328,33 @@ def _try_load_cpu() -> ctypes.CDLL | None:
 
 
 def _try_load_gpu() -> ctypes.CDLL | None:
+    """Load, declare, check the ABI and probe one circuit; set ``_gpu_reason``."""
+    global _gpu_reason
+    _gpu_reason = None
     try:
         if not os.path.isfile(GPU_DLL_PATH):
+            _gpu_reason = f"{GPU_DLL_PATH} is not built"
             return None
         dll = ctypes.CDLL(GPU_DLL_PATH)
         _declare_gpu(dll)
         if dll.uqg_available() < 1:
+            _gpu_reason = "no CUDA device"
+            return None
+        abi = int(dll.uqg_abi_version()) if hasattr(dll, "uqg_abi_version") else 1
+        if abi < GPU_ABI_VERSION:
+            _gpu_reason = (
+                f"ultraquant_cuda.dll speaks ABI {abi}; this loader needs ABI "
+                f"{GPU_ABI_VERSION}, whose exports report failure - rebuild it "
+                "with native\\build.ps1 -Target cuda"
+            )
+            return None
+        problem = _probe_gpu(dll)
+        if problem is not None:
+            _gpu_reason = f"CUDA probe failed: {problem}"
             return None
         return dll
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - an absent tier is a normal state
+        _gpu_reason = f"could not load {GPU_DLL_PATH}: {exc}"
         return None
 
 
@@ -349,11 +401,58 @@ def _require_gpu() -> ctypes.CDLL:
     dll = load_gpu()
     if dll is None:
         raise RuntimeError(
-            "UltraQuant CUDA tier unavailable "
-            f"(cannot load {GPU_DLL_PATH!r} or no CUDA device; "
-            "build with native\\build.ps1 -Target cuda)"
+            "UltraQuant CUDA tier unavailable: "
+            f"{_gpu_reason or 'no CUDA device'} "
+            "(build with native\\build.ps1 -Target cuda)"
         )
     return dll
+
+
+def gpu_unavailable_reason() -> str | None:
+    """Why :func:`load_gpu` returned ``None``, or ``None`` while the tier is up."""
+    if load_gpu() is not None:
+        return None
+    return _gpu_reason
+
+
+def _status_text(dll, status: int) -> str:
+    """The device's own words for ``status``, through ``uqg_status_string``."""
+    try:
+        raw = dll.uqg_status_string(int(status))
+    except Exception:  # noqa: BLE001 - a DLL without the export still gets a message
+        return "unknown"
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    return str(raw)
+
+
+def _check_status(dll, export: str, status: int) -> None:
+    """Raise :class:`GPUError` for a nonzero status from ``export``."""
+    if status:
+        raise GPUError(f"{export} failed: {_status_text(dll, status)} "
+                       f"(status {int(status)})")
+
+
+def _probe_gpu(dll) -> str | None:
+    """Run H on one qubit through ``dll``; the reason it is unusable, or None.
+
+    A DLL built for a newer architecture than the device fails its first
+    launch with "no kernel image is available"; a sticky driver error fails
+    the first anything. Both used to be invisible, because the void exports
+    left the zeroed buffer behind and ``uqg_available()`` only counts
+    devices. The probe costs one tiny launch at load.
+    """
+    amp = _fresh_state(1)
+    opc, qub, par = _iarr([OPCODES["h"]]), _iarr([0, -1]), _darr([0.0])
+    status = int(dll.uqg_run_circuit(_c_dbl(amp), 1, _c_int(opc), _c_int(qub),
+                                     _c_dbl(par), 1))
+    if status != 0:
+        return f"{_status_text(dll, status)} (status {status})"
+    root_half = 2 ** -0.5
+    want = (root_half, 0.0, root_half, 0.0)
+    if any(abs(got - expected) > 1e-9 for got, expected in zip(amp, want)):
+        return f"H|0> came back as {list(amp)}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -724,13 +823,14 @@ def feature_map_slice_gpu(
     dll = _require_gpu()
     fbuf = (ctypes.c_double * len(flat)).from_buffer(flat)
     obuf = (ctypes.c_double * len(out)).from_buffer(out)
-    dll.uqg_feature_map_batch(
+    status = dll.uqg_feature_map_batch(
         _offset_dbl(fbuf, start, n_features),
         int(count),
         int(n_features),
         int(num_qubits),
         _offset_dbl(obuf, start, num_qubits),
     )
+    _check_status(dll, "uqg_feature_map_batch", status)
 
 
 def _prep_ternary(
@@ -824,10 +924,15 @@ def layer_upload(qw, alpha: float, bias, in_dim: int,
 def layer_forward(slot: int, xs, in_dim: int, out_dim: int):
     """Forward a batch through a resident layer; only activations move."""
     dll = _require_gpu()
-    flat, n_samples, _w = _flatten2d(xs, "d", "layer_forward xs")
+    flat, n_samples, width = _flatten2d(xs, "d", "layer_forward xs")
+    if n_samples and width != int(in_dim):
+        # The device trusts the slot's own in_dim; a narrower batch would be
+        # read past its end and a wider one silently truncated.
+        raise ValueError(f"layer_forward xs row length {width} != in_dim {in_dim}")
     out = array("d", bytes(8 * n_samples * out_dim))
-    dll.uqg_layer_forward(int(slot), _c_dbl(flat), int(n_samples),
-                          _c_dbl(out))
+    status = dll.uqg_layer_forward(int(slot), _c_dbl(flat), int(n_samples),
+                                   _c_dbl(out))
+    _check_status(dll, "uqg_layer_forward", status)
     return [list(out[i * out_dim:(i + 1) * out_dim])
             for i in range(n_samples)]
 
@@ -885,9 +990,10 @@ def run_ops_gpu(
     else:
         _check_amp(amp, num_qubits)
     if len(opc):
-        dll.uqg_run_circuit(
+        status = dll.uqg_run_circuit(
             _c_dbl(amp), num_qubits, _c_int(opc), _c_int(qub), _c_dbl(par), len(opc)
         )
+        _check_status(dll, "uqg_run_circuit", status)
     return amp
 
 
@@ -908,7 +1014,8 @@ def expectations_z_gpu(amp: array, num_qubits: int) -> list[float]:
     _check_amp(amp, num_qubits)
     dll = _require_gpu()
     out = array("d", bytes(8 * num_qubits))
-    dll.uqg_expectations_z_from(_c_dbl(amp), num_qubits, _c_dbl(out))
+    status = dll.uqg_expectations_z_from(_c_dbl(amp), num_qubits, _c_dbl(out))
+    _check_status(dll, "uqg_expectations_z_from", status)
     return list(out)
 
 
@@ -929,9 +1036,10 @@ def feature_map_batch_gpu(
     dll = _require_gpu()
     fbuf = flat if len(flat) else array("d", [0.0])
     out = array("d", bytes(8 * n_samples * num_qubits))
-    dll.uqg_feature_map_batch(
+    status = dll.uqg_feature_map_batch(
         _c_dbl(fbuf), n_samples, n_features, num_qubits, _c_dbl(out)
     )
+    _check_status(dll, "uqg_feature_map_batch", status)
     return _chunk(out, n_samples, num_qubits)
 
 
@@ -954,10 +1062,11 @@ def ternary_forward_batch_gpu(
         raise ValueError(f"xs row length {x_width} != in_dim {in_dim}")
     dll = _require_gpu()
     out = array("d", bytes(8 * n_samples * out_dim))
-    dll.uqg_ternary_forward_batch(
+    status = dll.uqg_ternary_forward_batch(
         _c_i8(qflat), float(alpha), _c_dbl(barr) if barr is not None else None,
         _c_dbl(xflat), n_samples, in_dim, out_dim, _c_dbl(out),
     )
+    _check_status(dll, "uqg_ternary_forward_batch", status)
     return _chunk(out, n_samples, out_dim)
 
 

@@ -52,17 +52,23 @@ def _load_gpu():
             return None
         dll.uqg_device_name.restype = ctypes.c_int
         dll.uqg_device_name.argtypes = [ctypes.c_char_p, ctypes.c_int]
-        dll.uqg_run_circuit.restype = None
+        # SS11.176: ABI 2. A DLL without this export is the void-returning
+        # build, and this battery skips rather than read garbage statuses.
+        dll.uqg_abi_version.restype = ctypes.c_int
+        dll.uqg_abi_version.argtypes = []
+        dll.uqg_status_string.restype = ctypes.c_char_p
+        dll.uqg_status_string.argtypes = [ctypes.c_int]
+        dll.uqg_run_circuit.restype = ctypes.c_int
         dll.uqg_run_circuit.argtypes = [
             _PD, ctypes.c_int, _PI, _PI, _PD, ctypes.c_int,
         ]
-        dll.uqg_expectations_z_from.restype = None
+        dll.uqg_expectations_z_from.restype = ctypes.c_int
         dll.uqg_expectations_z_from.argtypes = [_PD, ctypes.c_int, _PD]
-        dll.uqg_feature_map_batch.restype = None
+        dll.uqg_feature_map_batch.restype = ctypes.c_int
         dll.uqg_feature_map_batch.argtypes = [
             _PD, ctypes.c_int, ctypes.c_int, ctypes.c_int, _PD,
         ]
-        dll.uqg_ternary_forward_batch.restype = None
+        dll.uqg_ternary_forward_batch.restype = ctypes.c_int
         dll.uqg_ternary_forward_batch.argtypes = [
             _PB, ctypes.c_double, _PD, _PD,
             ctypes.c_int, ctypes.c_int, ctypes.c_int, _PD,
@@ -112,10 +118,11 @@ def _run_circuit_gpu(circuit):
     opcodes, qubits, params = _encode_ops(circuit.ops)
     amp = array("d", [0.0] * (2 * (1 << circuit.num_qubits)))
     amp[0] = 1.0
-    _GPU.uqg_run_circuit(
+    status = _GPU.uqg_run_circuit(
         _dbuf(amp), circuit.num_qubits,
         _ibuf(opcodes), _ibuf(qubits), _dbuf(params), len(opcodes),
     )
+    assert status == 0, "uqg_run_circuit status %d" % status
     return amp
 
 
@@ -128,7 +135,8 @@ def _probs_from_amp(amp, num_qubits):
 
 def _expectations_z_gpu(amp, num_qubits):
     out = array("d", [0.0] * num_qubits)
-    _GPU.uqg_expectations_z_from(_dbuf(amp), num_qubits, _dbuf(out))
+    status = _GPU.uqg_expectations_z_from(_dbuf(amp), num_qubits, _dbuf(out))
+    assert status == 0, "uqg_expectations_z_from status %d" % status
     return list(out)
 
 
@@ -137,10 +145,11 @@ def _feature_map_gpu(samples, num_qubits):
     n_features = len(samples[0]) if n_samples else 0
     flat = array("d", [f for row in samples for f in row])
     out = array("d", [0.0] * (n_samples * num_qubits))
-    _GPU.uqg_feature_map_batch(
+    status = _GPU.uqg_feature_map_batch(
         _dbuf(flat) if len(flat) else None,
         n_samples, n_features, num_qubits, _dbuf(out),
     )
+    assert status == 0, "uqg_feature_map_batch status %d" % status
     return [
         list(out[s * num_qubits:(s + 1) * num_qubits]) for s in range(n_samples)
     ]
@@ -154,10 +163,11 @@ def _ternary_gpu(qw_rows, alpha, bias, xs):
     bias_a = array("d", bias)
     xs_a = array("d", [v for row in xs for v in row])
     out = array("d", [0.0] * (n_samples * out_dim))
-    _GPU.uqg_ternary_forward_batch(
+    status = _GPU.uqg_ternary_forward_batch(
         _bbuf(qw), alpha, _dbuf(bias_a), _dbuf(xs_a),
         n_samples, in_dim, out_dim, _dbuf(out),
     )
+    assert status == 0, "uqg_ternary_forward_batch status %d" % status
     return [
         list(out[s * out_dim:(s + 1) * out_dim]) for s in range(n_samples)
     ]

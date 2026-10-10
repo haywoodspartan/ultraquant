@@ -282,12 +282,12 @@ def _catalogue_state(home: Path) -> dict:
 
 
 def _save_catalogue_state(home: Path, state: dict) -> None:
-    import json
+    from ultraquant import atomic
 
-    path = home / "vault" / "distilled.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True),
-                    encoding="utf-8")
+    # §11.176: a torn write here read back as an empty ledger, which forgot
+    # every teacher and re-taught past the measured ceiling.
+    atomic.write_json(home / "vault" / "distilled.json", state,
+                      indent=2, sort_keys=True)
 
 
 def train_next_voice(session, home: Path, holdout: float = 0.5,

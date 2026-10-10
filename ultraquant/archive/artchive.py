@@ -59,8 +59,12 @@ class ArTchive:
 
     def _write_manifest(self) -> None:
         """Persist the in-memory manifest to ``root/manifest.json``."""
-        with open(self.manifest_path, "w", encoding="utf-8") as f:
-            json.dump(self._manifest, f, indent=2, sort_keys=True)
+        # §11.176: the manifest is the archive's index. Written in place, a
+        # torn write made ArTchive(root) raise with every snapshot intact.
+        from ultraquant import atomic
+
+        atomic.write_json(self.manifest_path, self._manifest, indent=2,
+                          sort_keys=True)
 
     def _next_id(self) -> str:
         """Return the next sequential version id (``"T-0001"`` style)."""
@@ -103,8 +107,9 @@ class ArTchive:
         data = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         raw = data.encode("utf-8")
         snapshot_path = self.snapshots_dir / f"{version_id}.json"
-        with open(snapshot_path, "wb") as f:
-            f.write(raw)
+        from ultraquant import atomic
+
+        atomic.write_bytes(snapshot_path, raw)
         entry = {
             "id": version_id,
             "label": label,
